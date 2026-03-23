@@ -1,0 +1,11 @@
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+COPY exam-service/target/exam-service-1.0.0-SNAPSHOT.jar app.jar
+
+EXPOSE 8082
+
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

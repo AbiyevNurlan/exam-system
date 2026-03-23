@@ -1,0 +1,210 @@
+# =====================================================
+# API GATEWAY - PRODUCTION CONFIGURATION
+# Optimized for 100K concurrent users
+# =====================================================
+
+server:
+  port: 8080
+  netty:
+    connection-timeout: 5000
+    idle-timeout: 60000
+    h2c-max-content-length: 65536
+
+spring:
+  application:
+    name: api-gateway
+  main:
+    web-application-type: reactive
+  threads:
+    virtual:
+      enabled: true
+  
+  # ============== GATEWAY CONFIGURATION ==============
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 5000
+        response-timeout: 30s
+        pool:
+          type: elastic
+          max-idle-time: 30s
+          max-life-time: 60s
+          eviction-interval: 60s
+          max-connections: 10000
+          acquire-timeout: 30000
+      
+      # ============== CORS ==============
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns: "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - PATCH
+              - OPTIONS
+            allowedHeaders: "*"
+            exposedHeaders:
+              - Authorization
+              - X-Request-Id
+            allowCredentials: true
+            maxAge: 3600
+      
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        - name: RequestSize
+          args:
+            maxSize: 10MB
+        - name: Retry
+          args:
+            retries: 3
+            statuses: BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
+            methods: GET
+            backoff:
+              firstBackoff: 100ms
+              maxBackoff: 500ms
+              factor: 2
+      
+      # ============== ROUTES ==============
+      routes:
+        # AUTH SERVICE
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/auth/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 500
+                redis-rate-limiter.burstCapacity: 1000
+                redis-rate-limiter.requestedTokens: 1
+
+        # EXAM SERVICE
+        - id: exam-service
+          uri: lb://exam-service
+          predicates:
+            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/sessions/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: examCircuitBreaker
+                fallbackUri: forward:/fallback/exam
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1000
+                redis-rate-limiter.burstCapacity: 2000
+                redis-rate-limiter.requestedTokens: 1
+
+        # WEBSOCKET SERVICE
+        - id: websocket-service
+          uri: lb:ws://websocket-service
+          predicates:
+            - Path=/ws/**
+
+        # MONITORING SERVICE
+        - id: monitoring-service
+          uri: lb://monitoring-service
+          predicates:
+            - Path=/api/monitoring/**
+
+  # ============== REDIS ==============
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 3000ms
+      connect-timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 100
+          max-idle: 30
+          min-idle: 15
+          max-wait: 3000ms
+
+# ============== RESILIENCE4J CIRCUIT BREAKER ==============
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 100
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30000
+        permittedNumberOfCallsInHalfOpenState: 10
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        slowCallRateThreshold: 80
+        slowCallDurationThreshold: 5000
+        recordExceptions:
+          - java.net.ConnectException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+    instances:
+      authCircuitBreaker:
+        baseConfig: default
+      examCircuitBreaker:
+        baseConfig: default
+        slidingWindowSize: 200
+        failureRateThreshold: 40
+  
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 30s
+        cancelRunningFuture: true
+    instances:
+      authCircuitBreaker:
+        baseConfig: default
+        timeoutDuration: 10s
+      examCircuitBreaker:
+        baseConfig: default
+        timeoutDuration: 60s
+
+  bulkhead:
+    configs:
+      default:
+        maxConcurrentCalls: 500
+        maxWaitDuration: 100ms
+    instances:
+      authCircuitBreaker:
+        baseConfig: default
+        maxConcurrentCalls: 200
+      examCircuitBreaker:
+        baseConfig: default
+        maxConcurrentCalls: 1000
+
+# ============== ACTUATOR ==============
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,gateway
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+    gateway:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+
+# ============== LOGGING ==============
+logging:
+  level:
+    root: WARN
+    com.examportal: INFO
+    org.springframework.cloud.gateway: WARN
+    io.netty: WARN
+  pattern:
+    console: "%d{ISO8601} [%thread] %-5level %logger{36} - %msg%n"

@@ -1,0 +1,64 @@
+# =====================================================
+# PROMETHEUS CONFIGURATION - PRODUCTION
+# =====================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+scrape_configs:
+  # ============== API GATEWAYS ==============
+  - job_name: 'api-gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: 
+          - 'api-gateway-1:8080'
+          - 'api-gateway-2:8080'
+
+  # ============== AUTH SERVICES ==============
+  - job_name: 'auth-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: 
+          - 'auth-service-1:8081'
+          - 'auth-service-2:8081'
+
+  # ============== EXAM SERVICES ==============
+  - job_name: 'exam-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: 
+          - 'exam-service-1:8082'
+          - 'exam-service-2:8082'
+          - 'exam-service-3:8082'
+
+  # ============== WEBSOCKET SERVICE ==============
+  - job_name: 'websocket-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: 
+          - 'websocket-service:8084'
+
+  # ============== MONITORING SERVICE ==============
+  - job_name: 'monitoring-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: 
+          - 'monitoring-service:8083'
+
+  # ============== POSTGRESQL ==============
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: 
+          - 'postgres-primary:5432'
+
+  # ============== REDIS ==============
+  - job_name: 'redis'
+    static_configs:
+      - targets: 
+          - 'redis-master:6379'

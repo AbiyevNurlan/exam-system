@@ -1,0 +1,120 @@
+# =====================================================
+# EXAM SERVICE - PRODUCTION CONFIGURATION
+# Optimized for 100K concurrent users
+# =====================================================
+
+server:
+  port: 8082
+  netty:
+    connection-timeout: 5000
+    idle-timeout: 60000
+
+spring:
+  application:
+    name: exam-service
+  main:
+    web-application-type: reactive
+  threads:
+    virtual:
+      enabled: true
+  
+  # ============== R2DBC CONNECTION POOL ==============
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:exam_db}?sslMode=disable
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    pool:
+      enabled: true
+      initial-size: 30
+      max-size: 150
+      max-idle-time: 30m
+      max-create-connection-time: 30s
+      max-acquire-time: 30s
+      validation-query: SELECT 1
+      validation-depth: LOCAL
+  
+  # ============== REDIS CACHE ==============
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 3000ms
+      connect-timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 100
+          max-idle: 30
+          min-idle: 15
+          max-wait: 3000ms
+          time-between-eviction-runs: 60s
+  
+  # ============== CACHE SETTINGS ==============
+  cache:
+    type: redis
+    redis:
+      time-to-live: 600000  # 10 minutes
+      cache-null-values: false
+
+# ============== JWT SECURITY ==============
+security:
+  jwt:
+    secret-key: ${JWT_SECRET:production-jwt-secret-key-minimum-256-bits-secure}
+
+# ============== EXAM SETTINGS ==============
+exam:
+  settings:
+    max-questions-per-exam: 200
+    max-duration-minutes: 240
+    auto-submit-buffer-seconds: 30
+    result-cache-ttl-minutes: 60
+  cache:
+    exam-ttl: 30m
+    questions-ttl: 1h
+    session-ttl: 4h
+
+# ============== RATE LIMITING ==============
+rate-limit:
+  enabled: true
+  exam-start:
+    requests-per-second: 50
+    burst-capacity: 100
+  exam-submit:
+    requests-per-second: 100
+    burst-capacity: 200
+  questions-fetch:
+    requests-per-second: 200
+    burst-capacity: 500
+
+# ============== ACTUATOR & METRICS ==============
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms, 100ms, 200ms, 500ms
+
+# ============== LOGGING ==============
+logging:
+  level:
+    root: WARN
+    com.examportal: INFO
+    org.springframework.r2dbc: WARN
+    io.netty: WARN
+  pattern:
+    console: "%d{ISO8601} [%thread] %-5level %logger{36} - %msg%n"

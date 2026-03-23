@@ -1,0 +1,104 @@
+# =====================================================
+# AUTH SERVICE - PRODUCTION CONFIGURATION
+# Optimized for 100K concurrent users
+# =====================================================
+
+server:
+  port: 8081
+  netty:
+    connection-timeout: 5000
+    idle-timeout: 60000
+
+spring:
+  application:
+    name: auth-service
+  main:
+    web-application-type: reactive
+  threads:
+    virtual:
+      enabled: true
+  
+  # ============== R2DBC CONNECTION POOL ==============
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:exam_auth}?sslMode=disable
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    pool:
+      enabled: true
+      initial-size: 20
+      max-size: 100
+      max-idle-time: 30m
+      max-create-connection-time: 30s
+      max-acquire-time: 30s
+      validation-query: SELECT 1
+      validation-depth: LOCAL
+  
+  # ============== REDIS CONNECTION POOL ==============
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 3000ms
+      connect-timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 50
+          max-idle: 20
+          min-idle: 10
+          max-wait: 3000ms
+          time-between-eviction-runs: 60s
+
+# ============== JWT SECURITY ==============
+security:
+  jwt:
+    secret-key: ${JWT_SECRET:production-jwt-secret-key-minimum-256-bits-secure}
+    access-token-expiration: 900000      # 15 minutes
+    refresh-token-expiration: 604800000  # 7 days
+    issuer: exam-system-production
+
+# ============== RATE LIMITING ==============
+rate-limit:
+  enabled: true
+  login:
+    requests-per-second: 10
+    burst-capacity: 20
+  register:
+    requests-per-second: 5
+    burst-capacity: 10
+  token-refresh:
+    requests-per-second: 20
+    burst-capacity: 50
+
+# ============== ACTUATOR & METRICS ==============
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms, 100ms, 200ms, 500ms
+
+# ============== LOGGING ==============
+logging:
+  level:
+    root: WARN
+    com.examportal: INFO
+    org.springframework.r2dbc: WARN
+    io.netty: WARN
+  pattern:
+    console: "%d{ISO8601} [%thread] %-5level %logger{36} - %msg%n"

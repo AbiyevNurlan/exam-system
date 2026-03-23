@@ -1,0 +1,489 @@
+# =====================================================
+# EXAM PORTAL - PRODUCTION DOCKER COMPOSE
+# Optimized for 100,000 concurrent users
+# =====================================================
+
+services:
+  # ============== LOAD BALANCER ==============
+  nginx:
+    image: nginx:alpine
+    container_name: exam-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - exam-network
+    depends_on:
+      - api-gateway-1
+      - api-gateway-2
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+    restart: always
+
+  # ============== POSTGRESQL CLUSTER ==============
+  postgres-primary:
+    image: postgres:16-alpine
+    container_name: exam-postgres-primary
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      POSTGRES_MULTIPLE_DATABASES: exam_auth,exam_db,exam_monitoring
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    networks:
+      - exam-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d exam_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    restart: always
+
+  # ============== REDIS CLUSTER ==============
+  redis-master:
+    image: redis:7-alpine
+    container_name: exam-redis-master
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory 2gb
+      --maxmemory-policy allkeys-lru
+      --tcp-keepalive 300
+      --timeout 0
+      --tcp-backlog 511
+      --maxclients 10000
+      --save ""
+    volumes:
+      - redis_data:/data
+    networks:
+      - exam-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    restart: always
+
+  # ============== AUTH SERVICE (2 instances) ==============
+  auth-service-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.auth
+    container_name: exam-auth-service-1
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_HOST: postgres-primary
+      DB_PORT: 5432
+      DB_NAME: exam_auth
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -XX:+ZGenerational
+        -Xms512m
+        -Xmx2g
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=75.0
+        -Djava.security.egd=file:/dev/./urandom
+    networks:
+      - exam-network
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth-service-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.auth
+    container_name: exam-auth-service-2
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_HOST: postgres-primary
+      DB_PORT: 5432
+      DB_NAME: exam_auth
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -XX:+ZGenerational
+        -Xms512m
+        -Xmx2g
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=75.0
+        -Djava.security.egd=file:/dev/./urandom
+    networks:
+      - exam-network
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    restart: always
+
+  # ============== EXAM SERVICE (3 instances) ==============
+  exam-service-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.exam
+    container_name: exam-exam-service-1
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_HOST: postgres-primary
+      DB_PORT: 5432
+      DB_NAME: exam_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -XX:+ZGenerational
+        -Xms1g
+        -Xmx3g
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=75.0
+        -Djava.security.egd=file:/dev/./urandom
+    networks:
+      - exam-network
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    restart: always
+
+  exam-service-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.exam
+    container_name: exam-exam-service-2
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_HOST: postgres-primary
+      DB_PORT: 5432
+      DB_NAME: exam_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -XX:+ZGenerational
+        -Xms1g
+        -Xmx3g
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=75.0
+        -Djava.security.egd=file:/dev/./urandom
+    networks:
+      - exam-network
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    restart: always
+
+  exam-service-3:
+    build:
+      context: .
+      dockerfile: Dockerfile.exam
+    container_name: exam-exam-service-3
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_HOST: postgres-primary
+      DB_PORT: 5432
+      DB_NAME: exam_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -XX:+ZGenerational
+        -Xms1g
+        -Xmx3g
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=75.0
+        -Djava.security.egd=file:/dev/./urandom
+    networks:
+      - exam-network
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    restart: always
+
+  # ============== API GATEWAY (2 instances) ==============
+  api-gateway-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: exam-api-gateway-1
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      AUTH_SERVICE_URL: http://auth-service-1:8081,http://auth-service-2:8081
+      EXAM_SERVICE_URL: http://exam-service-1:8082,http://exam-service-2:8082,http://exam-service-3:8082
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -XX:+ZGenerational
+        -Xms512m
+        -Xmx2g
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=75.0
+        -Djava.security.egd=file:/dev/./urandom
+    networks:
+      - exam-network
+    depends_on:
+      - auth-service-1
+      - auth-service-2
+      - exam-service-1
+      - exam-service-2
+      - exam-service-3
+      - redis-master
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    restart: always
+
+  api-gateway-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: exam-api-gateway-2
+    ports:
+      - "8081:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      AUTH_SERVICE_URL: http://auth-service-1:8081,http://auth-service-2:8081
+      EXAM_SERVICE_URL: http://exam-service-1:8082,http://exam-service-2:8082,http://exam-service-3:8082
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -XX:+ZGenerational
+        -Xms512m
+        -Xmx2g
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=75.0
+        -Djava.security.egd=file:/dev/./urandom
+    networks:
+      - exam-network
+    depends_on:
+      - auth-service-1
+      - auth-service-2
+      - exam-service-1
+      - exam-service-2
+      - exam-service-3
+      - redis-master
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    restart: always
+
+  # ============== WEBSOCKET SERVICE ==============
+  websocket-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.websocket
+    container_name: exam-websocket-service
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -XX:+ZGenerational
+        -Xms256m
+        -Xmx1g
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=75.0
+    networks:
+      - exam-network
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    restart: always
+
+  # ============== MONITORING ==============
+  monitoring-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitoring
+    container_name: exam-monitoring-service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_HOST: postgres-primary
+      DB_PORT: 5432
+      DB_NAME: exam_monitoring
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      JAVA_OPTS: >-
+        -XX:+UseZGC
+        -Xms256m
+        -Xmx1g
+    networks:
+      - exam-network
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+    restart: always
+
+  # ============== PROMETHEUS ==============
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: exam-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus-production.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    networks:
+      - exam-network
+    restart: always
+
+  # ============== GRAFANA ==============
+  grafana:
+    image: grafana/grafana:latest
+    container_name: exam-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - exam-network
+    restart: always
+
+networks:
+  exam-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
