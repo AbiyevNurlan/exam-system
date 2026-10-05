@@ -7,7 +7,6 @@ import com.examportal.auth.repository.PasswordResetTokenRepository;
 import com.examportal.auth.repository.UserRepository;
 import com.examportal.common.domain.dto.auth.*;
 import com.examportal.common.domain.entity.PasswordResetToken;
-import com.examportal.common.domain.entity.RefreshToken;
 import com.examportal.common.domain.entity.User;
 import com.examportal.common.domain.entity.UserRole;
 import com.examportal.common.security.JwtTokenProvider;
