@@ -46,7 +46,7 @@ public class AnswerSubmissionService {
 
         return sessionRepository.findBySessionId(sessionId)
                 .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
-                .flatMap(session -> {
+                .<ExamSession>flatMap(session -> {
                     if (!session.getUserId().equals(userId)) {
                         return Mono.error(ExamException.notOwner());
                     }
