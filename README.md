@@ -213,10 +213,11 @@ exam-system/
 │   └── Dockerfile.websocket          # WebSocket Service image
 │
 ├── 🗄️ Database Scripts
-│   ├── schema-auth.sql               # Auth service schema
-│   ├── schema-exam.sql               # Exam service schema
-│   ├── schema-monitoring.sql         # Monitoring schema
-│   └── setup-databases.sql           # Database initialization
+│   └── init-scripts/                 # Run by Postgres on first start (alphabetical order)
+│       ├── 01-create-databases.sh    # Creates exam_auth, exam_db, exam_monitoring
+│       ├── 02-auth.sql               # Auth service schema (exam_auth)
+│       ├── 03-exam.sql               # Exam service schema (exam_db)
+│       └── 04-monitoring.sql         # Monitoring database (no tables yet)
 │
 ├── 📈 Monitoring Config
 │   ├── prometheus/prometheus.yml     # Prometheus scrape config
@@ -262,10 +263,8 @@ Run infrastructure in Docker, services locally:
 # Step 1: Start only infrastructure
 docker-compose up -d postgres redis prometheus grafana
 
-# Step 2: Initialize databases
-psql -h localhost -U postgres -f setup-databases.sql
-psql -h localhost -U postgres -d exam_system -f schema-auth.sql
-psql -h localhost -U postgres -d exam_system -f schema-exam.sql
+# Step 2: Databases and schemas are created automatically by init-scripts/ on the first
+# start of an empty Postgres volume. To re-run them: docker-compose down -v (deletes data)
 
 # Step 3: Build the whole project
 mvn clean install -DskipTests
