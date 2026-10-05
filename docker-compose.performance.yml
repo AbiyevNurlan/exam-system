@@ -19,7 +19,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d
-      - ./exam-service/src/main/resources/schema-optimized.sql:/docker-entrypoint-initdb.d/02-indexes.sql
+      - ./exam-service/src/main/resources/schema-optimized.sql:/docker-entrypoint-initdb.d/05-perf-indexes.sql
     command:
       - "postgres"
       - "-c" 

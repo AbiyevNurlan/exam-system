@@ -1,3 +1,6 @@
+-- Applied by docker-compose.performance.yml as 05-perf-indexes.sql (after 03-exam.sql)
+\connect exam_db
+
 -- Performance Optimization: Database Indexes
 -- Designed for 100,000 concurrent users
 -- Query optimization for high-load scenarios
