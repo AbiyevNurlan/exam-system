@@ -105,6 +105,10 @@ resilience4j:
       default:
         timeoutDuration: 5s
 
+security:
+  jwt:
+    secret-key: ${JWT_SECRET:}
+
 management:
   endpoints:
     web:

@@ -32,6 +32,10 @@ spring:
           min-idle: 2
           max-wait: 1000ms
 
+security:
+  jwt:
+    secret-key: ${JWT_SECRET:}
+
 monitoring:
   settings:
     metrics-retention-days: 30

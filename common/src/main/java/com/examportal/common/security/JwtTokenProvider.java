@@ -3,6 +3,7 @@ package com.examportal.common.security;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -20,7 +21,7 @@ import java.util.function.Function;
 @Component
 public class JwtTokenProvider {
 
-    @Value("${security.jwt.secret-key:your-256-bit-secret-key-here-must-be-at-least-32-characters-long}")
+    @Value("${security.jwt.secret-key:}")
     private String secretKey;
 
     @Value("${security.jwt.access-token-expiration:900000}")
@@ -32,8 +33,29 @@ public class JwtTokenProvider {
     @Value("${security.jwt.issuer:exam-system}")
     private String issuer;
 
+    @PostConstruct
+    void validateSecretKey() {
+        if (secretKey == null || secretKey.isBlank()) {
+            throw new IllegalStateException(
+                    "JWT_SECRET is not set. Provide a base64-encoded secret of at least 32 bytes "
+                            + "(e.g. generate one with: openssl rand -base64 32).");
+        }
+        byte[] keyBytes;
+        try {
+            keyBytes = Decoders.BASE64.decode(secretKey.trim());
+        } catch (RuntimeException e) {
+            throw new IllegalStateException(
+                    "JWT_SECRET is not valid base64 (" + e.getMessage() + "). Provide a base64-encoded "
+                            + "secret of at least 32 bytes (e.g. openssl rand -base64 32).", e);
+        }
+        if (keyBytes.length < 32) {
+            throw new IllegalStateException(
+                    "JWT_SECRET decodes to " + keyBytes.length + " bytes; at least 32 bytes are required.");
+        }
+    }
+
     private SecretKey getSigningKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
+        byte[] keyBytes = Decoders.BASE64.decode(secretKey.trim());
         return Keys.hmacShaKeyFor(keyBytes);
     }
 

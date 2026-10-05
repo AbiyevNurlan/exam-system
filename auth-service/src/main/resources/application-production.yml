@@ -52,7 +52,7 @@ spring:
 # ============== JWT SECURITY ==============
 security:
   jwt:
-    secret-key: ${JWT_SECRET:production-jwt-secret-key-minimum-256-bits-secure}
+    secret-key: ${JWT_SECRET:}
     access-token-expiration: 900000      # 15 minutes
     refresh-token-expiration: 604800000  # 7 days
     issuer: exam-system-production

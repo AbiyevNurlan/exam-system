@@ -42,7 +42,7 @@ spring:
 
 security:
   jwt:
-    secret-key: ${JWT_SECRET:your-256-bit-secret-key-here-must-be-at-least-32-characters-long}
+    secret-key: ${JWT_SECRET:}
 
 exam:
   settings:

@@ -109,7 +109,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -154,7 +154,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -195,7 +195,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -235,7 +235,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -275,7 +275,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET:-production-jwt-secret-key-minimum-256-bits-secure}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational

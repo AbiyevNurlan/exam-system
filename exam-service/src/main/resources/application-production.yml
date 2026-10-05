@@ -59,7 +59,7 @@ spring:
 # ============== JWT SECURITY ==============
 security:
   jwt:
-    secret-key: ${JWT_SECRET:production-jwt-secret-key-minimum-256-bits-secure}
+    secret-key: ${JWT_SECRET:}
 
 # ============== EXAM SETTINGS ==============
 exam:

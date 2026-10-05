@@ -297,7 +297,7 @@ start-all-services.bat
 | `DB_PASSWORD` | `postgres` | Database password |
 | `REDIS_HOST` | `localhost` | Redis host |
 | `REDIS_PORT` | `6379` | Redis port |
-| `JWT_SECRET` | *(see config)* | JWT signing secret (change in production!) |
+| `JWT_SECRET` | *(required, no default)* | Base64-encoded JWT signing secret, at least 32 bytes. For docker-compose copy `.env.example` to `.env` |
 | `JWT_ACCESS_EXPIRY` | `900` | Access token TTL (seconds) |
 | `JWT_REFRESH_EXPIRY` | `604800` | Refresh token TTL (seconds) |
 
