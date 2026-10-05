@@ -8,10 +8,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettucePoolingClientConfiguration;
-import org.springframework.data.redis.core.ReactiveRedisTemplate;
-import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
-import org.springframework.data.redis.serializer.RedisSerializationContext;
-import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 
 import java.time.Duration;
@@ -71,24 +67,4 @@ public class PerformanceConfig {
         return factory;
     }
 
-    /**
-     * Custom ReactiveRedisTemplate with optimized serialization
-     * Only enabled when spring.data.redis.enabled=true
-     */
-    @Bean
-    @ConditionalOnProperty(name = "spring.data.redis.enabled", havingValue = "true", matchIfMissing = false)
-    public ReactiveRedisTemplate<String, Object> reactiveRedisTemplate(
-            ReactiveRedisConnectionFactory connectionFactory) {
-        
-        Jackson2JsonRedisSerializer<Object> serializer = new Jackson2JsonRedisSerializer<>(Object.class);
-        
-        RedisSerializationContext<String, Object> context = RedisSerializationContext
-                .<String, Object>newSerializationContext(new StringRedisSerializer())
-                .value(serializer)
-                .hashValue(serializer)
-                .hashKey(new StringRedisSerializer())
-                .build();
-
-        return new ReactiveRedisTemplate<>(connectionFactory, context);
-    }
 }
