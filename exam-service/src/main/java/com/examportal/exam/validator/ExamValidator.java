@@ -4,7 +4,6 @@ import com.examportal.common.domain.dto.CreateExamRequest;
 import com.examportal.common.domain.dto.OptionDTO;
 import com.examportal.common.domain.dto.QuestionDTO;
 import com.examportal.common.domain.dto.UpdateExamRequest;
-import com.examportal.common.domain.entity.QuestionType;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.exam.exception.ExamException;
 import com.examportal.exam.repository.ExamRepository;
