@@ -139,6 +139,8 @@ services:
       DB_NAME: exam_monitoring
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     networks:
       - exam-network
     depends_on:
