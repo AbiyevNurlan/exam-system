@@ -88,7 +88,7 @@ public class ExamController {
         
         log.debug("Getting exam: {} for user: {}", id, principal.getId());
         
-        return examService.getExamById(id, principal.getId())
+        return examService.getExamById(id, principal.getId(), principal.getRole())
                 .map(ApiResponse::success);
     }
 

@@ -126,14 +126,25 @@ public class ExamService {
     /**
      * Get exam by ID with questions
      */
-    public Mono<ExamResponse> getExamById(Long examId, Long userId) {
+    public Mono<ExamResponse> getExamById(Long examId, Long userId, String role) {
         log.debug("Getting exam {} for user {}", examId, userId);
 
         return cacheService.getCachedExam(examId)
                 .switchIfEmpty(examRepository.findById(examId)
                         .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
                         .flatMap(this::loadExamWithQuestions)
-                        .flatMap(response -> cacheService.cacheExam(response).thenReturn(response)));
+                        .flatMap(response -> cacheService.cacheExam(response).thenReturn(response)))
+                .flatMap(full -> {
+                    // The answer key is only for ADMIN and the INSTRUCTOR who owns the exam
+                    boolean owner = "INSTRUCTOR".equals(role) && userId.equals(full.getCreatedBy());
+                    if ("ADMIN".equals(role) || owner) {
+                        return Mono.just(full);
+                    }
+                    if (full.getStatus() == ExamStatus.DRAFT) {
+                        return Mono.error(ExamException.notFound(examId));
+                    }
+                    return Mono.just(mapper.toParticipantView(full));
+                });
     }
 
     /**
@@ -393,11 +404,14 @@ public class ExamService {
                             .map(optionsMap -> {
                                 List<QuestionResponse> responses = questions.stream()
                                         .map(q -> {
-                                            List<OptionResponse> options = optionsMap.getOrDefault(q.getId(), List.of())
+                                            // Text questions keep their expected answer as an option: never send it
+                                            List<OptionResponse> options = mapper.isTextQuestion(q.getQuestionType())
+                                                    ? null
+                                                    : optionsMap.getOrDefault(q.getId(), List.of())
                                                     .stream()
                                                     .map(mapper::toParticipantResponse)
                                                     .collect(Collectors.toList());
-                                            
+
                                             // Shuffle options if configured
                                             if (Boolean.TRUE.equals(exam.getShuffleOptions())) {
                                                 options = mapper.shuffleList(options);

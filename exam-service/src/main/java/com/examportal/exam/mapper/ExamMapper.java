@@ -179,6 +179,74 @@ public class ExamMapper {
     }
 
     /**
+     * Copy of a full ExamResponse without the answer key (isCorrect, explanation, open-ended answers).
+     * The source is left untouched because it may be the cached instance.
+     */
+    public ExamResponse toParticipantView(ExamResponse full) {
+        List<QuestionResponse> questions = full.getQuestions() == null ? null : full.getQuestions().stream()
+                .map(q -> QuestionResponse.builder()
+                        .id(q.getId())
+                        .examId(q.getExamId())
+                        .questionText(q.getQuestionText())
+                        .questionType(q.getQuestionType())
+                        .points(q.getPoints())
+                        .orderIndex(q.getOrderIndex())
+                        .allowMultipleAnswers(q.getAllowMultipleAnswers())
+                        .isRequired(q.getIsRequired())
+                        .options(participantOptions(q.getQuestionType(), q.getOptions()))
+                        .build())
+                .toList();
+
+        return ExamResponse.builder()
+                .id(full.getId())
+                .title(full.getTitle())
+                .description(full.getDescription())
+                .durationMinutes(full.getDurationMinutes())
+                .startTime(full.getStartTime())
+                .endTime(full.getEndTime())
+                .status(full.getStatus())
+                .totalQuestions(full.getTotalQuestions())
+                .passingScore(full.getPassingScore())
+                .shuffleQuestions(full.getShuffleQuestions())
+                .shuffleOptions(full.getShuffleOptions())
+                .showResultsImmediately(full.getShowResultsImmediately())
+                .maxAttempts(full.getMaxAttempts())
+                .categoryId(full.getCategoryId())
+                .categoryName(full.getCategoryName())
+                .createdBy(full.getCreatedBy())
+                .creatorUsername(full.getCreatorUsername())
+                .createdAt(full.getCreatedAt())
+                .updatedAt(full.getUpdatedAt())
+                .questions(questions)
+                .remainingAttempts(full.getRemainingAttempts())
+                .canStart(full.getCanStart())
+                .totalPoints(full.getTotalPoints())
+                .build();
+    }
+
+    /**
+     * Options a participant may see. For text questions the option text is the expected answer,
+     * so those options are not sent at all.
+     */
+    public List<OptionResponse> participantOptions(QuestionType type, List<OptionResponse> options) {
+        if (options == null || isTextQuestion(type)) {
+            return null;
+        }
+        return options.stream()
+                .map(o -> OptionResponse.builder()
+                        .id(o.getId())
+                        .questionId(o.getQuestionId())
+                        .optionText(o.getOptionText())
+                        .orderIndex(o.getOrderIndex())
+                        .build())
+                .toList();
+    }
+
+    public boolean isTextQuestion(QuestionType type) {
+        return type == QuestionType.FILL_BLANK || type == QuestionType.OPEN_ENDED;
+    }
+
+    /**
      * Map QuestionOption entity to OptionResponse
      */
     public OptionResponse toResponse(QuestionOption option) {
