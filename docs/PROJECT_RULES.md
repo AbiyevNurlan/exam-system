@@ -11,6 +11,9 @@ Never run any of these against a database that holds data:
 - `DROP DATABASE` on `exam_auth`, `exam_db` or `exam_monitoring`
 - an edit, rename or delete of a Flyway migration that has already been applied
 
+Uploaded media is data like the database: never remove the media volume (`exam-system_media_data`), never
+delete or empty the `exam-media` bucket by hand. `backup.ps1` and `restore-test.ps1` cover it.
+
 Schema changes are made only by adding a new migration (`V2__description.sql`, `V3__...`) under
 `<service>/src/main/resources/db/migration/`. Migrations must be additive and backward compatible:
 new columns are nullable or have a default, nothing that existing rows or the previous build depend
@@ -42,6 +45,14 @@ Details: README, section "Database safety".
   wrong attempts, resend cooldown, sends per hour; `auth.otp.*`) are enforced in SQL by `OtpService`.
 - **Endpoints that take an email without a session answer the same for every outcome**
   (`resend-otp`: always the same 200; `verify-otp`: always the same 400).
+- **Registering an email whose account is still unverified takes that account over**: password and
+  name are replaced, every older code is invalidated and the answer is the same 201 as a new
+  registration. Only a verified email is a 409. Failed logins never count against or lock an
+  unverified account (wrong password 401, right password 403 `EMAIL_NOT_VERIFIED`).
+- **Password reset is by emailed code** (`forgot-password`, then `reset-password` with
+  `{email, code, newPassword}`; OTP purpose `PASSWORD_RESET`, the same `OtpService` limits), for
+  verified accounts only. Success ends every session (all refresh tokens revoked) and clears the
+  lockout. `forgot-password` is always the same 200, `reset-password` always the same 400.
 - **Email leaves the system only through `EmailSender`** (plain SMTP, no provider API), never on a
   reactive thread, and a failed send never fails the request that caused it.
 - **`@Transactional` does not work at runtime in these services.** When several writes must be
@@ -69,6 +80,24 @@ Details: README, section "Database safety".
   it they answer 404). Users are resolved only through auth-service, never by reading its database.
 - **Group access through an email needs a verified email.** An unverified account never becomes a
   member by email; it stays a pending invite until `GroupInviteClient.applyForVerifiedUser` runs.
+- **Media files never pass through a service.** Uploads and downloads go directly between the
+  browser and the object storage with presigned URLs; the services handle metadata only, and the
+  256 KB request body limit stays. All storage access is in `MediaStorage`.
+- **An upload is usable only after `confirm`**, which trusts nothing the client said: the stored
+  object must have the declared size and its first bytes must be the declared type (magic bytes,
+  `MediaTypePolicy`). File names, extensions and declared content types are never trusted. A
+  mismatch deletes the object and the asset; it must never leave an ACTIVE asset.
+- **The media bucket is private and media leaves it only through signed URLs.** No public policy,
+  no proxying. Storage keys are random UUIDs and never appear in a response; presigned URLs and
+  storage keys are never logged and never cached.
+- **Participants get media URLs only through their session**
+  (`GET /api/exams/session/{sessionId}/media/{mediaId}`): own session, IN_PROGRESS and not expired,
+  media attached to that session's exam; everything else is a 404 or the usual session error. Exam
+  and question responses for participants carry media metadata and never a URL; `previewUrl` is
+  only for ADMIN and the INSTRUCTOR who owns the exam.
+- **Play limits are enforced on the server**, per session, in one atomic SQL statement
+  (`MediaLinkRepository.registerPlay`); every URL handed out counts as a play. Never count in the client.
+- **Alt text of media is shown to participants.** On an option image it must not reveal the answer.
 - **Full email addresses are never logged** and never written to audit details; use `LogMaskUtils`.
 - **Errors**: expected client errors are 4xx with a code and a generic message; responses never
   contain SQL, stack traces or other internals. 4xx are logged once at WARN, 5xx at ERROR.

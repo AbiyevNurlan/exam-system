@@ -305,6 +305,9 @@ start-all-services.bat
 | `MAIL_HOST` / `MAIL_PORT` | *(empty)* / `587` | SMTP server for outgoing email (verification and password reset codes). Required in production |
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | *(empty)* | SMTP credentials |
 | `MAIL_FROM` | *(empty)* | Sender address of every email; its domain needs SPF/DKIM at the provider |
+| `MEDIA_S3_ACCESS_KEY` / `MEDIA_S3_SECRET_KEY` | *(required by `docker-compose.yml`, no default)* | Credentials of the object storage that holds question media. Letters and digits only |
+| `MEDIA_S3_PUBLIC_ENDPOINT` | `http://localhost:8333` | The storage address as the **browser** reaches it; it is the host inside every presigned URL |
+| `MEDIA_CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Frontend origins that may upload/download directly at the storage (comma separated) |
 
 All of these are described in `.env.example`; copy it to `.env` (git-ignored) and replace every `CHANGE_ME`.
 
@@ -314,6 +317,30 @@ All of these are described in `.env.example`; copy it to `.env` (git-ignored) an
 email and delivers nothing. The development stack ignores `MAIL_*` and sends to it. Open
 <http://localhost:8025> to read the verification and password reset codes. Production
 (`docker-compose.production.yml`) has no Mailpit and needs the `MAIL_*` variables of a real SMTP provider.
+
+### Question media storage (SeaweedFS)
+
+Images, audio and video of questions and options live in S3-compatible object storage. In development
+`docker-compose.yml` starts [SeaweedFS](https://github.com/seaweedfs/seaweedfs) (`exam-media-storage`, S3 API
+on `127.0.0.1:8333` only, volume `exam-system_media_data`). Files never pass through a service:
+
+1. The admin panel asks `POST /api/media/upload-url` and gets a presigned URL.
+2. The browser PUTs the file **directly to the storage** with exactly the returned headers.
+3. `POST /api/media/{id}/confirm` checks the stored file (size, magic bytes) and makes it usable.
+4. Participants get a 5-minute presigned GET URL per media, only inside their own running session.
+
+Two things must match the browser's point of view, otherwise uploads fail:
+
+- **`MEDIA_S3_PUBLIC_ENDPOINT`** is the host written into presigned URLs. The signature covers the host, so
+  it must be exactly the address the browser uses (in production: the public HTTPS address of the storage).
+  exam-service itself talks to the storage over the internal address (`MEDIA_S3_ENDPOINT`).
+- **`MEDIA_CORS_ORIGINS`** lists the frontend origins. exam-service writes them to the bucket as CORS rules
+  at every start (GET, HEAD, PUT); an origin that is not listed is refused by the storage.
+
+The bucket (`exam-media`) is private: exam-service creates it at startup and nothing sets a public policy;
+without a valid signature every request is a 403. Without the storage settings exam-service still starts
+and the media endpoints answer 503 `MEDIA_STORAGE_UNAVAILABLE`. `docker-compose.production.yml` has no
+storage service yet (see `docs/BACKLOG.md`).
 
 ### Virtual Threads (Java 21)
 
@@ -518,11 +545,13 @@ user_answers ──────────────────────�
 ## 🛡️ Database safety
 
 The databases hold real user accounts, exams and results. Treat the Postgres volume as irreplaceable.
+The same goes for the media volume (`exam-system_media_data`): it holds every uploaded question image,
+audio and video file.
 
 ### Never do this
 
 ```bash
-docker-compose down -v      # deletes the Postgres volume = deletes every user, exam and result
+docker-compose down -v      # deletes the Postgres AND media volumes = every user, exam, result and media file
 docker volume rm ...        # same
 ```
 
@@ -560,9 +589,14 @@ Applied versions: `docker exec exam-postgres psql -U postgres -d exam_db -c "SEL
 ### Backup and restore
 
 ```powershell
-.\scripts\backup.ps1          # pg_dump of exam_auth, exam_db, exam_monitoring into .\backups\<yyyyMMdd-HHmm>\ (keeps the last 14)
-.\scripts\restore-test.ps1    # restores the latest backup into temporary databases and compares row counts
+.\scripts\backup.ps1          # pg_dump of exam_auth, exam_db, exam_monitoring plus the media bucket into .\backups\<yyyyMMdd-HHmm>\ (keeps the last 14)
+.\scripts\restore-test.ps1    # restores the latest backup into temporary databases and a temporary bucket, compares row and object counts
 ```
+
+The media bucket is copied object by object through the S3 API (an `amazon/aws-cli` container) into the
+`media` subfolder; every object has its own line in `SHA256SUMS.txt`. A storage container that is not
+running fails the backup; `-SkipMedia` on both scripts skips media on purpose. To put media back, sync the
+folder into the bucket the same way (`aws s3 sync <backup>\media s3://exam-media --endpoint-url ...`).
 
 Run `backup.ps1` on a schedule (e.g. Windows Task Scheduler, daily) and before every deployment that adds
 a migration. Run `restore-test.ps1` regularly: a backup that was never restored is not a backup.

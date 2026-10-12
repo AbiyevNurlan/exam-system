@@ -49,6 +49,13 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] No endpoint to read `group_audit_log`
 - [ ] Exam responses carry `accessType` but not the audience group ids (those come only from `PUT /api/exams/{id}/audience`)
 - [ ] The member list shows no name or email when auth-service cannot be reached, or for an inactive account (the list itself still answers)
+- [x] Question and option media (IMAGE, AUDIO, VIDEO): direct upload with presigned URLs, magic-byte confirmation, media on questions (up to 3, optional `maxPlays`) and options (one image), session-bound download URLs with server-side play limits
+- [ ] A confirmed file can be replaced by its uploader through the same upload URL until that URL expires (10 minutes): the signature fixes size and content type, but the new content is not checked again. Fix: copy the object to a final key at confirmation
+- [ ] `media_assets.duration_seconds` is never filled (no probing of audio/video); the magic-byte check proves the container type, not that the file plays
+- [ ] An object whose removal fails stays in the bucket unreferenced (logged only), and DELETED asset rows are never purged
+- [ ] `GET /api/exams/my` signs a preview URL for every media of every listed exam
+- [ ] Every media URL handed out counts as a play, also when the player never starts; a participant who reloads the page uses up a play
+- [ ] Media stays reachable through an issued URL until it expires (5 minutes), also after the session was submitted
 - [ ] `/available` runs two session queries per listed exam (N+1, at most 50 exams per page)
 
 ## Auth
@@ -106,6 +113,11 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Concurrent Flyway migration by several instances (production starts 2 auth and 3 exam instances) is untested
 - [ ] README schema diagram is outdated (TEACHER role, `selected_option_id`, `started_at`)
 - [ ] `restore-test.ps1` compares row counts only, not content
+- [ ] exam-service uses the storage root credentials in development; it needs a dedicated access key limited to the media bucket
+- [ ] `docker-compose.production.yml` has no object storage and no `MEDIA_S3_*` settings: media endpoints answer 503 there
+- [ ] The development storage (SeaweedFS) is a single node without replication
+- [ ] `restore-test.ps1` compares the media object count and the backup checksums, not the restored content
+- [ ] Media backups are full copies on every run (no incremental copy); large video libraries will make `backup.ps1` slow and big
 - [ ] No CI pipeline
 
 ## Frontend
@@ -130,6 +142,11 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Exam create/update accept `accessType` and `groupIds` (GROUP without groups is 400 `AUDIENCE_GROUPS_REQUIRED`); instructors pick groups from `GET /api/groups` (`id`, `name`, `?name=&page=&size=`)
 - [ ] Group members carry `firstName`, `lastName` and a masked `email`; pending invites: `GET /api/admin/groups/{id}/invites`, cancel with `DELETE /api/admin/groups/{id}/invites/{inviteId}` (204)
 - [ ] `POST /api/exams/{id}/start` needs no body; 409 `EXAM_SCHEDULING_CONFLICT` no longer exists
+- [ ] Media upload (ADMIN, INSTRUCTOR): `POST /api/media/upload-url` `{kind, contentType, sizeBytes, altText}` -> `{mediaId, uploadUrl, method, headers, expiresIn}`; PUT the file to `uploadUrl` with exactly `headers` (direct to the storage, no Authorization header); then `POST /api/media/{id}/confirm`. Errors: 400 `MEDIA_TYPE_NOT_ALLOWED` / `MEDIA_TOO_LARGE` / `MEDIA_INVALID`, 409 `MEDIA_NOT_UPLOADED` / `MEDIA_PENDING_LIMIT`, 503 `MEDIA_STORAGE_UNAVAILABLE`
+- [ ] `GET /api/media/{id}/preview-url` -> `{url, kind, expiresIn}`; `DELETE /api/media/{id}` (409 `MEDIA_IN_USE` while a published exam uses it)
+- [ ] Exam create/update: question `media: [{mediaId, position, maxPlays}]` (max 3), option `mediaIds: [id]` (max 1, image); 400 `MEDIA_NOT_ATTACHABLE`. Responses carry `media: [{id, kind, altText, position, maxPlays, previewUrl}]` on questions and options; `previewUrl` only for owner and ADMIN and valid 5 minutes
+- [ ] Taking an exam: questions and options list their media without URLs; fetch `GET /api/exams/session/{sessionId}/media/{mediaId}` -> `{url, kind, expiresIn, remainingPlays}` when the media is shown or played (409 `MEDIA_PLAYS_EXHAUSTED`, 409 `SESSION_COMPLETED`, 410 `SESSION_EXPIRED`, 404 otherwise). Ask for an audio/video URL only when the user presses play: every request counts
+- [ ] The alt text of option images is visible to participants: the editor must warn that it may not contain the answer
 
 ## Later
 
@@ -142,3 +159,14 @@ Deliberately out of scope so far; not started.
 - [ ] Per-company branding
 - [ ] Enrollments with per-user extra time
 - [ ] Join codes for groups or exams
+- [ ] Video transcoding and adaptive streaming (HLS)
+- [ ] Thumbnails and poster images for media
+- [ ] Virus scanning of uploads
+- [ ] CDN in front of the media storage
+- [ ] Audio and file answers by participants
+- [ ] Media library: list, search and reuse of uploaded media across exams
+- [ ] S3 lifecycle rules (automatic expiry of unconfirmed uploads and old versions)
+- [ ] Managed S3-compatible storage in production
+- [ ] Password set (or confirmed) at OTP verification, which closes the remaining pre-hijack gap
+- [ ] `POST /api/exams/{id}/start` answers 415 for an empty body that is labelled `application/x-www-form-urlencoded`
+- [ ] Plan for removing test data from the development databases and the media bucket (test accounts `@x.test`, `T-...`/`M-...` groups and exams, test media)
