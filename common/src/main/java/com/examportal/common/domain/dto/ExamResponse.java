@@ -18,7 +18,7 @@ import java.util.UUID;
  * Used for returning exam details.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -1,5 +1,6 @@
 package com.examportal.common.domain.dto;
 
+import com.examportal.common.domain.dto.media.QuestionMediaRef;
 import com.examportal.common.domain.entity.QuestionType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -58,4 +59,9 @@ public class QuestionDTO {
     @Size(max = 10, message = "A question cannot have more than 10 options")
     @Valid
     private List<OptionDTO> options;
+
+    // Up to 3 ACTIVE media of the editor (ADMIN: anyone's); maxPlays only for AUDIO/VIDEO
+    @Size(max = 3, message = "A question cannot have more than 3 media")
+    @Valid
+    private List<QuestionMediaRef> media;
 }

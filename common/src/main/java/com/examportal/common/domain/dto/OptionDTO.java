@@ -9,6 +9,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+import java.util.UUID;
+
 /**
  * Option DTO
  * Used for creating and updating question options.
@@ -31,4 +34,9 @@ public class OptionDTO {
     @NotNull(message = "Order index is required")
     @PositiveOrZero(message = "Order index must be non-negative")
     private Integer orderIndex;
+
+    // At most one ACTIVE image of the editor (ADMIN: anyone's). Its alt text is visible to
+    // participants and must not reveal the answer.
+    @Size(max = 1, message = "An option cannot have more than 1 media")
+    private List<@NotNull(message = "Media id must not be null") UUID> mediaIds;
 }

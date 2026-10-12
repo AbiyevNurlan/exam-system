@@ -39,6 +39,7 @@ public class ExamService {
     private final UserGroupRepository groupRepository;
     private final ExamAudienceRepository audienceRepository;
     private final GroupAuditService auditService;
+    private final ExamMediaService examMedia;
     private final ExamValidator validator;
     private final ExamMapper mapper;
     private final TransactionalOperator transactionalOperator;
@@ -49,7 +50,7 @@ public class ExamService {
     /**
      * Create a new exam with questions and options
      */
-    public Mono<ExamResponse> createExam(CreateExamRequest request, UUID userId) {
+    public Mono<ExamResponse> createExam(CreateExamRequest request, UUID userId, String role) {
         log.info("Creating exam '{}' for user {}", request.getTitle(), userId);
 
         // PUBLIC unless the request says otherwise; a GROUP exam gets its audience in the same call
@@ -58,6 +59,7 @@ public class ExamService {
 
         Mono<ExamResponse> creation = validator.validateCreateRequest(request)
                 .then(requireValidAudience(accessType, groupIds))
+                .then(examMedia.validate(request.getQuestions(), userId, role))
                 .then(Mono.defer(() -> {
                     Exam exam = mapper.toEntity(request, userId);
                     exam.setAccessType(accessType);
@@ -72,10 +74,11 @@ public class ExamService {
                 .flatMap(this::loadExamWithQuestions);
 
         // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real
-        // boundary: exam, questions, options and audience are stored together or not at all. The cache is
-        // filled after commit.
+        // boundary: exam, questions, options, media links and audience are stored together or not at all.
+        // The cache is filled after commit; media is added to the answer only, never to the cached exam.
         return transactionalOperator.transactional(creation)
                 .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))
+                .flatMap(response -> examMedia.withMedia(response, true))
                 .doOnSuccess(exam -> log.info("Exam created successfully: {}", exam.getId()));
     }
 
@@ -101,6 +104,7 @@ public class ExamService {
                 })
                 .flatMap(exam -> validator.validateUpdateRequest(request)
                         .then(newAccessType == null ? Mono.<Void>empty() : requireValidAudience(newAccessType, groupIds))
+                        .then(examMedia.validate(request.getQuestions(), userId, role))
                         .thenReturn(exam))
                 .flatMap(exam -> {
                     ExamAccessType oldAccessType = exam.getAccessType();
@@ -129,6 +133,7 @@ public class ExamService {
                 .flatMap(response -> cacheService.invalidateExamCache(examId)
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
+                .flatMap(response -> examMedia.withMedia(response, true))
                 .doOnSuccess(exam -> log.info("Exam updated successfully: {}", examId));
     }
 
@@ -169,14 +174,15 @@ public class ExamService {
                         .switchIfEmpty(Mono.defer(() -> loadExamWithQuestions(exam)
                                 .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))))
                         .flatMap(full -> {
-                            // The answer key is only for ADMIN and the INSTRUCTOR who owns the exam
+                            // The answer key and media preview URLs are only for ADMIN and the INSTRUCTOR who owns the exam
                             if (accessPolicy.canManage(userId, role, exam)) {
-                                return Mono.just(full);
+                                return examMedia.withMedia(full, true);
                             }
                             if (exam.getStatus() == ExamStatus.DRAFT) {
                                 return Mono.error(ExamException.notFound(examId));
                             }
-                            return Mono.just(mapper.toParticipantView(full));
+                            // Participants see which media a question has, but get no URL here
+                            return examMedia.withMedia(mapper.toParticipantView(full), false);
                         }));
     }
 
@@ -190,7 +196,8 @@ public class ExamService {
                 ? examRepository.findByCreatedByAndStatus(userId, status)
                 : examRepository.findByCreatedBy(userId);
 
-        return exams.flatMap(exam -> loadExamWithQuestions(exam));
+        return exams.flatMap(exam -> loadExamWithQuestions(exam))
+                .flatMap(response -> examMedia.withMedia(response, true));
     }
 
     /**
@@ -320,6 +327,7 @@ public class ExamService {
                 .flatMap(response -> cacheService.invalidateExamCache(examId)
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
+                .flatMap(response -> examMedia.withMedia(response, true))
                 .doOnSuccess(exam -> log.info("Exam {} status updated to {}", examId, newStatus));
     }
 
@@ -436,12 +444,13 @@ public class ExamService {
                     
                     Question question = mapper.toEntity(dto, examId);
                     return questionRepository.save(question)
-                            .flatMap(savedQuestion -> {
-                                if (dto.getOptions() != null && !dto.getOptions().isEmpty()) {
-                                    return saveOptions(savedQuestion.getId(), dto.getOptions());
-                                }
-                                return Mono.empty();
-                            });
+                            .flatMap(savedQuestion -> examMedia.attachToQuestion(savedQuestion.getId(), dto)
+                                    .then(Mono.defer(() -> {
+                                        if (dto.getOptions() != null && !dto.getOptions().isEmpty()) {
+                                            return saveOptions(savedQuestion.getId(), dto.getOptions());
+                                        }
+                                        return Mono.empty();
+                                    })));
                 })
                 .then();
     }
@@ -452,12 +461,12 @@ public class ExamService {
     private Mono<Void> saveOptions(Long questionId, List<OptionDTO> options) {
         return Flux.fromIterable(options)
                 .index()
-                .map(tuple -> {
+                .concatMap(tuple -> {
                     OptionDTO dto = tuple.getT2();
                     dto.setOrderIndex(tuple.getT1().intValue());
-                    return mapper.toEntity(dto, questionId);
+                    return optionRepository.save(mapper.toEntity(dto, questionId))
+                            .flatMap(savedOption -> examMedia.attachToOption(savedOption.getId(), dto));
                 })
-                .concatMap(optionRepository::save)
                 .then();
     }
 
@@ -564,9 +573,13 @@ public class ExamService {
                             .map(Question::getId)
                             .collect(Collectors.toList());
                     
-                    return optionRepository.findByQuestionIdIn(questionIds)
-                            .collectMultimap(QuestionOption::getQuestionId)
-                            .map(optionsMap -> {
+                    // Media metadata only: the URL of each media is asked per session (SessionMediaService)
+                    return Mono.zip(optionRepository.findByQuestionIdIn(questionIds)
+                                            .collectMultimap(QuestionOption::getQuestionId),
+                                    examMedia.loadIndex(exam.getId()))
+                            .map(loaded -> {
+                                Map<Long, Collection<QuestionOption>> optionsMap = loaded.getT1();
+                                ExamMediaService.MediaIndex media = loaded.getT2();
                                 List<QuestionResponse> responses = questions.stream()
                                         .map(q -> {
                                             // Text questions keep their expected answer as an option: never send it
@@ -574,7 +587,11 @@ public class ExamService {
                                                     ? null
                                                     : optionsMap.getOrDefault(q.getId(), List.of())
                                                     .stream()
-                                                    .map(mapper::toParticipantResponse)
+                                                    .map(option -> {
+                                                        OptionResponse response = mapper.toParticipantResponse(option);
+                                                        response.setMedia(media.forOption(option.getId()));
+                                                        return response;
+                                                    })
                                                     .collect(Collectors.toList());
 
                                             // Shuffle options if configured
@@ -582,7 +599,9 @@ public class ExamService {
                                                 options = mapper.shuffleList(options);
                                             }
                                             
-                                            return mapper.toParticipantResponse(q, options);
+                                            QuestionResponse response = mapper.toParticipantResponse(q, options);
+                                            response.setMedia(media.forQuestion(q.getId()));
+                                            return response;
                                         })
                                         .collect(Collectors.toList());
                                 

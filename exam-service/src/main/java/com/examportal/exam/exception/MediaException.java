@@ -45,6 +45,10 @@ public class MediaException extends ApplicationException {
                 "MEDIA_INVALID");
     }
 
+    public static MediaException notAttachable(String reason) {
+        return new MediaException("Media cannot be attached: " + reason, HttpStatus.BAD_REQUEST, "MEDIA_NOT_ATTACHABLE");
+    }
+
     public static MediaException inUse() {
         return new MediaException("The media is used by a published exam", HttpStatus.CONFLICT, "MEDIA_IN_USE");
     }

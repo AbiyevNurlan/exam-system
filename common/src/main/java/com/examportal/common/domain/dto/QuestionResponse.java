@@ -1,5 +1,6 @@
 package com.examportal.common.domain.dto;
 
+import com.examportal.common.domain.dto.media.MediaItemResponse;
 import com.examportal.common.domain.entity.QuestionType;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
@@ -15,7 +16,7 @@ import java.util.List;
  * Used for returning question details.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -31,4 +32,6 @@ public class QuestionResponse {
     private Boolean isRequired;
     private String explanation; // Only shown after submission or to instructors
     private List<OptionResponse> options;
+    // Attached media in display order; without URLs for participants
+    private List<MediaItemResponse> media;
 }

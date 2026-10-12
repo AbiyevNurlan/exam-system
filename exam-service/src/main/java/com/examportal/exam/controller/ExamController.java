@@ -44,20 +44,20 @@ public class ExamController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Create a new exam", description = "Create a new exam with questions and options")
+    @Operation(summary = "Create a new exam", description = "Create a new exam with questions and options. Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); only your own confirmed media. WARNING: the alt text of option media is shown to participants and must not reveal the answer.")
     public Mono<ApiResponse<ExamResponse>> createExam(
             @Valid @RequestBody CreateExamRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
         
         log.info("Creating exam: {} by user: {}", request.getTitle(), principal.getId());
         
-        return examService.createExam(request, principal.getId())
+        return examService.createExam(request, principal.getId(), principal.getRole())
                 .map(exam -> ApiResponse.success(exam, "Exam created successfully"));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Update an exam", description = "Update an existing exam")
+    @Operation(summary = "Update an exam", description = "Update an existing exam (DRAFT or SCHEDULED only; questions, options and their media are replaced). Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); only your own confirmed media. WARNING: the alt text of option media is shown to participants and must not reveal the answer.")
     public Mono<ApiResponse<ExamResponse>> updateExam(
             @PathVariable Long id,
             @Valid @RequestBody UpdateExamRequest request,
