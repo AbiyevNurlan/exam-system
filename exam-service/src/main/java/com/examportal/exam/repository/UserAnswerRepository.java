@@ -59,12 +59,19 @@ public interface UserAnswerRepository extends R2dbcRepository<UserAnswer, Long> 
     /**
      * Insert the answer, or overwrite the existing one for the same (session, question).
      * A single statement, so concurrent submissions cannot create duplicates.
+     * Writes only while the session is IN_PROGRESS and not past its end time, and returns 0 otherwise.
+     * FOR SHARE makes it wait for a completion that is updating the session row and then see the
+     * new status, and makes a completion wait for it, so no answer can land after grading.
      */
     @Modifying
     @Query("""
         INSERT INTO user_answers (session_id, question_id, selected_option_ids, text_answer,
                                   needs_manual_review, answered_at, created_at, updated_at)
-        VALUES (:sessionId, :questionId, :selectedOptionIds, :textAnswer, false, :now, :now, :now)
+        SELECT s.id, :questionId, CAST(:selectedOptionIds AS BIGINT[]), CAST(:textAnswer AS TEXT),
+               false, :now, :now, :now
+        FROM exam_sessions s
+        WHERE s.id = :sessionId AND s.status = 'IN_PROGRESS' AND (s.end_time IS NULL OR s.end_time > :now)
+        FOR SHARE OF s
         ON CONFLICT (session_id, question_id) DO UPDATE
         SET selected_option_ids = EXCLUDED.selected_option_ids,
             text_answer = EXCLUDED.text_answer,

@@ -53,7 +53,7 @@ public class ExamException extends ApplicationException {
     }
 
     public static ExamException sessionAlreadyCompleted() {
-        return new ExamException("Exam session is already completed", HttpStatus.BAD_REQUEST, "SESSION_COMPLETED");
+        return new ExamException("Exam session is already completed", HttpStatus.CONFLICT, "SESSION_COMPLETED");
     }
 
     public static ExamException activeSessionExists() {

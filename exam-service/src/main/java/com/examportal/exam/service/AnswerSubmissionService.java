@@ -203,6 +203,8 @@ public class AnswerSubmissionService {
                                         optionIds.toArray(new Long[0]), null, now);
                             });
                 })
+                // Nothing written: the session was completed or expired between the check and the write
+                .flatMap(written -> written == 1 ? Mono.just(written) : rejectLateAnswer(session.getSessionId()))
                 .then(Mono.defer(() -> answerRepository.countBySessionId(session.getId())))
                 .map(answeredCount -> SubmitAnswerResponse.builder()
                         .success(true)
@@ -210,6 +212,17 @@ public class AnswerSubmissionService {
                         .answeredQuestions(answeredCount.intValue())
                         .message("Answer saved successfully")
                         .build());
+    }
+
+    /**
+     * Error for an answer the conditional upsert refused: 410 when the session ran out of time
+     * (auto-submitting it first, as on the normal expiry path), 409 when it was already completed.
+     */
+    private Mono<Integer> rejectLateAnswer(String sessionId) {
+        return sessionRepository.findBySessionId(sessionId)
+                .flatMap(current -> current.isExpired()
+                        ? completeSession(current).then(Mono.<Integer>error(ExamException.sessionExpired()))
+                        : Mono.<Integer>error(ExamException.sessionAlreadyCompleted()));
     }
 
     /**
