@@ -162,6 +162,14 @@ public class AnswerSubmissionService {
     }
 
     /**
+     * Complete one session that ran out of time (same completion path as a manual submit).
+     * A no-op when it has already been completed.
+     */
+    public Mono<Void> completeExpiredSession(ExamSession session) {
+        return completeSession(session).then();
+    }
+
+    /**
      * Auto-submit expired exam sessions (same completion path as a manual submit)
      */
     public Mono<Void> autoSubmitExpiredSessions() {

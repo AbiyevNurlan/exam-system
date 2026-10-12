@@ -6,7 +6,7 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 ## Exam
 
 - [x] Submit response ignores `showResultsImmediately` (the score is returned even when the exam withholds results)
-- [ ] Start returns an IN_PROGRESS session that is already past its end time
+- [x] Start returns an IN_PROGRESS session that is already past its end time
 - [ ] `/available` counts only COMPLETED sessions for remaining attempts, while start counts all sessions
 - [ ] Results list has no status filter
 - [ ] Soft-deleted exams are still returned by `GET /api/exams/{id}`

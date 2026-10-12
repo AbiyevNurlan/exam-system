@@ -32,6 +32,7 @@ public class ExamService {
     private final QuestionOptionRepository optionRepository;
     private final ExamSessionRepository sessionRepository;
     private final ExamCacheService cacheService;
+    private final AnswerSubmissionService answerService;
     private final ExamValidator validator;
     private final ExamMapper mapper;
     private final TransactionalOperator transactionalOperator;
@@ -201,8 +202,13 @@ public class ExamService {
                     if (!exam.canStart()) {
                         return Mono.error(ExamException.notActive());
                     }
-                    // Idempotent: an active session for this user and exam is returned, never duplicated
+                    // Idempotent: an active session for this user and exam is returned, never duplicated.
+                    // One that ran out of time is never returned: it is completed through the normal
+                    // completion path and the start continues as if there were none (it still counts as an attempt).
                     return sessionRepository.findActiveSession(examId, userId)
+                            .flatMap(active -> active.isExpired()
+                                    ? answerService.completeExpiredSession(active).then(Mono.<ExamSession>empty())
+                                    : Mono.just(active))
                             .switchIfEmpty(Mono.defer(() -> openSession(exam, userId, request)))
                             .flatMap(session -> toStartResponse(exam, session));
                 })
