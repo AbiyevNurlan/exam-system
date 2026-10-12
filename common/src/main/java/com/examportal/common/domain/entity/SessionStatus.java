@@ -6,7 +6,5 @@ package com.examportal.common.domain.entity;
  */
 public enum SessionStatus {
     IN_PROGRESS,
-    COMPLETED,
-    TIMED_OUT,
-    ABANDONED
+    COMPLETED
 }

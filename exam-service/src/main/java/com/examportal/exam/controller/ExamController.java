@@ -2,6 +2,7 @@ package com.examportal.exam.controller;
 
 import com.examportal.common.domain.dto.*;
 import com.examportal.common.domain.entity.ExamStatus;
+import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.service.AnswerSubmissionService;
 import com.examportal.exam.service.ExamService;
@@ -196,11 +197,12 @@ public class ExamController {
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
             @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
+            @RequestParam(required = false) @Parameter(description = "Only sessions in this status") SessionStatus status,
             @AuthenticationPrincipal UserPrincipal principal) {
 
         log.debug("Getting results of exam: {} for user: {}", id, principal.getId());
 
-        return examService.getExamResults(id, principal.getId(), principal.getRole(), page, size)
+        return examService.getExamResults(id, principal.getId(), principal.getRole(), status, page, size)
                 .map(ApiResponse::success);
     }
 
@@ -215,7 +217,7 @@ public class ExamController {
         
         log.info("Publishing exam: {} by user: {}", id, principal.getId());
         
-        return examService.updateExamStatus(id, ExamStatus.ACTIVE, principal.getId())
+        return examService.updateExamStatus(id, ExamStatus.ACTIVE, principal.getId(), principal.getRole())
                 .map(exam -> ApiResponse.success(exam, "Exam published successfully"));
     }
 
@@ -228,7 +230,7 @@ public class ExamController {
         
         log.info("Archiving exam: {} by user: {}", id, principal.getId());
         
-        return examService.updateExamStatus(id, ExamStatus.ARCHIVED, principal.getId())
+        return examService.updateExamStatus(id, ExamStatus.ARCHIVED, principal.getId(), principal.getRole())
                 .map(exam -> ApiResponse.success(exam, "Exam archived successfully"));
     }
 }

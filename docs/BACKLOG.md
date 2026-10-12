@@ -7,11 +7,11 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 
 - [x] Submit response ignores `showResultsImmediately` (the score is returned even when the exam withholds results)
 - [x] Start returns an IN_PROGRESS session that is already past its end time
-- [ ] `/available` counts only COMPLETED sessions for remaining attempts, while start counts all sessions
-- [ ] Results list has no status filter
-- [ ] Soft-deleted exams are still returned by `GET /api/exams/{id}`
-- [ ] ADMIN cannot publish or archive another user's exam
-- [ ] Unused code: `activeSessionExists`, `countCompletedAttempts`, `existsByExamIdAndUserIdAndStatus`, `findTimedOutSessions`, `hasTimedOut`
+- [x] `/available` counts only COMPLETED sessions for remaining attempts, while start counts all sessions
+- [x] Results list has no status filter
+- [x] Soft-deleted exams are still returned by `GET /api/exams/{id}`
+- [x] ADMIN cannot publish or archive another user's exam
+- [x] Unused code: `activeSessionExists`, `countCompletedAttempts`, `existsByExamIdAndUserIdAndStatus`, `findTimedOutSessions`, `hasTimedOut`
 - [ ] No upper bounds in request validation (points, text lengths, number of questions and options)
 - [ ] Database constraint errors surface as 500 instead of 4xx
 - [ ] Inactive `@Transactional` on `ExamService.deleteExam` and `updateExamStatus`
@@ -22,7 +22,7 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] ADMIN cannot edit or delete another user's exam
 - [ ] Exam and session-question caches are in memory per instance (wrong with more than one exam-service instance; questions are re-shuffled after a restart)
 - [ ] `exam.settings.auto-submit-buffer-seconds` is configured but unused
-- [ ] `TIMED_OUT` and `ABANDONED` session statuses are never set
+- [x] `TIMED_OUT` and `ABANDONED` session statuses are never set (removed)
 - [ ] Index for the results list ordering (`exam_id, submitted_at DESC`)
 - [ ] `FraudDetectionService` is not wired into the exam flow
 

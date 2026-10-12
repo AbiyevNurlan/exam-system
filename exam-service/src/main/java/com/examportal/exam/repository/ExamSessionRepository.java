@@ -1,7 +1,6 @@
 package com.examportal.exam.repository;
 
 import com.examportal.common.domain.entity.ExamSession;
-import com.examportal.common.domain.entity.SessionStatus;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
@@ -46,21 +45,10 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
     Mono<Long> countByExamIdAndUserId(Long examId, UUID userId);
 
     /**
-     * Count completed attempts by user for an exam
-     */
-    @Query("SELECT COUNT(*) FROM exam_sessions WHERE exam_id = :examId AND user_id = :userId AND status = 'COMPLETED'")
-    Mono<Long> countCompletedAttempts(Long examId, UUID userId);
-
-    /**
      * Find active session for user and exam
      */
     @Query("SELECT * FROM exam_sessions WHERE exam_id = :examId AND user_id = :userId AND status = 'IN_PROGRESS' LIMIT 1")
     Mono<ExamSession> findActiveSession(Long examId, UUID userId);
-
-    /**
-     * Check if user has an active session
-     */
-    Mono<Boolean> existsByExamIdAndUserIdAndStatus(Long examId, UUID userId, SessionStatus status);
 
     /**
      * Open a session only while the user has attempts left (every existing session counts).
@@ -87,15 +75,21 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
     @Query("""
         SELECT * FROM exam_sessions
         WHERE exam_id = :examId
+          AND (CAST(:status AS VARCHAR) IS NULL OR status = CAST(:status AS VARCHAR))
         ORDER BY submitted_at DESC NULLS LAST, id DESC
         LIMIT :limit OFFSET :offset
     """)
-    Flux<ExamSession> findPageByExamId(Long examId, int limit, long offset);
+    Flux<ExamSession> findPageByExamId(Long examId, String status, int limit, long offset);
 
     /**
-     * Count all sessions of an exam
+     * Count the sessions of an exam, optionally only those in one status
      */
-    Mono<Long> countByExamId(Long examId);
+    @Query("""
+        SELECT COUNT(*) FROM exam_sessions
+        WHERE exam_id = :examId
+          AND (CAST(:status AS VARCHAR) IS NULL OR status = CAST(:status AS VARCHAR))
+    """)
+    Mono<Long> countByExamIdAndOptionalStatus(Long examId, String status);
 
     /**
      * Update session status
@@ -133,12 +127,6 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
     """)
     Mono<Integer> saveScore(Long id, BigDecimal score, BigDecimal totalPoints,
                             BigDecimal percentage, Boolean passed);
-
-    /**
-     * Find timed out sessions
-     */
-    @Query("SELECT * FROM exam_sessions WHERE status = 'IN_PROGRESS' AND start_time < :cutoffTime")
-    Flux<ExamSession> findTimedOutSessions(LocalDateTime cutoffTime);
 
     /**
      * Find expired sessions (end time passed but still in progress)

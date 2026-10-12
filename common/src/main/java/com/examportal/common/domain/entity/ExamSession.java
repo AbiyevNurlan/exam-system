@@ -87,15 +87,6 @@ public class ExamSession {
     }
 
     /**
-     * Check if the session has timed out
-     */
-    public boolean hasTimedOut(int durationMinutes) {
-        if (startTime == null) return false;
-        LocalDateTime deadline = startTime.plusMinutes(durationMinutes);
-        return LocalDateTime.now().isAfter(deadline);
-    }
-
-    /**
      * Check if the session has expired
      */
     public boolean isExpired() {

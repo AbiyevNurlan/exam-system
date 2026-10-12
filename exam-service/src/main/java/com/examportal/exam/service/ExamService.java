@@ -13,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.function.Tuple2;
+import reactor.util.function.Tuples;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -71,8 +73,7 @@ public class ExamService {
     public Mono<ExamResponse> updateExam(Long examId, UpdateExamRequest request, UUID userId) {
         log.info("Updating exam {} for user {}", examId, userId);
 
-        Mono<ExamResponse> update = examRepository.findById(examId)
-                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+        Mono<ExamResponse> update = findExistingExam(examId)
                 .flatMap(exam -> {
                     if (!exam.getCreatedBy().equals(userId)) {
                         return Mono.error(ExamException.notOwner());
@@ -112,8 +113,7 @@ public class ExamService {
     public Mono<Void> deleteExam(Long examId, UUID userId) {
         log.info("Deleting exam {} for user {}", examId, userId);
 
-        return examRepository.findById(examId)
-                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+        return findExistingExam(examId)
                 .flatMap(exam -> {
                     if (!exam.getCreatedBy().equals(userId)) {
                         return Mono.error(ExamException.notOwner());
@@ -139,8 +139,7 @@ public class ExamService {
         log.debug("Getting exam {} for user {}", examId, userId);
 
         return cacheService.getCachedExam(examId)
-                .switchIfEmpty(examRepository.findById(examId)
-                        .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+                .switchIfEmpty(findExistingExam(examId)
                         .flatMap(this::loadExamWithQuestions)
                         .flatMap(response -> cacheService.cacheExam(response).thenReturn(response)))
                 .flatMap(full -> {
@@ -176,18 +175,23 @@ public class ExamService {
         log.debug("Getting available exams for user {}", userId);
 
         return examRepository.findAvailableExams()
-                .flatMap(exam -> {
-                    // Check remaining attempts
-                    return sessionRepository.countCompletedAttempts(exam.getId(), userId)
-                            .map(attempts -> {
-                                ExamResponse response = mapper.toResponse(exam);
-                                int remaining = exam.getMaxAttempts() - attempts.intValue();
-                                response.setRemainingAttempts(Math.max(0, remaining));
-                                response.setCanStart(remaining > 0 && exam.canStart());
-                                return response;
-                            });
-                })
-                .filter(exam -> exam.getRemainingAttempts() > 0);
+                .flatMap(exam -> Mono.zip(
+                                sessionRepository.countByExamIdAndUserId(exam.getId(), userId),
+                                sessionRepository.findActiveSession(exam.getId(), userId)
+                                        .map(active -> !active.isExpired())
+                                        .defaultIfEmpty(false))
+                        .map(tuple -> {
+                            // Same rule as startExam: every session counts as an attempt, and an active
+                            // session that still has time can always be resumed
+                            int remaining = Math.max(0, maxAttempts(exam) - tuple.getT1().intValue());
+                            boolean resumable = tuple.getT2();
+                            ExamResponse response = mapper.toResponse(exam);
+                            response.setRemainingAttempts(remaining);
+                            response.setCanStart(exam.canStart() && (remaining > 0 || resumable));
+                            return Tuples.of(response, remaining > 0 || resumable);
+                        }))
+                .filter(Tuple2::getT2)
+                .map(Tuple2::getT1);
     }
 
     /**
@@ -196,8 +200,7 @@ public class ExamService {
     public Mono<StartExamResponse> startExam(Long examId, UUID userId, StartExamRequest request) {
         log.info("Starting exam {} for user {}", examId, userId);
 
-        return examRepository.findById(examId)
-                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+        return findExistingExam(examId)
                 .flatMap(exam -> {
                     if (!exam.canStart()) {
                         return Mono.error(ExamException.notActive());
@@ -241,20 +244,21 @@ public class ExamService {
      * One page of an exam's sessions for ADMIN or the INSTRUCTOR who owns the exam
      */
     public Mono<PageResponse<SessionSummaryResponse>> getExamResults(Long examId, UUID userId, String role,
-                                                                     int page, int size) {
+                                                                     SessionStatus status, int page, int size) {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_RESULTS_PAGE_SIZE);
+        String statusFilter = status != null ? status.name() : null;
 
-        return examRepository.findById(examId)
-                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+        return findExistingExam(examId)
                 .flatMap(exam -> {
                     boolean owner = "INSTRUCTOR".equals(role) && userId.equals(exam.getCreatedBy());
                     if (!"ADMIN".equals(role) && !owner) {
                         return Mono.error(ExamException.notOwner());
                     }
-                    return sessionRepository.countByExamId(examId);
+                    return sessionRepository.countByExamIdAndOptionalStatus(examId, statusFilter);
                 })
-                .flatMap(total -> sessionRepository.findPageByExamId(examId, pageSize, (long) pageNumber * pageSize)
+                .flatMap(total -> sessionRepository.findPageByExamId(examId, statusFilter, pageSize,
+                                (long) pageNumber * pageSize)
                         .map(session -> SessionSummaryResponse.builder()
                                 .sessionId(session.getSessionId())
                                 .userId(session.getUserId())
@@ -272,13 +276,13 @@ public class ExamService {
      * Update exam status
      */
     @Transactional
-    public Mono<ExamResponse> updateExamStatus(Long examId, ExamStatus newStatus, UUID userId) {
+    public Mono<ExamResponse> updateExamStatus(Long examId, ExamStatus newStatus, UUID userId, String role) {
         log.info("Updating exam {} status to {} by user {}", examId, newStatus, userId);
 
-        return examRepository.findById(examId)
-                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+        return findExistingExam(examId)
                 .flatMap(exam -> {
-                    if (!exam.getCreatedBy().equals(userId)) {
+                    // Publishing and archiving: the owner, or any ADMIN
+                    if (!"ADMIN".equals(role) && !exam.getCreatedBy().equals(userId)) {
                         return Mono.error(ExamException.notOwner());
                     }
                     return Mono.just(exam);
@@ -294,6 +298,19 @@ public class ExamService {
     }
 
     // ==================== Private Helper Methods ====================
+
+    /**
+     * Exam by id. A soft-deleted exam (active = false) is treated as not existing.
+     */
+    private Mono<Exam> findExistingExam(Long examId) {
+        return examRepository.findById(examId)
+                .filter(exam -> !Boolean.FALSE.equals(exam.getActive()))
+                .switchIfEmpty(Mono.error(ExamException.notFound(examId)));
+    }
+
+    private int maxAttempts(Exam exam) {
+        return exam.getMaxAttempts() != null ? exam.getMaxAttempts() : 1;
+    }
 
     /**
      * Save questions and their options
@@ -388,13 +405,12 @@ public class ExamService {
         if (endTime.isAfter(exam.getEndTime())) {
             endTime = exam.getEndTime();
         }
-        int maxAttempts = exam.getMaxAttempts() != null ? exam.getMaxAttempts() : 1;
 
         // The attempt limit and the single active session are both decided by this one statement.
         // Whatever it did, the active session (ours, or the one a concurrent start created) is the answer;
         // none at all means the attempt limit refused the insert.
         return sessionRepository.insertIfAttemptsRemain(sessionId, exam.getId(), userId, now, endTime,
-                        request.getIpAddress(), request.getBrowserInfo(), maxAttempts)
+                        request.getIpAddress(), request.getBrowserInfo(), maxAttempts(exam))
                 .flatMap(inserted -> sessionRepository.findActiveSession(exam.getId(), userId))
                 .switchIfEmpty(Mono.error(ExamException.maxAttemptsReached()));
     }

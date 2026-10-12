@@ -56,10 +56,6 @@ public class ExamException extends ApplicationException {
         return new ExamException("Exam session is already completed", HttpStatus.CONFLICT, "SESSION_COMPLETED");
     }
 
-    public static ExamException activeSessionExists() {
-        return new ExamException("You already have an active session for this exam", HttpStatus.BAD_REQUEST, "SESSION_ACTIVE_EXISTS");
-    }
-
     public static ExamException schedulingConflict() {
         return new ExamException("Exam time conflicts with another exam", HttpStatus.CONFLICT, "EXAM_SCHEDULING_CONFLICT");
     }
