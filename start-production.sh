@@ -16,9 +16,22 @@ if ! command -v docker &> /dev/null; then
 fi
 
 # Set environment variables
-export DB_PASSWORD=postgres_secure_2026
-export JWT_SECRET=production-jwt-secret-key-minimum-256-bits-secure-random-string
-export GRAFANA_PASSWORD=admin123
+# Secrets are never hardcoded: they come from the environment or the git-ignored .env file (see .env.example)
+for var in JWT_SECRET DB_PASSWORD GRAFANA_PASSWORD; do
+    if [ -z "${!var}" ] && [ -f .env ]; then
+        value=$(grep -E "^${var}=" .env | tail -n 1 | cut -d= -f2- | tr -d '\r')
+        if [ -n "$value" ] && [ "$value" != "CHANGE_ME" ]; then
+            export "$var=$value"
+        fi
+    fi
+    if [ -z "${!var}" ]; then
+        echo "ERROR: $var is not set."
+        echo "       Copy .env.example to .env and replace every CHANGE_ME value"
+        echo "       (JWT_SECRET, DB_PASSWORD, GRAFANA_PASSWORD)."
+        exit 1
+    fi
+    export "$var"
+done
 
 # Build and start
 echo ""

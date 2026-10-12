@@ -11,7 +11,7 @@ services:
     container_name: exam-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       POSTGRES_DB: exam_db
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
     ports:
@@ -136,7 +136,7 @@ services:
       - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
       GF_INSTALL_PLUGINS: redis-datasource
     volumes:
       - grafana_data:/var/lib/grafana
@@ -162,6 +162,7 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       AUTH_SERVICE_URL: http://auth-service:8081
       EXAM_SERVICE_URL: http://exam-service:8082
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       - auth-service
       - exam-service
@@ -191,10 +192,10 @@ services:
       DB_PORT: 5432
       DB_NAME: auth_db
       DB_USERNAME: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -226,10 +227,10 @@ services:
       DB_PORT: 5432
       DB_NAME: exam_db
       DB_USERNAME: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -257,6 +258,7 @@ services:
       - "8084:8084"
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     deploy:
       resources:
         limits:
@@ -277,6 +279,7 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       redis:
         condition: service_healthy

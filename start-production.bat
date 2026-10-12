@@ -17,9 +17,20 @@ if %errorlevel% neq 0 (
 )
 
 REM Set environment variables
-set DB_PASSWORD=postgres_secure_2026
-set JWT_SECRET=production-jwt-secret-key-minimum-256-bits-secure-random-string
-set GRAFANA_PASSWORD=admin123
+REM Secrets are never hardcoded: they come from the environment or the git-ignored .env file (see .env.example)
+for %%V in (JWT_SECRET DB_PASSWORD GRAFANA_PASSWORD) do (
+    if not defined %%V if exist .env (
+        for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
+            if "%%A"=="%%V" if not "%%B"=="CHANGE_ME" set "%%V=%%B"
+        )
+    )
+    if not defined %%V (
+        echo ERROR: %%V is not set.
+        echo        Copy .env.example to .env and replace every CHANGE_ME value:
+        echo        JWT_SECRET, DB_PASSWORD, GRAFANA_PASSWORD.
+        exit /b 1
+    )
+)
 
 REM Build and start
 echo.

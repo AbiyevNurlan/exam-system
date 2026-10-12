@@ -32,7 +32,7 @@ services:
     container_name: exam-postgres-primary
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       POSTGRES_MULTIPLE_DATABASES: exam_auth,exam_db,exam_monitoring
       POSTGRES_INITDB_ARGS: "--data-checksums"
     ports:
@@ -106,7 +106,7 @@ services:
       DB_PORT: 5432
       DB_NAME: exam_auth
       DB_USERNAME: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
@@ -151,7 +151,7 @@ services:
       DB_PORT: 5432
       DB_NAME: exam_auth
       DB_USERNAME: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
@@ -192,7 +192,7 @@ services:
       DB_PORT: 5432
       DB_NAME: exam_db
       DB_USERNAME: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
@@ -232,7 +232,7 @@ services:
       DB_PORT: 5432
       DB_NAME: exam_db
       DB_USERNAME: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
@@ -272,7 +272,7 @@ services:
       DB_PORT: 5432
       DB_NAME: exam_db
       DB_USERNAME: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
@@ -315,6 +315,7 @@ services:
       REDIS_PORT: 6379
       AUTH_SERVICE_URL: http://auth-service-1:8081,http://auth-service-2:8081
       EXAM_SERVICE_URL: http://exam-service-1:8082,http://exam-service-2:8082,http://exam-service-3:8082
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -355,6 +356,7 @@ services:
       REDIS_PORT: 6379
       AUTH_SERVICE_URL: http://auth-service-1:8081,http://auth-service-2:8081
       EXAM_SERVICE_URL: http://exam-service-1:8082,http://exam-service-2:8082,http://exam-service-3:8082
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -394,6 +396,7 @@ services:
       SPRING_PROFILES_ACTIVE: production
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -427,7 +430,8 @@ services:
       DB_PORT: 5432
       DB_NAME: exam_monitoring
       DB_USERNAME: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-postgres_secure_2026}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -Xms256m
@@ -468,7 +472,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
     volumes:
       - grafana_data:/var/lib/grafana
     networks:
