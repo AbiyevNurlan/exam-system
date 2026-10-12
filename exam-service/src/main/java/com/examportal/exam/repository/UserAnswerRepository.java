@@ -70,6 +70,13 @@ public interface UserAnswerRepository extends R2dbcRepository<UserAnswer, Long> 
                                String textAnswer, LocalDateTime now);
 
     /**
+     * Store the grading outcome of one answer
+     */
+    @Modifying
+    @Query("UPDATE user_answers SET is_correct = :isCorrect, points_earned = :pointsEarned WHERE id = :id")
+    Mono<Integer> saveGrade(Long id, Boolean isCorrect, BigDecimal pointsEarned);
+
+    /**
      * Delete all answers for a session
      */
     Mono<Void> deleteBySessionId(Long sessionId);

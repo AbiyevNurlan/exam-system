@@ -49,7 +49,7 @@ public class ExamException extends ApplicationException {
     }
 
     public static ExamException sessionExpired() {
-        return new ExamException("Exam session has expired", HttpStatus.BAD_REQUEST, "SESSION_EXPIRED");
+        return new ExamException("Exam session has expired", HttpStatus.GONE, "SESSION_EXPIRED");
     }
 
     public static ExamException sessionAlreadyCompleted() {

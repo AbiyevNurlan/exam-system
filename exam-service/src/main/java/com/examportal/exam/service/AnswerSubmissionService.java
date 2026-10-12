@@ -7,14 +7,14 @@ import com.examportal.common.domain.entity.ExamSession;
 import com.examportal.common.domain.entity.Question;
 import com.examportal.common.domain.entity.QuestionOption;
 import com.examportal.common.domain.entity.QuestionType;
-import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.domain.entity.UserAnswer;
 import com.examportal.exam.exception.ExamException;
 import com.examportal.exam.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.reactive.TransactionalOperator;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
@@ -42,11 +42,11 @@ public class AnswerSubmissionService {
     private final ExamSessionRepository sessionRepository;
     private final UserAnswerRepository answerRepository;
     private final ExamCacheService cacheService;
+    private final TransactionalOperator transactionalOperator;
 
     /**
      * Submit an answer for a question
      */
-    @Transactional
     public Mono<SubmitAnswerResponse> submitAnswer(String sessionId, SubmitAnswerRequest request, Long userId) {
         log.debug("Submitting answer for session {} question {}", sessionId, request.getQuestionId());
 
@@ -57,12 +57,14 @@ public class AnswerSubmissionService {
                     if (!session.getUserId().equals(userId)) {
                         return Mono.error(ExamException.sessionNotFound(sessionId));
                     }
+                    if (session.isExpired()) {
+                        // No time beyond the server-side endTime. The auto-submit commits in its own
+                        // transaction before the error is raised, and is a no-op if the scheduler got there first.
+                        return completeSession(session)
+                                .then(Mono.<ExamSession>error(ExamException.sessionExpired()));
+                    }
                     if (!session.isActive()) {
                         return Mono.error(ExamException.sessionAlreadyCompleted());
-                    }
-                    if (session.isExpired()) {
-                        return submitExamInternal(session, true)
-                                .flatMap(result -> Mono.error(ExamException.sessionExpired()));
                     }
                     return Mono.just(session);
                 })
@@ -73,9 +75,9 @@ public class AnswerSubmissionService {
     }
 
     /**
-     * Submit the exam and calculate results
+     * Submit the exam and calculate results.
+     * Idempotent: a session that is already completed returns its stored result.
      */
-    @Transactional
     public Mono<ExamResultResponse> submitExam(String sessionId, Long userId) {
         log.info("Submitting exam for session {}", sessionId);
 
@@ -85,27 +87,31 @@ public class AnswerSubmissionService {
                     if (!session.getUserId().equals(userId)) {
                         return Mono.error(ExamException.sessionNotFound(sessionId));
                     }
-                    if (session.getStatus() == SessionStatus.COMPLETED) {
-                        return Mono.error(ExamException.sessionAlreadyCompleted());
+                    if (!session.isActive()) {
+                        return storedResult(session);
                     }
-                    return submitExamInternal(session, false);
+                    // Empty means a concurrent submit completed it first: answer with what that one stored
+                    return completeSession(session)
+                            .switchIfEmpty(Mono.defer(() -> sessionRepository.findBySessionId(sessionId)
+                                    .flatMap(this::storedResult)));
                 })
                 .doOnSuccess(result -> log.info("Exam submitted. Score: {}%", result.getPercentageScore()))
                 .doOnError(err -> log.error("Failed to submit exam {}: {}", sessionId, err.getMessage()));
     }
 
     /**
-     * Auto-submit expired exam sessions
+     * Auto-submit expired exam sessions (same completion path as a manual submit)
      */
-    @Transactional
     public Mono<Void> autoSubmitExpiredSessions() {
         log.info("Auto-submitting expired sessions");
 
         return sessionRepository.findExpiredSessions(LocalDateTime.now())
-                .flatMap(session -> submitExamInternal(session, true)
-                        .doOnSuccess(r -> log.info("Auto-submitted session {}", session.getSessionId()))
-                        .onErrorContinue((err, obj) -> 
-                                log.error("Failed to auto-submit session: {}", err.getMessage())))
+                .concatMap(session -> completeSession(session)
+                        .doOnNext(r -> log.info("Auto-submitted session {}", session.getSessionId()))
+                        .onErrorResume(err -> {
+                            log.error("Failed to auto-submit session {}: {}", session.getSessionId(), err.getMessage());
+                            return Mono.empty();
+                        }))
                 .then();
     }
 
@@ -173,28 +179,85 @@ public class AnswerSubmissionService {
                 && Boolean.TRUE.equals(question.getAllowMultipleAnswers());
     }
 
-    private Mono<ExamResultResponse> submitExamInternal(ExamSession session, boolean autoSubmit) {
-        return examRepository.findById(session.getExamId())
-                .flatMap(exam -> calculateScore(session, exam.getPassingScore())
-                        .flatMap(result -> {
-                            // Update session status
-                            session.setStatus(SessionStatus.COMPLETED);
-                            session.setCompletedAt(LocalDateTime.now());
-                            session.setTotalScore(result.getTotalScore());
-                            session.setPercentageScore(result.getPercentageScore());
-                            session.setPassed(result.getPassed());
-                            session.setUpdatedAt(LocalDateTime.now());
-                            
-                            return sessionRepository.save(session)
-                                    .then(cacheService.invalidateSessionCache(session.getSessionId()))
-                                    .thenReturn(result);
-                        }));
+    private record GradedSession(ExamResultResponse result, List<UserAnswer> answers) {
     }
 
-    private Mono<ExamResultResponse> calculateScore(ExamSession session, BigDecimal passingScore) {
+    /**
+     * The only completion path: manual submit, expiry detected on an answer, and the scheduler.
+     * Emits the result for the caller that moved the session out of IN_PROGRESS; empty when the
+     * session had already been completed by someone else.
+     */
+    private Mono<ExamResultResponse> completeSession(ExamSession session) {
+        Mono<ExamResultResponse> completion = sessionRepository.markCompleted(session.getId(), LocalDateTime.now())
+                .filter(updated -> updated == 1)
+                .flatMap(updated -> examRepository.findById(session.getExamId()))
+                .flatMap(exam -> calculateScore(session, exam.getPassingScore()))
+                .flatMap(graded -> {
+                    ExamResultResponse result = graded.result();
+                    return Flux.fromIterable(graded.answers())
+                            .concatMap(answer -> answerRepository.saveGrade(
+                                    answer.getId(), answer.getIsCorrect(), answer.getPointsEarned()))
+                            .then(sessionRepository.saveScore(session.getId(), result.getTotalScore(),
+                                    result.getMaxScore(), result.getPercentageScore(), result.getPassed()))
+                            .thenReturn(result);
+                });
+
+        // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real boundary
+        return transactionalOperator.transactional(completion)
+                .flatMap(result -> cacheService.invalidateSessionCache(session.getSessionId())
+                        .thenReturn(result));
+    }
+
+    /**
+     * Result of a session that is no longer in progress, rebuilt from what was stored at completion
+     */
+    private Mono<ExamResultResponse> storedResult(ExamSession session) {
+        return Mono.zip(
+                        examRepository.findById(session.getExamId()),
+                        answerRepository.countBySessionId(session.getId()),
+                        answerRepository.countCorrectBySessionId(session.getId()))
+                .map(tuple -> {
+                    int answered = tuple.getT2().intValue();
+                    int correct = tuple.getT3().intValue();
+                    return ExamResultResponse.builder()
+                            .sessionId(session.getSessionId())
+                            .examId(session.getExamId())
+                            .totalQuestions(answered)
+                            .correctAnswers(correct)
+                            .incorrectAnswers(answered - correct)
+                            .totalScore(session.getScore())
+                            .maxScore(session.getTotalPoints())
+                            .percentageScore(session.getPercentage())
+                            .passed(session.getPassed())
+                            .passingScore(tuple.getT1().getPassingScore())
+                            .startTime(session.getStartTime())
+                            .completedAt(session.getSubmittedAt())
+                            .build();
+                });
+    }
+
+    private Mono<GradedSession> calculateScore(ExamSession session, BigDecimal passingScore) {
         return answerRepository.findBySessionId(session.getId())
                 .collectList()
                 .flatMap(answers -> {
+                    if (answers.isEmpty()) {
+                        // Nothing answered (typical for an expired session): zero score, no IN () query
+                        return Mono.just(new GradedSession(ExamResultResponse.builder()
+                                .sessionId(session.getSessionId())
+                                .examId(session.getExamId())
+                                .totalQuestions(0)
+                                .correctAnswers(0)
+                                .incorrectAnswers(0)
+                                .totalScore(BigDecimal.ZERO)
+                                .maxScore(BigDecimal.ZERO)
+                                .percentageScore(BigDecimal.ZERO)
+                                .passed(BigDecimal.ZERO.compareTo(passingScore) >= 0)
+                                .passingScore(passingScore)
+                                .startTime(session.getStartTime())
+                                .completedAt(LocalDateTime.now())
+                                .build(), answers));
+                    }
+
                     List<Long> questionIds = answers.stream()
                             .map(UserAnswer::getQuestionId)
                             .collect(Collectors.toList());
@@ -242,7 +305,7 @@ public class AnswerSubmissionService {
                                             
                                             boolean passed = percentage.compareTo(passingScore) >= 0;
                                             
-                                            return ExamResultResponse.builder()
+                                            return new GradedSession(ExamResultResponse.builder()
                                                     .sessionId(session.getSessionId())
                                                     .examId(session.getExamId())
                                                     .totalQuestions(answers.size())
@@ -255,7 +318,7 @@ public class AnswerSubmissionService {
                                                     .passingScore(passingScore)
                                                     .startTime(session.getStartTime())
                                                     .completedAt(LocalDateTime.now())
-                                                    .build();
+                                                    .build(), answers);
                                         });
                             });
                 });

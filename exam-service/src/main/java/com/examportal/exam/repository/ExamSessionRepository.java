@@ -69,24 +69,34 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
     Mono<Integer> updateStatus(Long id, String status);
 
     /**
-     * Complete session with score
+     * Move the session from IN_PROGRESS to COMPLETED. Returns 1 only for the caller that made the
+     * transition, so concurrent submits cannot both complete the same session.
      */
     @Modifying
     @Query("""
-        UPDATE exam_sessions 
-        SET status = 'COMPLETED', 
-            score = :score, 
-            total_points = :totalPoints,
-            percentage = :percentage, 
-            passed = :passed, 
+        UPDATE exam_sessions
+        SET status = 'COMPLETED',
             submitted_at = :submittedAt,
-            end_time = :endTime,
-            updated_at = CURRENT_TIMESTAMP 
+            updated_at = CURRENT_TIMESTAMP,
+            version = COALESCE(version, 0) + 1
+        WHERE id = :id AND status = 'IN_PROGRESS'
+    """)
+    Mono<Integer> markCompleted(Long id, LocalDateTime submittedAt);
+
+    /**
+     * Store the score of a session completed by markCompleted (same transaction)
+     */
+    @Modifying
+    @Query("""
+        UPDATE exam_sessions
+        SET score = :score,
+            total_points = :totalPoints,
+            percentage = :percentage,
+            passed = :passed
         WHERE id = :id
     """)
-    Mono<Integer> completeSession(Long id, BigDecimal score, BigDecimal totalPoints, 
-                                   BigDecimal percentage, Boolean passed, 
-                                   LocalDateTime submittedAt, LocalDateTime endTime);
+    Mono<Integer> saveScore(Long id, BigDecimal score, BigDecimal totalPoints,
+                            BigDecimal percentage, Boolean passed);
 
     /**
      * Find timed out sessions

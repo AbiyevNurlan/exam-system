@@ -2,6 +2,7 @@ package com.examportal.common.exception;
 
 import com.examportal.common.domain.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -176,6 +177,24 @@ public class GlobalExceptionHandler {
         response.setPath(exchange.getRequest().getPath().value());
 
         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response));
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public Mono<ResponseEntity<ApiResponse<Void>>> handleOptimisticLockingFailure(
+            OptimisticLockingFailureException ex, ServerWebExchange exchange) {
+
+        log.warn("Concurrent modification: CONCURRENT_MODIFICATION - Path: {}", exchange.getRequest().getPath());
+
+        ApiResponse<Void> response = ApiResponse.error(
+                "The resource was modified by another request",
+                ApiResponse.ErrorDetails.builder()
+                        .code("CONCURRENT_MODIFICATION")
+                        .description("Reload the resource and try again")
+                        .build()
+        );
+        response.setPath(exchange.getRequest().getPath().value());
+
+        return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(response));
     }
 
     @ExceptionHandler(Exception.class)
