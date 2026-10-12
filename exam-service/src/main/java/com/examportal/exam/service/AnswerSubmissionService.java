@@ -4,7 +4,9 @@ import com.examportal.common.domain.dto.SubmitAnswerRequest;
 import com.examportal.common.domain.dto.SubmitAnswerResponse;
 import com.examportal.common.domain.dto.ExamResultResponse;
 import com.examportal.common.domain.entity.ExamSession;
+import com.examportal.common.domain.entity.Question;
 import com.examportal.common.domain.entity.QuestionOption;
+import com.examportal.common.domain.entity.QuestionType;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.domain.entity.UserAnswer;
 import com.examportal.exam.exception.ExamException;
@@ -18,7 +20,11 @@ import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -108,42 +114,63 @@ public class AnswerSubmissionService {
     private Mono<SubmitAnswerResponse> processAnswer(ExamSession session, SubmitAnswerRequest request) {
         Long questionId = request.getQuestionId();
         
-        return questionRepository.findById(questionId)
+        // The question must belong to the exam of this session
+        return questionRepository.findByIdAndExamId(questionId, session.getExamId())
                 .switchIfEmpty(Mono.error(ExamException.questionNotFound(questionId)))
                 .flatMap(question -> {
-                    // Check if answer already exists
-                    return answerRepository.findBySessionIdAndQuestionId(session.getId(), questionId)
-                            .flatMap(existing -> {
-                                // Update existing answer
-                                existing.setSelectedOptionId(request.getSelectedOptionId());
-                                existing.setTextAnswer(request.getTextAnswer());
-                                existing.setUpdatedAt(LocalDateTime.now());
-                                return answerRepository.save(existing);
-                            })
-                            .switchIfEmpty(Mono.defer(() -> {
-                                // Create new answer
-                                UserAnswer answer = UserAnswer.builder()
-                                        .sessionId(session.getId())
-                                        .questionId(questionId)
-                                        .selectedOptionId(request.getSelectedOptionId())
-                                        .textAnswer(request.getTextAnswer())
-                                        .createdAt(LocalDateTime.now())
-                                        .updatedAt(LocalDateTime.now())
-                                        .build();
-                                return answerRepository.save(answer);
-                            }))
-                            .thenReturn(question);
+                    LocalDateTime now = LocalDateTime.now();
+
+                    if (isTextQuestion(question)) {
+                        String text = request.getTextAnswer() != null ? request.getTextAnswer().trim() : null;
+                        return answerRepository.upsertAnswer(session.getId(), questionId, null, text, now);
+                    }
+
+                    List<Long> optionIds = requestedOptionIds(request);
+                    if (optionIds.isEmpty()) {
+                        return Mono.error(ExamException.selectionRequired());
+                    }
+                    if (optionIds.size() > 1 && !allowsMultipleAnswers(question)) {
+                        return Mono.error(ExamException.singleSelectionOnly());
+                    }
+                    return optionRepository.findByQuestionId(questionId)
+                            .map(QuestionOption::getId)
+                            .collect(Collectors.toSet())
+                            .flatMap(validIds -> {
+                                if (!validIds.containsAll(optionIds)) {
+                                    return Mono.error(ExamException.invalidOption());
+                                }
+                                return answerRepository.upsertAnswer(session.getId(), questionId,
+                                        optionIds.toArray(new Long[0]), null, now);
+                            });
                 })
-                .flatMap(question -> {
-                    // Count answered questions
-                    return answerRepository.countBySessionId(session.getId())
-                            .map(answeredCount -> SubmitAnswerResponse.builder()
-                                    .success(true)
-                                    .questionId(questionId)
-                                    .answeredQuestions(answeredCount.intValue())
-                                    .message("Answer saved successfully")
-                                    .build());
-                });
+                .then(Mono.defer(() -> answerRepository.countBySessionId(session.getId())))
+                .map(answeredCount -> SubmitAnswerResponse.builder()
+                        .success(true)
+                        .questionId(questionId)
+                        .answeredQuestions(answeredCount.intValue())
+                        .message("Answer saved successfully")
+                        .build());
+    }
+
+    /**
+     * Option ids from the request, without duplicates. The legacy selectedOptionId becomes a one-element list.
+     */
+    private List<Long> requestedOptionIds(SubmitAnswerRequest request) {
+        List<Long> ids = request.getSelectedOptionIds();
+        if (ids == null || ids.isEmpty()) {
+            ids = request.getSelectedOptionId() != null ? List.of(request.getSelectedOptionId()) : List.of();
+        }
+        return ids.stream().filter(Objects::nonNull).distinct().toList();
+    }
+
+    private boolean isTextQuestion(Question question) {
+        return question.getQuestionType() == QuestionType.FILL_BLANK
+                || question.getQuestionType() == QuestionType.OPEN_ENDED;
+    }
+
+    private boolean allowsMultipleAnswers(Question question) {
+        return question.getQuestionType() == QuestionType.MULTIPLE_CHOICE
+                && Boolean.TRUE.equals(question.getAllowMultipleAnswers());
     }
 
     private Mono<ExamResultResponse> submitExamInternal(ExamSession session, boolean autoSubmit) {
@@ -193,7 +220,7 @@ public class AnswerSubmissionService {
                                                 var correctOptions = correctOptionsMap.getOrDefault(
                                                         answer.getQuestionId(), List.of());
                                                 
-                                                boolean isCorrect = isAnswerCorrect(answer, correctOptions);
+                                                boolean isCorrect = isAnswerCorrect(question, answer, correctOptions);
                                                 
                                                 if (isCorrect) {
                                                     earnedPoints = earnedPoints.add(question.getPoints());
@@ -234,25 +261,30 @@ public class AnswerSubmissionService {
                 });
     }
 
-    private boolean isAnswerCorrect(UserAnswer answer, java.util.Collection<QuestionOption> correctOptions) {
+    private boolean isAnswerCorrect(Question question, UserAnswer answer,
+                                    java.util.Collection<QuestionOption> correctOptions) {
         if (correctOptions.isEmpty()) {
-            // For text-based questions, return false (manual grading needed)
+            // No answer key: nothing to compare against (manual grading is not implemented)
             return false;
         }
-        
-        // For single choice questions
-        if (answer.getSelectedOptionId() != null) {
+
+        if (isTextQuestion(question)) {
+            // Exact match ignoring case and surrounding whitespace
+            String text = answer.getTextAnswer();
+            if (text == null || text.isBlank()) {
+                return false;
+            }
             return correctOptions.stream()
-                    .anyMatch(opt -> opt.getId().equals(answer.getSelectedOptionId()));
+                    .anyMatch(opt -> opt.getOptionText() != null
+                            && opt.getOptionText().trim().equalsIgnoreCase(text.trim()));
         }
-        
-        // For text answers - basic comparison (could be enhanced with fuzzy matching)
-        if (answer.getTextAnswer() != null) {
-            return correctOptions.stream()
-                    .anyMatch(opt -> opt.getOptionText() != null && 
-                            opt.getOptionText().equalsIgnoreCase(answer.getTextAnswer().trim()));
+
+        // Choice questions are all-or-nothing: the selected set must equal the correct set
+        Long[] selected = answer.getSelectedOptionIds();
+        if (selected == null || selected.length == 0) {
+            return false;
         }
-        
-        return false;
+        Set<Long> correctIds = correctOptions.stream().map(QuestionOption::getId).collect(Collectors.toSet());
+        return correctIds.equals(new HashSet<>(Arrays.asList(selected)));
     }
 }

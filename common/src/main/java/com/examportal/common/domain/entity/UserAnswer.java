@@ -33,11 +33,8 @@ public class UserAnswer {
     @Column("question_id")
     private Long questionId;
 
-    @Column("selected_option_id")
-    private Long selectedOptionId;  // For single choice
-
     @Column("selected_option_ids")
-    private Long[] selectedOptionIds;  // For multiple choice
+    private Long[] selectedOptionIds;  // Chosen options; one element for single choice and true/false
 
     @Column("text_answer")
     private String textAnswer;
@@ -47,6 +44,9 @@ public class UserAnswer {
 
     @Column("points_earned")
     private BigDecimal pointsEarned;
+
+    @Column("needs_manual_review")
+    private Boolean needsManualReview;
 
     @Column("answered_at")
     private LocalDateTime answeredAt;

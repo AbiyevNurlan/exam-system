@@ -21,9 +21,9 @@ public class SubmitAnswerRequest {
     @NotNull(message = "Question ID is required")
     private Long questionId;
 
-    private Long selectedOptionId;  // For single choice
-    
-    private List<Long> selectedOptionIds;  // For multiple choice
+    private Long selectedOptionId;  // Legacy: treated as a one-element selectedOptionIds
+
+    private List<Long> selectedOptionIds;  // Chosen options for choice questions
     
     private String textAnswer;
 }

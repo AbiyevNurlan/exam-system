@@ -87,21 +87,21 @@ CREATE TABLE IF NOT EXISTS exam_sessions (
     version BIGINT DEFAULT 0
 );
 
--- selected_option_id: written by the current UserAnswer entity (single choice)
--- selected_option_ids: reserved for multi-select
+-- selected_option_ids: the only storage for chosen options (one element for single choice and true/false)
+-- needs_manual_review: always false until manual grading of open questions exists
 CREATE TABLE IF NOT EXISTS user_answers (
     id BIGSERIAL PRIMARY KEY,
     session_id BIGINT NOT NULL REFERENCES exam_sessions(id) ON DELETE CASCADE,
     question_id BIGINT NOT NULL REFERENCES questions(id),
-    selected_option_id BIGINT,
     selected_option_ids BIGINT[],
     text_answer TEXT,
     is_correct BOOLEAN,
     points_earned DECIMAL(5,2) DEFAULT 0,
+    needs_manual_review BOOLEAN NOT NULL DEFAULT FALSE,
     answered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    -- AnswerSubmissionService.processAnswer updates the existing row per (session, question)
+    -- UserAnswerRepository.upsertAnswer relies on this constraint (ON CONFLICT)
     CONSTRAINT uq_user_answers_session_question UNIQUE (session_id, question_id)
 );
 

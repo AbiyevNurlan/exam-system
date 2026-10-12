@@ -71,4 +71,16 @@ public class ExamException extends ApplicationException {
     public static ExamException questionNotFound(Long questionId) {
         return new ExamException("Question not found with ID: " + questionId, HttpStatus.NOT_FOUND, "QUESTION_NOT_FOUND");
     }
+
+    public static ExamException selectionRequired() {
+        return new ExamException("At least one option must be selected", HttpStatus.BAD_REQUEST, "ANSWER_SELECTION_REQUIRED");
+    }
+
+    public static ExamException singleSelectionOnly() {
+        return new ExamException("This question accepts exactly one option", HttpStatus.BAD_REQUEST, "ANSWER_SINGLE_SELECTION_ONLY");
+    }
+
+    public static ExamException invalidOption() {
+        return new ExamException("Selected option does not belong to this question", HttpStatus.BAD_REQUEST, "ANSWER_INVALID_OPTION");
+    }
 }
