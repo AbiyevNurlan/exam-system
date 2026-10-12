@@ -321,8 +321,10 @@ public class AuthService {
      * Validate user status and password
      */
     private Mono<User> validateUserAndPassword(User user, String password) {
-        // Check if account is locked (before the password, so a correct password never logs in)
-        if (user.isAccountLocked()) {
+        // Check if account is locked (before the password, so a correct password never logs in).
+        // Lockout does not apply to an unverified account: it answers 401 for a wrong password and
+        // EMAIL_NOT_VERIFIED for the right one, and its failed logins are not counted.
+        if (user.isAccountLocked() && user.isEmailVerified()) {
             log.info("Login attempt for locked account: {}", maskEmail(user.getEmail()));
             return Mono.error(new AccountLockedException());
         }

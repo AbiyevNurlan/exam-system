@@ -69,6 +69,8 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
      * so concurrent wrong attempts cannot skip the limit. Uses the database clock.
      * lockMinutes = 0 locks without an expiry (only an admin can unlock).
      * Emits whether the account is now locked; empty if the email is unknown or already locked.
+     * An unverified account is never counted or locked: anyone can register someone else's email,
+     * and must not be able to lock its owner out before the address is verified.
      * The build has no -parameters flag, so parameters that are reused in the SQL need explicit @Param names.
      */
     @Query("""
@@ -81,7 +83,7 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
                     WHEN failed_login_attempts + 1 >= :maxAttempts THEN NULL
                     ELSE locked_until END,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE email = :email AND account_locked = false
+            WHERE email = :email AND account_locked = false AND email_verified = true
             RETURNING account_locked
             """)
     Mono<Boolean> registerFailedLogin(@Param("email") String email,
