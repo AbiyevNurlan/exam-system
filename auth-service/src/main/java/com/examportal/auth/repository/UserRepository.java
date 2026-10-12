@@ -1,6 +1,7 @@
 package com.examportal.auth.repository;
 
 import com.examportal.common.domain.entity.User;
+import com.examportal.common.domain.entity.UserRole;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
@@ -30,6 +31,23 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
      * Find user by email and active status
      */
     Mono<User> findByEmailAndActive(String email, boolean active);
+
+    /**
+     * Check if any user has the given role
+     */
+    Mono<Boolean> existsByRole(UserRole role);
+
+    /**
+     * Create the first ADMIN, only if no ADMIN exists and the email is free; returns 1 if it was created
+     */
+    @Modifying
+    @Query("""
+            INSERT INTO users (email, password_hash, first_name, last_name, role, email_verified)
+            SELECT :email, :passwordHash, 'System', 'Administrator', 'ADMIN', true
+            WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'ADMIN')
+            ON CONFLICT DO NOTHING
+            """)
+    Mono<Integer> insertFirstAdmin(String email, String passwordHash);
 
     /**
      * Count a failed login and lock the account once the limit is reached, in ONE atomic statement

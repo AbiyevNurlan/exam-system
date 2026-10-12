@@ -48,6 +48,9 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env}
+      # Optional: first ADMIN is created on startup when both are set (no default values)
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_auth

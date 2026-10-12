@@ -43,6 +43,10 @@ auth:
   lockout:
     max-attempts: 5        # wrong passwords before the account is locked
     duration-minutes: 15   # 0 = locked until an admin unlocks
+  bootstrap:
+    # First ADMIN, created on startup only when both are set and no ADMIN exists yet
+    admin-email: ${ADMIN_EMAIL:}
+    admin-password: ${ADMIN_PASSWORD:}
 
 management:
   endpoints:
