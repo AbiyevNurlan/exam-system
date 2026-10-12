@@ -33,6 +33,17 @@ Details: README, section "Database safety".
 - **Roles** are exactly `ADMIN`, `INSTRUCTOR`, `STUDENT`. There is no TEACHER role.
 - **Registration always creates a STUDENT.** Other roles are assigned by an admin or the bootstrap
   admin from the environment, never by the registering client.
+- **Registration is complete only after the email code (OTP) was verified.** `register` creates an
+  unverified STUDENT and returns no tokens; tokens are issued by `verify-otp`, and `login` of an
+  unverified account is 403 `EMAIL_NOT_VERIFIED` (only after the password was accepted). Nothing
+  but `verify-otp` and the admin `verify-email` endpoint sets `email_verified`.
+- **One-time codes** come from `SecureRandom`, are stored only as HMAC-SHA256 (`OTP_HMAC_SECRET`),
+  are single use, and are never logged, returned or put into an error message. Their limits (TTL,
+  wrong attempts, resend cooldown, sends per hour; `auth.otp.*`) are enforced in SQL by `OtpService`.
+- **Endpoints that take an email without a session answer the same for every outcome**
+  (`resend-otp`: always the same 200; `verify-otp`: always the same 400).
+- **Email leaves the system only through `EmailSender`** (plain SMTP, no provider API), never on a
+  reactive thread, and a failed send never fails the request that caused it.
 - **`@Transactional` does not work at runtime in these services.** When several writes must be
   atomic, wrap them with `TransactionalOperator`. Do not add `@Transactional`; it only misleads.
 - **User ids are UUIDs** (`users.id` in `exam_auth`): JWT subject, `UserPrincipal.id`,
