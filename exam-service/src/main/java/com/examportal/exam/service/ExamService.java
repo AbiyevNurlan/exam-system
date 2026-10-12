@@ -217,12 +217,16 @@ public class ExamService {
     /**
      * Get next batch of questions for a session
      */
-    public Mono<List<QuestionResponse>> getNextQuestions(String sessionId, int batch) {
+    public Mono<List<QuestionResponse>> getNextQuestions(String sessionId, int batch, Long userId) {
         log.debug("Getting questions batch {} for session {}", batch, sessionId);
 
         return sessionRepository.findBySessionId(sessionId)
                 .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
                 .flatMap(session -> {
+                    // Someone else's session answers 404, same as an unknown id
+                    if (!session.getUserId().equals(userId)) {
+                        return Mono.error(ExamException.sessionNotFound(sessionId));
+                    }
                     if (!session.isActive()) {
                         return Mono.error(ExamException.sessionAlreadyCompleted());
                     }

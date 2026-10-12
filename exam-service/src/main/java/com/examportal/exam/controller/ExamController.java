@@ -138,11 +138,12 @@ public class ExamController {
     @Operation(summary = "Get next questions", description = "Get the next batch of questions for a session")
     public Mono<ApiResponse<List<QuestionResponse>>> getNextQuestions(
             @PathVariable String sessionId,
-            @RequestParam(defaultValue = "0") @Parameter(description = "Batch number (0-indexed)") int batch) {
-        
+            @RequestParam(defaultValue = "0") @Parameter(description = "Batch number (0-indexed)") int batch,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
         log.debug("Getting questions batch {} for session: {}", batch, sessionId);
-        
-        return examService.getNextQuestions(sessionId, batch)
+
+        return examService.getNextQuestions(sessionId, batch, principal.getId())
                 .map(ApiResponse::success);
     }
 

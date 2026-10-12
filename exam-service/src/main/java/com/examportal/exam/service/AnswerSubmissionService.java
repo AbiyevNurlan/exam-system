@@ -47,8 +47,9 @@ public class AnswerSubmissionService {
         return sessionRepository.findBySessionId(sessionId)
                 .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
                 .<ExamSession>flatMap(session -> {
+                    // Someone else's session answers 404, same as an unknown id
                     if (!session.getUserId().equals(userId)) {
-                        return Mono.error(ExamException.notOwner());
+                        return Mono.error(ExamException.sessionNotFound(sessionId));
                     }
                     if (!session.isActive()) {
                         return Mono.error(ExamException.sessionAlreadyCompleted());
@@ -76,7 +77,7 @@ public class AnswerSubmissionService {
                 .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
                 .flatMap(session -> {
                     if (!session.getUserId().equals(userId)) {
-                        return Mono.error(ExamException.notOwner());
+                        return Mono.error(ExamException.sessionNotFound(sessionId));
                     }
                     if (session.getStatus() == SessionStatus.COMPLETED) {
                         return Mono.error(ExamException.sessionAlreadyCompleted());
