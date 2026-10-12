@@ -55,9 +55,24 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- One row per admin action (e.g. UNLOCK_USER). No foreign keys: audit rows must outlive the users they mention.
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_user_id UUID NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    target_user_id UUID,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Case-insensitive email uniqueness
 CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_lower ON users (lower(email));
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+-- Admin user search: case-insensitive name prefix (text_pattern_ops lets LIKE 'abc%' use the index)
+CREATE INDEX IF NOT EXISTS idx_users_first_name_lower ON users (lower(first_name) text_pattern_ops);
+CREATE INDEX IF NOT EXISTS idx_users_last_name_lower ON users (lower(last_name) text_pattern_ops);
+CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_target_user_id ON admin_audit_log(target_user_id);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at ON admin_audit_log(created_at);
 
 -- The UNIQUE constraint on each token column already provides the token lookup index.
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
