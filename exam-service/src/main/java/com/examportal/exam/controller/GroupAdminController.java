@@ -4,10 +4,12 @@ import com.examportal.common.domain.dto.ApiResponse;
 import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.group.AddGroupMemberRequest;
 import com.examportal.common.domain.dto.group.AddGroupMemberResponse;
+import com.examportal.common.domain.dto.group.CsvImportResponse;
 import com.examportal.common.domain.dto.group.GroupMemberResponse;
 import com.examportal.common.domain.dto.group.GroupRequest;
 import com.examportal.common.domain.dto.group.GroupResponse;
 import com.examportal.common.security.UserPrincipal;
+import com.examportal.exam.service.GroupImportService;
 import com.examportal.exam.service.GroupService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -17,6 +19,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -39,6 +43,7 @@ import java.util.UUID;
 public class GroupAdminController {
 
     private final GroupService groupService;
+    private final GroupImportService importService;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -109,6 +114,18 @@ public class GroupAdminController {
             @AuthenticationPrincipal UserPrincipal principal) {
 
         return groupService.addMember(id, request, principal.getId())
+                .map(ApiResponse::success);
+    }
+
+    @PostMapping(value = "/{id}/members/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Import members from CSV", description = "Multipart part 'file': one email per line, optional header, max 20000 rows and 2 MB. dryRun=true only reports what would happen")
+    public Mono<ApiResponse<CsvImportResponse>> importMembers(
+            @PathVariable Long id,
+            @RequestPart("file") FilePart file,
+            @RequestParam(defaultValue = "false") @Parameter(description = "Report only, store nothing") boolean dryRun,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return importService.importMembers(id, file, dryRun, principal.getId())
                 .map(ApiResponse::success);
     }
 

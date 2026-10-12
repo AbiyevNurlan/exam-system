@@ -52,6 +52,11 @@ public class GroupException extends ApplicationException {
                 "AUDIENCE_GROUP_NOT_FOUND");
     }
 
+    public static GroupException csvTooManyRows(int maxRows) {
+        return new GroupException("The file has more than " + maxRows + " rows", HttpStatus.BAD_REQUEST,
+                "CSV_TOO_MANY_ROWS");
+    }
+
     public static GroupException userDirectoryUnavailable(Throwable cause) {
         return new GroupException("User lookup is currently unavailable", HttpStatus.SERVICE_UNAVAILABLE,
                 "USER_DIRECTORY_UNAVAILABLE", cause);

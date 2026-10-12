@@ -1,5 +1,6 @@
 package com.examportal.auth.service;
 
+import com.examportal.auth.client.GroupInviteClient;
 import com.examportal.auth.exception.AccountLockedException;
 import com.examportal.auth.exception.DuplicateEmailException;
 import com.examportal.auth.exception.InvalidCredentialsException;
@@ -41,6 +42,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final TransactionalOperator transactionalOperator;
+    private final GroupInviteClient groupInviteClient;
 
     private static final int PASSWORD_RESET_TOKEN_EXPIRY_HOURS = 1;
 
@@ -90,6 +92,8 @@ public class AuthService {
                     return userRepository.resetFailedLoginAttempts(user.getId())
                             .thenReturn(user);
                 })
+                // Group invites imported for this (verified) email become memberships; never fails the login
+                .flatMap(user -> groupInviteClient.applyForVerifiedUser(user).thenReturn(user))
                 .flatMap(this::generateAuthResponse)
                 .doOnSuccess(response -> log.info("Login successful for email: {}", maskEmail(email)))
                 .onErrorResume(InvalidCredentialsException.class, error -> 

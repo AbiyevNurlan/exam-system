@@ -57,6 +57,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Optional: shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      EXAM_INTERNAL_URL: http://exam-service:8082
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_auth

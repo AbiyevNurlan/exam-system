@@ -115,6 +115,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      EXAM_INTERNAL_URL: http://exam-service-1:8082
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -162,6 +163,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      EXAM_INTERNAL_URL: http://exam-service-1:8082
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational

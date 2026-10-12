@@ -48,6 +48,10 @@ public class SecurityConfig {
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         
+                        // Service-to-service endpoints: no JWT, the controller checks the shared secret
+                        // (InternalServiceAuth). The gateway does not route /internal/**.
+                        .pathMatchers("/internal/**").permitAll()
+
                         // Group administration - admin only, enforced here by path as well as by @PreAuthorize
                         .pathMatchers("/api/admin/**").hasRole("ADMIN")
 

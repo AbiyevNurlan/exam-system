@@ -56,6 +56,11 @@ security:
 internal:
   service-secret: ${INTERNAL_SERVICE_SECRET:}
 
+# exam-service keeps the user groups; a verified login reports there so pending group invites are applied
+services:
+  exam:
+    url: ${EXAM_INTERNAL_URL:http://localhost:8082}
+
 auth:
   lockout:
     max-attempts: 5        # wrong passwords before the account is locked
