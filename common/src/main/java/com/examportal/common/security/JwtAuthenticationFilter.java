@@ -17,6 +17,7 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * JWT Authentication Filter
@@ -49,7 +50,7 @@ public class JwtAuthenticationFilter implements WebFilter {
         if (StringUtils.hasText(token)) {
             try {
                 if (jwtTokenProvider.validateToken(token)) {
-                    Long userId = jwtTokenProvider.getUserIdFromToken(token);
+                    UUID userId = jwtTokenProvider.getUserIdFromToken(token);
                     String email = jwtTokenProvider.getEmailFromToken(token);
                     String role = jwtTokenProvider.getRoleFromToken(token);
 

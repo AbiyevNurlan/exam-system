@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -59,15 +60,15 @@ public class JwtTokenProvider {
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public String generateAccessToken(Long userId, String email, String role) {
+    public String generateAccessToken(UUID userId, String email, String role) {
         return generateToken(userId, email, role, accessTokenExpiration, "ACCESS");
     }
 
-    public String generateRefreshToken(Long userId, String email, String role) {
+    public String generateRefreshToken(UUID userId, String email, String role) {
         return generateToken(userId, email, role, refreshTokenExpiration, "REFRESH");
     }
 
-    private String generateToken(Long userId, String email, String role, long expiration, String tokenType) {
+    private String generateToken(UUID userId, String email, String role, long expiration, String tokenType) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expiration);
 
@@ -103,9 +104,21 @@ public class JwtTokenProvider {
         return false;
     }
 
-    public Long getUserIdFromToken(String token) {
+    /**
+     * User id from the token subject. Anything but a canonical UUID is rejected with
+     * IllegalArgumentException, which callers treat as an invalid token.
+     */
+    public UUID getUserIdFromToken(String token) {
         String subject = getClaimFromToken(token, Claims::getSubject);
-        return Long.parseLong(subject);
+        if (subject == null) {
+            throw new IllegalArgumentException("Token subject is missing");
+        }
+        UUID userId = UUID.fromString(subject);
+        // UUID.fromString is lenient (e.g. "1-1-1-1-1"): only the canonical form is accepted
+        if (!userId.toString().equalsIgnoreCase(subject)) {
+            throw new IllegalArgumentException("Token subject is not a UUID");
+        }
+        return userId;
     }
 
     public String getEmailFromToken(String token) {

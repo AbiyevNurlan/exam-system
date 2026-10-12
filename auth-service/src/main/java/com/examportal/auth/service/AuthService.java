@@ -113,9 +113,8 @@ public class AuthService {
                         .switchIfEmpty(Mono.error(new InvalidTokenException("User not found")))
                         .flatMap(user -> {
                             // Generate new access token
-                            Long userId = Long.valueOf(user.getId().hashCode() & Integer.MAX_VALUE);
                             String accessToken = jwtTokenProvider.generateAccessToken(
-                                    userId,
+                                    user.getId(),
                                     user.getEmail(),
                                     user.getRole().name()
                             );
@@ -304,9 +303,8 @@ public class AuthService {
      * Generate auth response with tokens
      */
     private Mono<AuthResponse> generateAuthResponse(User user) {
-        Long userId = Long.valueOf(user.getId().hashCode() & Integer.MAX_VALUE);
         String accessToken = jwtTokenProvider.generateAccessToken(
-                userId,
+                user.getId(),
                 user.getEmail(),
                 user.getRole().name()
         );
@@ -325,7 +323,7 @@ public class AuthService {
                 .tokenType("Bearer")
                 .expiresIn(jwtTokenProvider.getAccessTokenExpiration())
                 .user(AuthResponse.UserInfo.builder()
-                        .id(Long.valueOf(user.getId().hashCode() & Integer.MAX_VALUE))
+                        .id(user.getId())
                         .email(user.getEmail())
                         .firstName(user.getFirstName())
                         .lastName(user.getLastName())
