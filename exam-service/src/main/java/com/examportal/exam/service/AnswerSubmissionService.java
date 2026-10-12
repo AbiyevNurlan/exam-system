@@ -47,6 +47,7 @@ public class AnswerSubmissionService {
     private final ExamSessionRepository sessionRepository;
     private final UserAnswerRepository answerRepository;
     private final ExamCacheService cacheService;
+    private final ExamAccessPolicy accessPolicy;
     private final TransactionalOperator transactionalOperator;
 
     /**
@@ -57,11 +58,9 @@ public class AnswerSubmissionService {
 
         return sessionRepository.findBySessionId(sessionId)
                 .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
+                // Someone else's session answers 404, same as an unknown id
+                .flatMap(session -> accessPolicy.requireOwnSession(userId, session))
                 .<ExamSession>flatMap(session -> {
-                    // Someone else's session answers 404, same as an unknown id
-                    if (!session.getUserId().equals(userId)) {
-                        return Mono.error(ExamException.sessionNotFound(sessionId));
-                    }
                     if (session.isExpired()) {
                         // No time beyond the server-side endTime. The auto-submit commits in its own
                         // transaction before the error is raised, and is a no-op if the scheduler got there first.
@@ -88,10 +87,8 @@ public class AnswerSubmissionService {
 
         return sessionRepository.findBySessionId(sessionId)
                 .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
+                .flatMap(session -> accessPolicy.requireOwnSession(userId, session))
                 .flatMap(session -> {
-                    if (!session.getUserId().equals(userId)) {
-                        return Mono.error(ExamException.sessionNotFound(sessionId));
-                    }
                     // A no-op when the session is already completed (also by a concurrent submit);
                     // either way the answer is built from what is stored
                     Mono<Void> completion = session.isActive() ? completeSession(session).then() : Mono.empty();
@@ -110,11 +107,9 @@ public class AnswerSubmissionService {
 
         return sessionRepository.findBySessionId(sessionId)
                 .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
+                // Someone else's session answers 404, same as an unknown id
+                .flatMap(session -> accessPolicy.requireOwnSession(userId, session))
                 .flatMap(session -> {
-                    // Someone else's session answers 404, same as an unknown id
-                    if (!session.getUserId().equals(userId)) {
-                        return Mono.error(ExamException.sessionNotFound(sessionId));
-                    }
                     if (session.getStatus() != SessionStatus.COMPLETED) {
                         return Mono.error(ExamException.sessionNotCompleted());
                     }

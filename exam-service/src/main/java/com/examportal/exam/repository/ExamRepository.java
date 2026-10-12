@@ -41,10 +41,57 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
     Flux<Exam> findActiveExams(LocalDateTime now);
 
     /**
-     * Find exams available for a user (SCHEDULED or ACTIVE)
+     * The access rule as a SQL condition on "exams e". Used only through ExamAccessPolicy, which holds
+     * the same rule for a single exam: ADMIN, the owning INSTRUCTOR, every PUBLIC exam, and GROUP exams
+     * with at least one active audience group the user is a member of.
      */
-    @Query("SELECT * FROM exams WHERE status IN ('SCHEDULED', 'ACTIVE') AND active = true ORDER BY start_time ASC")
-    Flux<Exam> findAvailableExams();
+    String ACCESS_CONDITION = """
+        (:admin OR (:instructor AND e.created_by = :userId) OR e.access_type = 'PUBLIC' OR EXISTS (
+            SELECT 1 FROM exam_audience a
+            JOIN user_groups g ON g.id = a.group_id AND g.active = true
+            JOIN user_group_members m ON m.group_id = a.group_id
+            WHERE a.exam_id = e.id AND m.user_id = :userId))
+        """;
+
+    /**
+     * SCHEDULED or ACTIVE exams the user may access and can still start or resume: an attempt is left
+     * (every session counts) or an active session still has time.
+     */
+    String AVAILABLE_CONDITION = """
+        e.status IN ('SCHEDULED', 'ACTIVE') AND e.active = true
+        AND """ + ACCESS_CONDITION + """
+        AND ((SELECT COUNT(*) FROM exam_sessions s WHERE s.exam_id = e.id AND s.user_id = :userId)
+                < COALESCE(e.max_attempts, 1)
+             OR EXISTS (SELECT 1 FROM exam_sessions s WHERE s.exam_id = e.id AND s.user_id = :userId
+                        AND s.status = 'IN_PROGRESS' AND s.end_time > :now))
+        """;
+
+    /**
+     * One page of the exams available to a user. Call through ExamAccessPolicy.
+     */
+    @Query("SELECT e.* FROM exams e WHERE " + AVAILABLE_CONDITION
+            + " ORDER BY e.start_time ASC, e.id ASC LIMIT :limit OFFSET :offset")
+    Flux<Exam> findAvailableExams(UUID userId, boolean admin, boolean instructor, LocalDateTime now,
+                                  int limit, long offset);
+
+    /**
+     * Number of exams available to a user. Call through ExamAccessPolicy.
+     */
+    @Query("SELECT COUNT(*) FROM exams e WHERE " + AVAILABLE_CONDITION)
+    Mono<Long> countAvailableExams(UUID userId, boolean admin, boolean instructor, LocalDateTime now);
+
+    /**
+     * Whether the user is a member of at least one active audience group of the exam.
+     * Call through ExamAccessPolicy.
+     */
+    @Query("""
+        SELECT EXISTS (
+            SELECT 1 FROM exam_audience a
+            JOIN user_groups g ON g.id = a.group_id AND g.active = true
+            JOIN user_group_members m ON m.group_id = a.group_id
+            WHERE a.exam_id = :examId AND m.user_id = :userId)
+    """)
+    Mono<Boolean> isAudienceMember(Long examId, UUID userId);
 
     /**
      * Check if an exam exists and belongs to a user

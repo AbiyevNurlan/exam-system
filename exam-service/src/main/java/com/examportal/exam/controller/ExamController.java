@@ -63,7 +63,7 @@ public class ExamController {
         
         log.info("Updating exam: {} by user: {}", id, principal.getId());
         
-        return examService.updateExam(id, request, principal.getId())
+        return examService.updateExam(id, request, principal.getId(), principal.getRole())
                 .map(exam -> ApiResponse.success(exam, "Exam updated successfully"));
     }
 
@@ -77,7 +77,7 @@ public class ExamController {
         
         log.info("Deleting exam: {} by user: {}", id, principal.getId());
         
-        return examService.deleteExam(id, principal.getId());
+        return examService.deleteExam(id, principal.getId(), principal.getRole());
     }
 
     @GetMapping("/{id}")
@@ -107,13 +107,16 @@ public class ExamController {
 
     @GetMapping("/available")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR', 'STUDENT')")
-    @Operation(summary = "Get available exams", description = "Get exams available for participation")
-    public Flux<ExamResponse> getAvailableExams(
+    @Operation(summary = "Get available exams", description = "Paginated exams the user may access and can still start")
+    public Mono<ApiResponse<PageResponse<ExamResponse>>> getAvailableExams(
+            @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
             @AuthenticationPrincipal UserPrincipal principal) {
         
         log.debug("Getting available exams for user: {}", principal.getId());
         
-        return examService.getAvailableExams(principal.getId());
+        return examService.getAvailableExams(principal.getId(), principal.getRole(), page, size)
+                .map(ApiResponse::success);
     }
 
     // ==================== Exam Session Operations ====================
@@ -130,7 +133,7 @@ public class ExamController {
         
         StartExamRequest startRequest = request != null ? request : new StartExamRequest();
         
-        return examService.startExam(id, principal.getId(), startRequest)
+        return examService.startExam(id, principal.getId(), principal.getRole(), startRequest)
                 .map(response -> ApiResponse.success(response, "Exam started successfully"));
     }
 

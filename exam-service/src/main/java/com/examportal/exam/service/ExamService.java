@@ -12,8 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.util.function.Tuple2;
-import reactor.util.function.Tuples;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -34,12 +32,13 @@ public class ExamService {
     private final ExamSessionRepository sessionRepository;
     private final ExamCacheService cacheService;
     private final AnswerSubmissionService answerService;
+    private final ExamAccessPolicy accessPolicy;
     private final ExamValidator validator;
     private final ExamMapper mapper;
     private final TransactionalOperator transactionalOperator;
 
     private static final int DEFAULT_BATCH_SIZE = 10;
-    private static final int MAX_RESULTS_PAGE_SIZE = 50;
+    private static final int MAX_PAGE_SIZE = 50;
 
     /**
      * Create a new exam with questions and options
@@ -68,10 +67,10 @@ public class ExamService {
     /**
      * Update an existing exam
      */
-    public Mono<ExamResponse> updateExam(Long examId, UpdateExamRequest request, UUID userId) {
+    public Mono<ExamResponse> updateExam(Long examId, UpdateExamRequest request, UUID userId, String role) {
         log.info("Updating exam {} for user {}", examId, userId);
 
-        Mono<ExamResponse> update = findExistingExam(examId)
+        Mono<ExamResponse> update = findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
                     if (!exam.getCreatedBy().equals(userId)) {
                         return Mono.error(ExamException.notOwner());
@@ -106,10 +105,10 @@ public class ExamService {
     /**
      * Delete an exam
      */
-    public Mono<Void> deleteExam(Long examId, UUID userId) {
+    public Mono<Void> deleteExam(Long examId, UUID userId, String role) {
         log.info("Deleting exam {} for user {}", examId, userId);
 
-        return findExistingExam(examId)
+        return findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
                     if (!exam.getCreatedBy().equals(userId)) {
                         return Mono.error(ExamException.notOwner());
@@ -133,21 +132,22 @@ public class ExamService {
     public Mono<ExamResponse> getExamById(Long examId, UUID userId, String role) {
         log.debug("Getting exam {} for user {}", examId, userId);
 
-        return cacheService.getCachedExam(examId)
-                .switchIfEmpty(findExistingExam(examId)
-                        .flatMap(this::loadExamWithQuestions)
-                        .flatMap(response -> cacheService.cacheExam(response).thenReturn(response)))
-                .flatMap(full -> {
-                    // The answer key is only for ADMIN and the INSTRUCTOR who owns the exam
-                    boolean owner = "INSTRUCTOR".equals(role) && userId.equals(full.getCreatedBy());
-                    if ("ADMIN".equals(role) || owner) {
-                        return Mono.just(full);
-                    }
-                    if (full.getStatus() == ExamStatus.DRAFT) {
-                        return Mono.error(ExamException.notFound(examId));
-                    }
-                    return Mono.just(mapper.toParticipantView(full));
-                });
+        // The exam row is always read, so the access check never relies on the cache; only the
+        // questions and options come from it
+        return findAccessibleExam(examId, userId, role)
+                .flatMap(exam -> cacheService.getCachedExam(examId)
+                        .switchIfEmpty(Mono.defer(() -> loadExamWithQuestions(exam)
+                                .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))))
+                        .flatMap(full -> {
+                            // The answer key is only for ADMIN and the INSTRUCTOR who owns the exam
+                            if (accessPolicy.canManage(userId, role, exam)) {
+                                return Mono.just(full);
+                            }
+                            if (exam.getStatus() == ExamStatus.DRAFT) {
+                                return Mono.error(ExamException.notFound(examId));
+                            }
+                            return Mono.just(mapper.toParticipantView(full));
+                        }));
     }
 
     /**
@@ -164,38 +164,45 @@ public class ExamService {
     }
 
     /**
-     * Get available exams for participants
+     * One page of the exams a participant may access and can still start or resume.
+     * Which exams are listed is decided in SQL by the access policy; this only adds the attempt figures.
      */
-    public Flux<ExamResponse> getAvailableExams(UUID userId) {
+    public Mono<PageResponse<ExamResponse>> getAvailableExams(UUID userId, String role, int page, int size) {
         log.debug("Getting available exams for user {}", userId);
 
-        return examRepository.findAvailableExams()
-                .flatMap(exam -> Mono.zip(
-                                sessionRepository.countByExamIdAndUserId(exam.getId(), userId),
-                                sessionRepository.findActiveSession(exam.getId(), userId)
-                                        .map(active -> !active.isExpired())
-                                        .defaultIfEmpty(false))
-                        .map(tuple -> {
-                            // Same rule as startExam: every session counts as an attempt, and an active
-                            // session that still has time can always be resumed
-                            int remaining = Math.max(0, maxAttempts(exam) - tuple.getT1().intValue());
-                            boolean resumable = tuple.getT2();
-                            ExamResponse response = mapper.toResponse(exam);
-                            response.setRemainingAttempts(remaining);
-                            response.setCanStart(exam.canStart() && (remaining > 0 || resumable));
-                            return Tuples.of(response, remaining > 0 || resumable);
-                        }))
-                .filter(Tuple2::getT2)
-                .map(Tuple2::getT1);
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+
+        return accessPolicy.countAvailableExams(userId, role)
+                .flatMap(total -> accessPolicy.findAvailableExams(userId, role, pageSize, (long) pageNumber * pageSize)
+                        .concatMap(exam -> Mono.zip(
+                                        sessionRepository.countByExamIdAndUserId(exam.getId(), userId),
+                                        sessionRepository.findActiveSession(exam.getId(), userId)
+                                                .map(active -> !active.isExpired())
+                                                .defaultIfEmpty(false))
+                                .map(tuple -> {
+                                    // Same rule as startExam: every session counts as an attempt, and an
+                                    // active session that still has time can always be resumed
+                                    int remaining = Math.max(0, maxAttempts(exam) - tuple.getT1().intValue());
+                                    boolean resumable = tuple.getT2();
+                                    ExamResponse response = mapper.toResponse(exam);
+                                    response.setRemainingAttempts(remaining);
+                                    response.setCanStart(exam.canStart() && (remaining > 0 || resumable));
+                                    return response;
+                                }))
+                        .collectList()
+                        .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
     }
 
     /**
      * Start an exam session
      */
-    public Mono<StartExamResponse> startExam(Long examId, UUID userId, StartExamRequest request) {
+    public Mono<StartExamResponse> startExam(Long examId, UUID userId, String role, StartExamRequest request) {
         log.info("Starting exam {} for user {}", examId, userId);
 
-        return findExistingExam(examId)
+        // Start always needs access to the exam, also when a session is already open: a user who lost
+        // access finishes that session through the session endpoints, not through start
+        return findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
                     if (!exam.canStart()) {
                         return Mono.error(ExamException.notActive());
@@ -221,11 +228,9 @@ public class ExamService {
 
         return sessionRepository.findBySessionId(sessionId)
                 .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
+                // Someone else's session answers 404, same as an unknown id
+                .flatMap(session -> accessPolicy.requireOwnSession(userId, session))
                 .flatMap(session -> {
-                    // Someone else's session answers 404, same as an unknown id
-                    if (!session.getUserId().equals(userId)) {
-                        return Mono.error(ExamException.sessionNotFound(sessionId));
-                    }
                     if (!session.isActive()) {
                         return Mono.error(ExamException.sessionAlreadyCompleted());
                     }
@@ -240,13 +245,12 @@ public class ExamService {
     public Mono<PageResponse<SessionSummaryResponse>> getExamResults(Long examId, UUID userId, String role,
                                                                      SessionStatus status, int page, int size) {
         int pageNumber = Math.max(page, 0);
-        int pageSize = Math.min(Math.max(size, 1), MAX_RESULTS_PAGE_SIZE);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         String statusFilter = status != null ? status.name() : null;
 
-        return findExistingExam(examId)
+        return findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
-                    boolean owner = "INSTRUCTOR".equals(role) && userId.equals(exam.getCreatedBy());
-                    if (!"ADMIN".equals(role) && !owner) {
+                    if (!accessPolicy.canManage(userId, role, exam)) {
                         return Mono.error(ExamException.notOwner());
                     }
                     return sessionRepository.countByExamIdAndOptionalStatus(examId, statusFilter);
@@ -272,7 +276,7 @@ public class ExamService {
     public Mono<ExamResponse> updateExamStatus(Long examId, ExamStatus newStatus, UUID userId, String role) {
         log.info("Updating exam {} status to {} by user {}", examId, newStatus, userId);
 
-        return findExistingExam(examId)
+        return findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
                     // Publishing and archiving: the owner, or any ADMIN
                     if (!"ADMIN".equals(role) && !exam.getCreatedBy().equals(userId)) {
@@ -298,6 +302,15 @@ public class ExamService {
         return examRepository.findById(examId)
                 .filter(exam -> !Boolean.FALSE.equals(exam.getActive()))
                 .switchIfEmpty(Mono.error(ExamException.notFound(examId)));
+    }
+
+    /**
+     * Existing exam the user may access; an exam outside the user's audience is a 404 like an unknown one.
+     * Whether the user may also change it is checked by the caller.
+     */
+    private Mono<Exam> findAccessibleExam(Long examId, UUID userId, String role) {
+        return findExistingExam(examId)
+                .flatMap(exam -> accessPolicy.requireAccess(userId, role, exam));
     }
 
     private int maxAttempts(Exam exam) {
