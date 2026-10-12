@@ -54,7 +54,9 @@ public class SecurityConfig {
                                 "/auth/login",
                                 "/auth/refresh",
                                 "/auth/forgot-password",
-                                "/auth/reset-password").permitAll()
+                                "/auth/reset-password",
+                                "/auth/verify-otp",
+                                "/auth/resend-otp").permitAll()
                         .pathMatchers("/auth/verify-email").permitAll()
                         .pathMatchers("/actuator/health").permitAll()
                         // Everything else needs a valid JWT

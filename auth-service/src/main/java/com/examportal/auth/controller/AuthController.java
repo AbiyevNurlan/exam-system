@@ -32,16 +32,43 @@ public class AuthController {
      */
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Register new user", description = "Create a new user account with email and password")
-    public Mono<ResponseEntity<ApiResponse<AuthResponse>>> register(
+    @Operation(summary = "Register new user", description = "Create an unverified account and email a 6-digit verification code. No tokens are returned; see /auth/verify-otp")
+    public Mono<ResponseEntity<ApiResponse<Void>>> register(
             @Valid @RequestBody RegisterRequest request) {
         
         log.info("Registration request received for email: {}", LogMaskUtils.maskEmail(request.getEmail()));
         
         return authService.register(request)
-                .map(authResponse -> ResponseEntity.status(HttpStatus.CREATED)
-                        .body(ApiResponse.success(authResponse, "User registered successfully")))
-                .doOnSuccess(response -> log.info("User registered: {}", LogMaskUtils.maskEmail(request.getEmail())));
+                .then(Mono.just(ResponseEntity.status(HttpStatus.CREATED)
+                        .body(ApiResponse.<Void>success(null,
+                                "Registration received. Enter the verification code sent to your email."))));
+    }
+
+    /**
+     * Verify the email address with the emailed code
+     */
+    @PostMapping("/verify-otp")
+    @Operation(summary = "Verify email", description = "Verify the email address with the 6-digit code and return access and refresh tokens")
+    public Mono<ResponseEntity<ApiResponse<AuthResponse>>> verifyOtp(
+            @Valid @RequestBody VerifyOtpRequest request) {
+
+        return authService.verifyOtp(request)
+                .map(authResponse -> ResponseEntity.ok(
+                        ApiResponse.success(authResponse, "Email verified successfully")));
+    }
+
+    /**
+     * Send a new verification code
+     */
+    @PostMapping("/resend-otp")
+    @Operation(summary = "Resend verification code", description = "Always answers the same, whether or not a code was sent")
+    public Mono<ResponseEntity<ApiResponse<Void>>> resendOtp(
+            @Valid @RequestBody ResendOtpRequest request) {
+
+        return authService.resendOtp(request)
+                .then(Mono.just(ResponseEntity.ok(
+                        ApiResponse.<Void>success(null,
+                                "If the address is registered and not yet verified, a new code has been sent."))));
     }
 
     /**

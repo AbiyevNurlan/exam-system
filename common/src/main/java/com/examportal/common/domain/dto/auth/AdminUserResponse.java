@@ -26,5 +26,6 @@ public class AdminUserResponse {
     private boolean locked;
     private LocalDateTime lockedUntil;
     private int failedAttempts;
+    private boolean emailVerified;
     private LocalDateTime createdAt;
 }

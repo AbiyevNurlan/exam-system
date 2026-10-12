@@ -37,6 +37,7 @@ public class AdminUserService {
     static final int MIN_NAME_LENGTH = 3;
 
     private static final String ACTION_UNLOCK_USER = "UNLOCK_USER";
+    private static final String ACTION_VERIFY_EMAIL = "VERIFY_EMAIL";
 
     // A temporary lock that has run out is only cleared on the next login, so "locked" means still in force
     private static final String LOCKED_NOW =
@@ -45,7 +46,7 @@ public class AdminUserService {
     private static final String SELECT_USERS = "SELECT id, email, first_name, last_name, role, "
             + LOCKED_NOW + " AS locked, "
             + "CASE WHEN " + LOCKED_NOW + " THEN locked_until END AS locked_until, "
-            + "failed_login_attempts, created_at FROM users";
+            + "failed_login_attempts, email_verified, created_at FROM users";
 
     private final DatabaseClient databaseClient;
     private final UserRepository userRepository;
@@ -102,6 +103,7 @@ public class AdminUserService {
                                 .locked(Boolean.TRUE.equals(row.get("locked", Boolean.class)))
                                 .lockedUntil(row.get("locked_until", LocalDateTime.class))
                                 .failedAttempts(intOrZero(row.get("failed_login_attempts", Integer.class)))
+                                .emailVerified(Boolean.TRUE.equals(row.get("email_verified", Boolean.class)))
                                 .createdAt(row.get("created_at", LocalDateTime.class))
                                 .build())
                         .all()
@@ -127,6 +129,27 @@ public class AdminUserService {
                         }))
                 .then()
                 // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real boundary
+                .as(transactionalOperator::transactional);
+    }
+
+    /**
+     * Mark a user's email address as verified without a code (for accounts created before email
+     * verification existed, and for support). Idempotent; lock state and password are not touched.
+     * The change and its audit row are written in one transaction.
+     */
+    public Mono<Void> verifyUserEmail(String id, String adminEmail) {
+        UUID userId = parseUuid(id);
+
+        return findActiveAdmin(adminEmail)
+                .flatMap(admin -> userRepository.verifyEmail(userId)
+                        .flatMap(updated -> {
+                            if (updated == 0) {
+                                return Mono.error(new ResourceNotFoundException("User", userId.toString()));
+                            }
+                            return writeAuditLog(admin.getId(), ACTION_VERIFY_EMAIL, userId)
+                                    .doOnSuccess(v -> log.info("Admin {} verified the email of user {}", admin.getId(), userId));
+                        }))
+                .then()
                 .as(transactionalOperator::transactional);
     }
 

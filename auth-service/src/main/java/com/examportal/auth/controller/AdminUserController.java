@@ -68,4 +68,20 @@ public class AdminUserController {
                 .then(Mono.just(ResponseEntity.ok(
                         ApiResponse.<Void>success(null, "User unlocked successfully"))));
     }
+
+    /**
+     * Mark a user's email as verified
+     */
+    @PostMapping("/users/{id}/verify-email")
+    @Operation(summary = "Verify user email", description = "Mark the email address of a user as verified without a code")
+    public Mono<ResponseEntity<ApiResponse<Void>>> verifyUserEmail(
+            @PathVariable("id") String id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        log.info("Verify-email request for user: {} by admin: {}", id, principal.getId());
+
+        return Mono.defer(() -> adminUserService.verifyUserEmail(id, principal.getEmail()))
+                .then(Mono.just(ResponseEntity.ok(
+                        ApiResponse.<Void>success(null, "User email verified successfully"))));
+    }
 }

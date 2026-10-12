@@ -3,8 +3,11 @@ package com.examportal.auth.service;
 import com.examportal.auth.client.GroupInviteClient;
 import com.examportal.auth.exception.AccountLockedException;
 import com.examportal.auth.exception.DuplicateEmailException;
+import com.examportal.auth.exception.EmailNotVerifiedException;
 import com.examportal.auth.exception.InvalidCredentialsException;
+import com.examportal.auth.exception.InvalidOtpException;
 import com.examportal.auth.exception.InvalidTokenException;
+import com.examportal.auth.mail.VerificationMailer;
 import com.examportal.auth.repository.PasswordResetTokenRepository;
 import com.examportal.auth.repository.UserRepository;
 import com.examportal.common.domain.dto.auth.*;
@@ -43,6 +46,8 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final TransactionalOperator transactionalOperator;
     private final GroupInviteClient groupInviteClient;
+    private final OtpService otpService;
+    private final VerificationMailer verificationMailer;
 
     private static final int PASSWORD_RESET_TOKEN_EXPIRY_HOURS = 1;
 
@@ -53,9 +58,10 @@ public class AuthService {
     private int lockoutDurationMinutes; // 0 = locked until an admin unlocks
 
     /**
-     * Register a new user
+     * Register a new user. The account starts unverified and gets no tokens: a verification code is
+     * emailed, and only verifyOtp turns it into a usable account.
      */
-    public Mono<AuthResponse> register(RegisterRequest request) {
+    public Mono<Void> register(RegisterRequest request) {
         String email = normalizeEmail(request.getEmail());
         log.info("Registering new user with email: {}", maskEmail(email));
 
@@ -70,10 +76,67 @@ public class AuthService {
                             .onErrorMap(DuplicateKeyException.class, e -> new DuplicateEmailException(
                                     "User with email '" + email + "' already exists", e));
                 })
-                .flatMap(user -> generateAuthResponse(user))
-                .doOnSuccess(response -> log.info("User registered successfully: {}", maskEmail(email)))
-                // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real transaction boundary
-                .as(transactionalOperator::transactional);
+                .flatMap(user -> otpService.issue(user.getId(), OtpService.PURPOSE_EMAIL_VERIFICATION))
+                // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real
+                // transaction boundary: the user and the first code are stored together
+                .as(transactionalOperator::transactional)
+                // After the commit, detached: a mail failure never undoes or fails the registration
+                .doOnNext(code -> verificationMailer.sendVerificationCode(email, code, otpService.getTtlMinutes()))
+                .doOnSuccess(code -> log.info("User registered, verification pending: {}", maskEmail(email)))
+                .then();
+    }
+
+    /**
+     * Verify the email address with the emailed code and log the user in.
+     * Every failure is the same InvalidOtpException (see there).
+     */
+    public Mono<AuthResponse> verifyOtp(VerifyOtpRequest request) {
+        String email = normalizeEmail(request.getEmail());
+        log.info("Email verification attempt for: {}", maskEmail(email));
+
+        return userRepository.findByEmail(email)
+                .filter(user -> user.isActive() && !user.isEmailVerified())
+                .flatMap(user -> otpService.verify(user.getId(), OtpService.PURPOSE_EMAIL_VERIFICATION, request.getCode())
+                        .flatMap(valid -> valid
+                                ? userRepository.verifyEmail(user.getId()).thenReturn(true)
+                                : Mono.just(false))
+                        // The code is consumed and the address marked verified together. A wrong code is
+                        // not an error at this point, so its attempt counter is committed as well.
+                        .as(transactionalOperator::transactional)
+                        .filter(valid -> valid)
+                        .map(valid -> {
+                            user.setEmailVerified(true);
+                            return user;
+                        }))
+                .switchIfEmpty(Mono.error(new InvalidOtpException()))
+                .doOnNext(user -> log.info("Email verified for: {}", maskEmail(email)))
+                // The address is verified either way; tokens are still refused while the account is locked
+                .flatMap(this::unlockIfLockExpired)
+                .flatMap(user -> user.isAccountLocked()
+                        ? Mono.<User>error(new AccountLockedException())
+                        : Mono.just(user))
+                .flatMap(this::generateAuthResponse);
+    }
+
+    /**
+     * Send a new verification code. Completes the same way whether or not the email is registered,
+     * already verified, or held back by the cooldown or the hourly limit: the caller learns nothing.
+     */
+    public Mono<Void> resendOtp(ResendOtpRequest request) {
+        String email = normalizeEmail(request.getEmail());
+        log.info("Verification code resend requested for: {}", maskEmail(email));
+
+        return userRepository.findByEmail(email)
+                .filter(user -> user.isActive() && !user.isEmailVerified())
+                .flatMap(user -> otpService.issue(user.getId(), OtpService.PURPOSE_EMAIL_VERIFICATION))
+                .doOnNext(code -> verificationMailer.sendVerificationCode(email, code, otpService.getTtlMinutes()))
+                .then()
+                // Nothing here is an expected client error and the failure never reaches the exception
+                // handler, so it is logged here; the answer stays the same
+                .onErrorResume(e -> {
+                    log.error("Verification code resend failed for {}; answering success anyway", maskEmail(email), e);
+                    return Mono.empty();
+                });
     }
 
     /**
@@ -92,6 +155,10 @@ public class AuthService {
                     return userRepository.resetFailedLoginAttempts(user.getId())
                             .thenReturn(user);
                 })
+                // Only after the password was accepted: no tokens before the email address is verified
+                .flatMap(user -> user.isEmailVerified()
+                        ? Mono.just(user)
+                        : Mono.<User>error(new EmailNotVerifiedException()))
                 // Group invites imported for this (verified) email become memberships; never fails the login
                 .flatMap(user -> groupInviteClient.applyForVerifiedUser(user).thenReturn(user))
                 .flatMap(this::generateAuthResponse)

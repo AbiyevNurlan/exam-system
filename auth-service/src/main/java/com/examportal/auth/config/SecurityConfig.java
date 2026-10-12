@@ -38,6 +38,8 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.POST, "/auth/refresh").permitAll()
                         .pathMatchers(HttpMethod.POST, "/auth/forgot-password").permitAll()
                         .pathMatchers(HttpMethod.POST, "/auth/reset-password").permitAll()
+                        .pathMatchers(HttpMethod.POST, "/auth/verify-otp").permitAll()
+                        .pathMatchers(HttpMethod.POST, "/auth/resend-otp").permitAll()
                         .pathMatchers(HttpMethod.GET, "/auth/health").permitAll()
                         // Actuator endpoints
                         .pathMatchers("/actuator/**").permitAll()

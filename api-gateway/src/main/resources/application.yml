@@ -34,6 +34,19 @@ spring:
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
       routes:
+        # Verification codes: a much smaller budget per client IP than the rest of /auth (10 requests
+        # at once, then one every 5 seconds). Must stay before the general auth route.
+        # Limits per email address are enforced in auth-service (OtpService), not here.
+        - id: auth-otp
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/auth/verify-otp, /auth/resend-otp
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.requestedTokens: 5
         - id: auth-service
           uri: http://auth-service:8081
           predicates:
@@ -132,5 +145,7 @@ logging:
     root: INFO
     com.examportal: DEBUG
     org.springframework.cloud.gateway: DEBUG
+    # This filter logs every request header at DEBUG, including the bearer token and X-User-Email
+    org.springframework.cloud.gateway.filter.headers.observation: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
