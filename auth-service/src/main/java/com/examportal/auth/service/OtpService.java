@@ -35,6 +35,7 @@ import java.util.UUID;
 public class OtpService {
 
     public static final String PURPOSE_EMAIL_VERIFICATION = "EMAIL_VERIFICATION";
+    public static final String PURPOSE_PASSWORD_RESET = "PASSWORD_RESET";
 
     private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final int MIN_KEY_BYTES = 32;

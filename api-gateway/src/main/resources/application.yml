@@ -40,7 +40,7 @@ spring:
         - id: auth-otp
           uri: http://auth-service:8081
           predicates:
-            - Path=/auth/verify-otp, /auth/resend-otp
+            - Path=/auth/verify-otp, /auth/resend-otp, /auth/forgot-password, /auth/reset-password
           filters:
             - name: RequestRateLimiter
               args:

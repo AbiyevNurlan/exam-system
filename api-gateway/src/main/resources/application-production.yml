@@ -75,7 +75,7 @@ spring:
         - id: auth-otp
           uri: lb://auth-service
           predicates:
-            - Path=/auth/verify-otp, /auth/resend-otp
+            - Path=/auth/verify-otp, /auth/resend-otp, /auth/forgot-password, /auth/reset-password
           filters:
             - name: RequestRateLimiter
               args:

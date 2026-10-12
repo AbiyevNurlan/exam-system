@@ -123,7 +123,7 @@ public class AuthController {
      * Request password reset
      */
     @PostMapping("/forgot-password")
-    @Operation(summary = "Forgot password", description = "Request password reset link via email")
+    @Operation(summary = "Forgot password", description = "Email a 6-digit password reset code. Always answers the same, whether or not a code was sent")
     public Mono<ResponseEntity<ApiResponse<Void>>> forgotPassword(
             @Valid @RequestBody ForgotPasswordRequest request) {
         
@@ -131,16 +131,16 @@ public class AuthController {
         
         return authService.forgotPassword(request)
                 .then(Mono.just(ResponseEntity.ok(
-                        ApiResponse.<Void>success(null, "Password reset instructions sent to email"))))
-                .doOnSuccess(response -> log.info("Password reset email sent: {}",
+                        ApiResponse.<Void>success(null, "If the address belongs to an account, a password reset code has been sent."))))
+                .doOnSuccess(response -> log.info("Password reset request answered: {}",
                         LogMaskUtils.maskEmail(request.getEmail())));
     }
 
     /**
-     * Reset password with token
+     * Reset password with the emailed code
      */
     @PostMapping("/reset-password")
-    @Operation(summary = "Reset password", description = "Reset user password using reset token")
+    @Operation(summary = "Reset password", description = "Set a new password with the 6-digit code from /auth/forgot-password; ends every session of the user")
     public Mono<ResponseEntity<ApiResponse<Void>>> resetPassword(
             @Valid @RequestBody ResetPasswordRequest request) {
         

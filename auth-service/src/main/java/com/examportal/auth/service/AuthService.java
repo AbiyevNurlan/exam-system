@@ -8,14 +8,11 @@ import com.examportal.auth.exception.InvalidCredentialsException;
 import com.examportal.auth.exception.InvalidOtpException;
 import com.examportal.auth.exception.InvalidTokenException;
 import com.examportal.auth.mail.VerificationMailer;
-import com.examportal.auth.repository.PasswordResetTokenRepository;
 import com.examportal.auth.repository.UserRepository;
 import com.examportal.common.domain.dto.auth.*;
-import com.examportal.common.domain.entity.PasswordResetToken;
 import com.examportal.common.domain.entity.User;
 import com.examportal.common.domain.entity.UserRole;
 import com.examportal.common.security.JwtTokenProvider;
-import com.examportal.common.utils.CodeGenerator;
 import com.examportal.common.utils.LogMaskUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +25,6 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.Locale;
-import java.util.UUID;
 
 /**
  * Authentication Service
@@ -40,7 +36,6 @@ import java.util.UUID;
 public class AuthService {
 
     private final UserRepository userRepository;
-    private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final TokenService tokenService;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
@@ -48,8 +43,6 @@ public class AuthService {
     private final GroupInviteClient groupInviteClient;
     private final OtpService otpService;
     private final VerificationMailer verificationMailer;
-
-    private static final int PASSWORD_RESET_TOKEN_EXPIRY_HOURS = 1;
 
     @Value("${auth.lockout.max-attempts:5}")
     private int lockoutMaxAttempts;
@@ -210,28 +203,21 @@ public class AuthService {
     }
 
     /**
-     * Request password reset
+     * Email a password reset code. Completes the same way whether or not the email belongs to an
+     * account, and when the cooldown or the hourly limit holds the code back: the caller learns nothing.
+     * Only a verified account can reset: an unverified one simply registers again.
      */
     public Mono<Void> forgotPassword(ForgotPasswordRequest request) {
         String email = normalizeEmail(request.getEmail());
         log.info("Password reset requested for email: {}", maskEmail(email));
 
         return userRepository.findByEmail(email)
-                .flatMap(user -> {
-                    // Delete any existing reset tokens for this user
-                    return passwordResetTokenRepository.deleteAllByUserId(user.getId())
-                            .then(createPasswordResetToken(user.getId()))
-                            .flatMap(token -> {
-                                // In production, send email with reset link (the token itself must never be logged)
-                                log.info("Password reset token created for user: {}", maskEmail(user.getEmail()));
-                                // TODO: Send email with reset link
-                                return Mono.empty();
-                            });
-                })
+                .filter(user -> user.isActive() && user.isEmailVerified())
+                .flatMap(user -> otpService.issue(user.getId(), OtpService.PURPOSE_PASSWORD_RESET))
+                .doOnNext(code -> verificationMailer.sendPasswordResetCode(email, code, otpService.getTtlMinutes()))
                 .then()
-                .doOnSuccess(v -> log.info("Password reset request processed for: {}", maskEmail(email)))
-                // Always return success to prevent email enumeration. Nothing in this flow is an expected
-                // client error and the failure never reaches the exception handler, so it is logged here.
+                // Nothing here is an expected client error and the failure never reaches the exception
+                // handler, so it is logged here; the answer stays the same
                 .onErrorResume(e -> {
                     log.error("Password reset request failed for {}; answering success anyway", maskEmail(email), e);
                     return Mono.empty();
@@ -239,26 +225,32 @@ public class AuthService {
     }
 
     /**
-     * Reset password with token
+     * Set a new password with the emailed code.
+     * Every failure is the same InvalidOtpException (see there).
      */
     public Mono<Void> resetPassword(ResetPasswordRequest request) {
-        log.info("Password reset attempt with token");
+        String email = normalizeEmail(request.getEmail());
+        log.info("Password reset attempt for: {}", maskEmail(email));
 
-        return passwordResetTokenRepository.findValidTokenByToken(request.getToken())
-                .switchIfEmpty(Mono.error(new InvalidTokenException("Invalid or expired reset token")))
-                .flatMap(token -> {
-                    // Hash new password
-                    String hashedPassword = passwordEncoder.encode(request.getNewPassword());
-
-                    // Update user password
-                    return userRepository.updatePasswordHash(token.getUserId(), hashedPassword)
-                            .then(passwordResetTokenRepository.markTokenAsUsed(token.getToken()))
-                            .then(tokenService.revokeAllUserTokens(token.getUserId()))
-                            .then();
-                })
-                .doOnSuccess(v -> log.info("Password reset successful"))
-                // Password update, token consumption and session revocation must succeed or fail together
-                .as(transactionalOperator::transactional);
+        return userRepository.findByEmail(email)
+                .filter(user -> user.isActive() && user.isEmailVerified())
+                .flatMap(user -> otpService.verify(user.getId(), OtpService.PURPOSE_PASSWORD_RESET, request.getCode())
+                        .flatMap(valid -> valid
+                                // The owner of the mailbox is back in control: new password, every
+                                // session ended, lock and failed-login counter cleared
+                                ? userRepository.updatePasswordHash(user.getId(),
+                                                passwordEncoder.encode(request.getNewPassword()))
+                                        .then(userRepository.unlockAccount(user.getId()))
+                                        .then(tokenService.revokeAllUserTokens(user.getId()))
+                                        .thenReturn(true)
+                                : Mono.just(false))
+                        // Code consumption, password update and session revocation succeed or fail together.
+                        // A wrong code is not an error at this point, so its attempt counter is committed as well.
+                        .as(transactionalOperator::transactional)
+                        .filter(valid -> valid))
+                .switchIfEmpty(Mono.error(new InvalidOtpException()))
+                .doOnNext(valid -> log.info("Password reset successful for: {}", maskEmail(email)))
+                .then();
     }
 
     // ==================== Private Helper Methods ====================
@@ -414,23 +406,5 @@ public class AuthService {
                         .emailVerified(user.isEmailVerified())
                         .build())
                 .build();
-    }
-
-    /**
-     * Create password reset token
-     */
-    private Mono<PasswordResetToken> createPasswordResetToken(UUID userId) {
-        String tokenValue = CodeGenerator.generateSecureToken(48);
-        LocalDateTime expiresAt = LocalDateTime.now().plusHours(PASSWORD_RESET_TOKEN_EXPIRY_HOURS);
-
-        PasswordResetToken token = PasswordResetToken.builder()
-                .userId(userId)
-                .token(tokenValue)
-                .expiresAt(expiresAt)
-                .used(false)
-                .createdAt(LocalDateTime.now())
-                .build();
-
-        return passwordResetTokenRepository.save(token);
     }
 }
