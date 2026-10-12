@@ -41,7 +41,7 @@ public class ExamException extends ApplicationException {
     }
 
     public static ExamException maxAttemptsReached() {
-        return new ExamException("Maximum number of attempts reached", HttpStatus.BAD_REQUEST, "EXAM_MAX_ATTEMPTS");
+        return new ExamException("Maximum number of attempts reached", HttpStatus.CONFLICT, "MAX_ATTEMPTS_REACHED");
     }
 
     public static ExamException sessionNotFound(String sessionId) {

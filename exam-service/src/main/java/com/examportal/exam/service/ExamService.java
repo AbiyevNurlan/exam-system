@@ -185,7 +185,6 @@ public class ExamService {
     /**
      * Start an exam session
      */
-    @Transactional
     public Mono<StartExamResponse> startExam(Long examId, Long userId, StartExamRequest request) {
         log.info("Starting exam {} for user {}", examId, userId);
 
@@ -195,22 +194,11 @@ public class ExamService {
                     if (!exam.canStart()) {
                         return Mono.error(ExamException.notActive());
                     }
-                    return sessionRepository.existsByExamIdAndUserIdAndStatus(examId, userId, SessionStatus.IN_PROGRESS)
-                            .flatMap(hasActive -> {
-                                if (hasActive) {
-                                    return Mono.error(ExamException.activeSessionExists());
-                                }
-                                return Mono.just(exam);
-                            });
+                    // Idempotent: an active session for this user and exam is returned, never duplicated
+                    return sessionRepository.findActiveSession(examId, userId)
+                            .switchIfEmpty(Mono.defer(() -> openSession(exam, userId, request)))
+                            .flatMap(session -> toStartResponse(exam, session));
                 })
-                .flatMap(exam -> sessionRepository.countCompletedAttempts(examId, userId)
-                        .flatMap(attempts -> {
-                            if (attempts >= exam.getMaxAttempts()) {
-                                return Mono.error(ExamException.maxAttemptsReached());
-                            }
-                            return Mono.just(exam);
-                        }))
-                .flatMap(exam -> createSession(exam, userId, request))
                 .doOnSuccess(response -> log.info("Exam started: session {}", response.getSessionId()))
                 .doOnError(err -> log.error("Failed to start exam {}: {}", examId, err.getMessage()));
     }
@@ -377,51 +365,52 @@ public class ExamService {
     /**
      * Create an exam session
      */
-    private Mono<StartExamResponse> createSession(Exam exam, Long userId, StartExamRequest request) {
+    private Mono<ExamSession> openSession(Exam exam, Long userId, StartExamRequest request) {
         String sessionId = UUID.randomUUID().toString();
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime endTime = now.plusMinutes(exam.getDurationMinutes());
-        
+
         // Ensure end time doesn't exceed exam end time
         if (endTime.isAfter(exam.getEndTime())) {
             endTime = exam.getEndTime();
         }
-        
-        LocalDateTime finalEndTime = endTime;
-        
-        ExamSession session = ExamSession.builder()
-                .sessionId(sessionId)
-                .examId(exam.getId())
-                .userId(userId)
-                .startTime(now)
-                .endTime(finalEndTime)
-                .status(SessionStatus.IN_PROGRESS)
-                .ipAddress(request.getIpAddress())
-                .browserInfo(request.getBrowserInfo())
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
+        int maxAttempts = exam.getMaxAttempts() != null ? exam.getMaxAttempts() : 1;
 
-        return sessionRepository.save(session)
-                .flatMap(savedSession -> prepareQuestionsForSession(exam, sessionId)
-                        .map(questions -> {
-                            int totalBatches = (int) Math.ceil((double) questions.size() / DEFAULT_BATCH_SIZE);
-                            List<QuestionResponse> firstBatch = questions.subList(0, 
-                                    Math.min(DEFAULT_BATCH_SIZE, questions.size()));
-                            
-                            return StartExamResponse.builder()
-                                    .sessionId(sessionId)
-                                    .examId(exam.getId())
-                                    .examTitle(exam.getTitle())
-                                    .startTime(now)
-                                    .endTime(finalEndTime)
-                                    .durationMinutes(exam.getDurationMinutes())
-                                    .totalQuestions(questions.size())
-                                    .currentBatch(0)
-                                    .totalBatches(totalBatches)
-                                    .questions(firstBatch)
-                                    .build();
-                        }));
+        // The attempt limit and the single active session are both decided by this one statement.
+        // Whatever it did, the active session (ours, or the one a concurrent start created) is the answer;
+        // none at all means the attempt limit refused the insert.
+        return sessionRepository.insertIfAttemptsRemain(sessionId, exam.getId(), userId, now, endTime,
+                        request.getIpAddress(), request.getBrowserInfo(), maxAttempts)
+                .flatMap(inserted -> sessionRepository.findActiveSession(exam.getId(), userId))
+                .switchIfEmpty(Mono.error(ExamException.maxAttemptsReached()));
+    }
+
+    /**
+     * Build the start response for a session, reusing its cached questions when present
+     */
+    private Mono<StartExamResponse> toStartResponse(Exam exam, ExamSession session) {
+        return cacheService.getAllCachedQuestions(session.getSessionId())
+                .flatMap(cached -> cached.isEmpty()
+                        ? prepareQuestionsForSession(exam, session.getSessionId())
+                        : Mono.just(cached))
+                .map(questions -> {
+                    int totalBatches = (int) Math.ceil((double) questions.size() / DEFAULT_BATCH_SIZE);
+                    List<QuestionResponse> firstBatch = questions.subList(0,
+                            Math.min(DEFAULT_BATCH_SIZE, questions.size()));
+
+                    return StartExamResponse.builder()
+                            .sessionId(session.getSessionId())
+                            .examId(exam.getId())
+                            .examTitle(exam.getTitle())
+                            .startTime(session.getStartTime())
+                            .endTime(session.getEndTime())
+                            .durationMinutes(exam.getDurationMinutes())
+                            .totalQuestions(questions.size())
+                            .currentBatch(0)
+                            .totalBatches(totalBatches)
+                            .questions(firstBatch)
+                            .build();
+                });
     }
 
     /**

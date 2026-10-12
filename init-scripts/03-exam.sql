@@ -119,6 +119,8 @@ CREATE INDEX IF NOT EXISTS idx_options_correct ON question_options(question_id) 
 -- exam_sessions (the UNIQUE constraint on session_id already provides the lookup index)
 CREATE INDEX IF NOT EXISTS idx_sessions_exam_user_status ON exam_sessions(exam_id, user_id, status);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON exam_sessions(user_id);
+-- At most one active session per user and exam; ExamSessionRepository.insertIfAttemptsRemain relies on it (ON CONFLICT)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sessions_one_in_progress ON exam_sessions(exam_id, user_id) WHERE status = 'IN_PROGRESS';
 CREATE INDEX IF NOT EXISTS idx_sessions_in_progress_start ON exam_sessions(start_time) WHERE status = 'IN_PROGRESS';
 CREATE INDEX IF NOT EXISTS idx_sessions_in_progress_end ON exam_sessions(end_time) WHERE status = 'IN_PROGRESS';
 
