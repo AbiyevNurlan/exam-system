@@ -60,8 +60,9 @@ docker-compose logs exam-service
 
 ## ❌ Problem Olarsa
 ```powershell
-# Hər şeyi təmizlə və yenidən başla
-docker-compose down -v
+# Konteynerləri yenidən qur və başlat (verilənlər bazası saxlanılır)
+# DİQQƏT: "docker-compose down -v" İSTİFADƏ ETMƏYİN - bütün verilənləri silir (README: "Database safety")
+docker-compose down
 docker-compose up -d --build
 ```
 

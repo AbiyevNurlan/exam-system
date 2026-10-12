@@ -3,6 +3,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: exam-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -163,5 +164,8 @@ networks:
     driver: bridge
 
 volumes:
+  # Explicit, fixed name: the database volume must not depend on the folder or project name.
+  # NEVER remove it (no "down -v", no "docker volume rm") - see "Database safety" in README.md
   postgres_data:
+    name: exam-system_postgres_data
   redis_data:

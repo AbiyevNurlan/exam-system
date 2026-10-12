@@ -490,7 +490,10 @@ networks:
         - subnet: 172.20.0.0/16
 
 volumes:
+  # Explicit, fixed name: the database volume must not depend on the folder or project name.
+  # NEVER remove it (no "down -v", no "docker volume rm") - see "Database safety" in README.md
   postgres_data:
+    name: exam-system-prod_postgres_data
   redis_data:
   prometheus_data:
   grafana_data:

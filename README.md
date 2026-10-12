@@ -500,6 +500,72 @@ user_answers ──────────────────────�
 
 ---
 
+## 🛡️ Database safety
+
+The databases hold real user accounts, exams and results. Treat the Postgres volume as irreplaceable.
+
+### Never do this
+
+```bash
+docker-compose down -v      # deletes the Postgres volume = deletes every user, exam and result
+docker volume rm ...        # same
+```
+
+`docker-compose down` (without `-v`), `docker-compose up -d --build` and restarting single services are
+safe: data lives in a named volume that survives them.
+
+| Compose file | Postgres volume |
+|---|---|
+| `docker-compose.yml` | `exam-system_postgres_data` |
+| `docker-compose.production.yml` | `exam-system-prod_postgres_data` |
+| `docker-compose.performance.yml` | `exam-system-perf_postgres_data` |
+
+### Schema changes (Flyway)
+
+`init-scripts/` only creates the empty databases. Tables are owned by Flyway migrations that run when a
+service starts, before it accepts requests:
+
+| Database | Migrations |
+|---|---|
+| `exam_auth` | `auth-service/src/main/resources/db/migration/` |
+| `exam_db` | `exam-service/src/main/resources/db/migration/` |
+
+To change the schema:
+
+1. Add a NEW file with the next version number, e.g. `V2__add_exam_tags.sql` (two underscores).
+2. Never edit, rename or delete a migration that has already been applied anywhere. Flyway stores a
+   checksum of every applied file and the service refuses to start if one differs.
+3. Write migrations that keep existing rows valid (new columns nullable or with a default).
+4. Take a backup, then rebuild and restart the service: `docker-compose up -d --build exam-service`.
+   If the migration fails, the service stops with the Flyway error in its log
+   (`docker-compose logs exam-service`) and the previous schema is left in place.
+
+Applied versions: `docker exec exam-postgres psql -U postgres -d exam_db -c "SELECT version, description, success FROM flyway_schema_history"`.
+
+### Backup and restore
+
+```powershell
+.\scripts\backup.ps1          # pg_dump of exam_auth, exam_db, exam_monitoring into .\backups\<yyyyMMdd-HHmm>\ (keeps the last 14)
+.\scripts\restore-test.ps1    # restores the latest backup into temporary databases and compares row counts
+```
+
+Run `backup.ps1` on a schedule (e.g. Windows Task Scheduler, daily) and before every deployment that adds
+a migration. Run `restore-test.ps1` regularly: a backup that was never restored is not a backup.
+For the production compose file pass `-Container exam-postgres-primary` to both scripts.
+
+Restoring into a live database is deliberately a manual step (stop the services that use it first):
+
+```powershell
+docker cp .\backups\<stamp>\exam_db.dump exam-postgres:/tmp/exam_db.dump
+docker exec exam-postgres pg_restore -U postgres -d exam_db --clean --if-exists --no-owner /tmp/exam_db.dump
+```
+
+These backups sit on the same machine as the database, so they do not survive losing that machine. Real
+production needs either a managed PostgreSQL service or off-server copies with WAL archiving
+(point-in-time recovery). Which one is a hosting decision that still has to be made.
+
+---
+
 ## 🐳 Docker Environments
 
 ### Development (`docker-compose.yml`)

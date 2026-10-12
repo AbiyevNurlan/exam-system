@@ -9,6 +9,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: exam-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
@@ -317,7 +318,10 @@ services:
       - exam-network
 
 volumes:
+  # Explicit, fixed name: the database volume must not depend on the folder or project name.
+  # NEVER remove it (no "down -v", no "docker volume rm") - see "Database safety" in README.md
   postgres_data:
+    name: exam-system-perf_postgres_data
   redis_data:
   prometheus_data:
   grafana_data:
