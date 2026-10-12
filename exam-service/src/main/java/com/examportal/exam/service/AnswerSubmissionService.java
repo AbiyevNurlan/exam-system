@@ -81,9 +81,10 @@ public class AnswerSubmissionService {
 
     /**
      * Submit the exam and calculate results.
-     * Idempotent: a session that is already completed returns its stored result.
+     * Idempotent: a session that is already completed answers with its stored result.
+     * The response follows the same visibility rule as the result endpoint.
      */
-    public Mono<ExamResultResponse> submitExam(String sessionId, UUID userId) {
+    public Mono<SessionResultResponse> submitExam(String sessionId, UUID userId) {
         log.info("Submitting exam for session {}", sessionId);
 
         return sessionRepository.findBySessionId(sessionId)
@@ -92,21 +93,18 @@ public class AnswerSubmissionService {
                     if (!session.getUserId().equals(userId)) {
                         return Mono.error(ExamException.sessionNotFound(sessionId));
                     }
-                    if (!session.isActive()) {
-                        return storedResult(session);
-                    }
-                    // Empty means a concurrent submit completed it first: answer with what that one stored
-                    return completeSession(session)
-                            .switchIfEmpty(Mono.defer(() -> sessionRepository.findBySessionId(sessionId)
-                                    .flatMap(this::storedResult)));
+                    // A no-op when the session is already completed (also by a concurrent submit);
+                    // either way the answer is built from what is stored
+                    Mono<Void> completion = session.isActive() ? completeSession(session).then() : Mono.empty();
+                    return completion
+                            .then(Mono.defer(() -> sessionRepository.findBySessionId(sessionId)))
+                            .flatMap(this::visibleResult);
                 })
-                .doOnSuccess(result -> log.info("Exam submitted. Score: {}%", result.getPercentageScore()))
-                .doOnError(err -> log.error("Failed to submit exam {}: {}", sessionId, err.getMessage()));
+                .doOnSuccess(result -> log.info("Exam submitted for session {}", sessionId));
     }
 
     /**
-     * Result of a completed session for its owner. When the exam does not show results immediately,
-     * only a submission summary is returned until the exam end time has passed.
+     * Result of a completed session for its owner
      */
     public Mono<SessionResultResponse> getSessionResult(String sessionId, UUID userId) {
         log.debug("Getting result for session {}", sessionId);
@@ -121,36 +119,45 @@ public class AnswerSubmissionService {
                     if (session.getStatus() != SessionStatus.COMPLETED) {
                         return Mono.error(ExamException.sessionNotCompleted());
                     }
-                    return examRepository.findById(session.getExamId())
-                            .flatMap(exam -> {
-                                SessionResultResponse.SessionResultResponseBuilder summary = SessionResultResponse.builder()
-                                        .sessionId(session.getSessionId())
-                                        .examId(session.getExamId())
-                                        .status(session.getStatus())
-                                        .submittedAt(session.getSubmittedAt());
+                    return visibleResult(session);
+                });
+    }
 
-                                boolean withheld = !Boolean.TRUE.equals(exam.getShowResultsImmediately())
-                                        && LocalDateTime.now().isBefore(exam.getEndTime());
-                                if (withheld) {
-                                    return Mono.just(summary
-                                            .resultsAvailable(false)
-                                            .resultsAvailableAt(exam.getEndTime())
-                                            .build());
-                                }
-                                return storedResult(session)
-                                        .map(result -> summary
-                                                .resultsAvailable(true)
-                                                .totalQuestions(result.getTotalQuestions())
-                                                .correctAnswers(result.getCorrectAnswers())
-                                                .incorrectAnswers(result.getIncorrectAnswers())
-                                                .unansweredQuestions(result.getUnansweredQuestions())
-                                                .totalScore(result.getTotalScore())
-                                                .maxScore(result.getMaxScore())
-                                                .percentageScore(result.getPercentageScore())
-                                                .passed(result.getPassed())
-                                                .passingScore(result.getPassingScore())
-                                                .build());
-                            });
+    /**
+     * What the participant may see of a finished session; the one rule shared by submit and the
+     * result endpoint. When the exam does not show results immediately, only a submission summary
+     * is returned until the exam end time has passed. Never contains the answer key.
+     */
+    private Mono<SessionResultResponse> visibleResult(ExamSession session) {
+        return examRepository.findById(session.getExamId())
+                .flatMap(exam -> {
+                    SessionResultResponse.SessionResultResponseBuilder summary = SessionResultResponse.builder()
+                            .sessionId(session.getSessionId())
+                            .examId(session.getExamId())
+                            .status(session.getStatus())
+                            .submittedAt(session.getSubmittedAt());
+
+                    boolean withheld = !Boolean.TRUE.equals(exam.getShowResultsImmediately())
+                            && LocalDateTime.now().isBefore(exam.getEndTime());
+                    if (withheld) {
+                        return Mono.just(summary
+                                .resultsAvailable(false)
+                                .resultsAvailableAt(exam.getEndTime())
+                                .build());
+                    }
+                    return storedResult(session)
+                            .map(result -> summary
+                                    .resultsAvailable(true)
+                                    .totalQuestions(result.getTotalQuestions())
+                                    .correctAnswers(result.getCorrectAnswers())
+                                    .incorrectAnswers(result.getIncorrectAnswers())
+                                    .unansweredQuestions(result.getUnansweredQuestions())
+                                    .totalScore(result.getTotalScore())
+                                    .maxScore(result.getMaxScore())
+                                    .percentageScore(result.getPercentageScore())
+                                    .passed(result.getPassed())
+                                    .passingScore(result.getPassingScore())
+                                    .build());
                 });
     }
 

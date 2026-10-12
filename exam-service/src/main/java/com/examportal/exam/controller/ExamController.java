@@ -164,7 +164,7 @@ public class ExamController {
     @PostMapping("/session/{sessionId}/submit")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Submit exam", description = "Submit the exam and get results")
-    public Mono<ApiResponse<ExamResultResponse>> submitExam(
+    public Mono<ApiResponse<SessionResultResponse>> submitExam(
             @PathVariable String sessionId,
             @AuthenticationPrincipal UserPrincipal principal) {
         
