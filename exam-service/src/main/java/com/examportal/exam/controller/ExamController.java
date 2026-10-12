@@ -3,11 +3,13 @@ package com.examportal.exam.controller;
 import com.examportal.common.domain.dto.*;
 import com.examportal.common.domain.dto.group.ExamAudienceRequest;
 import com.examportal.common.domain.dto.group.ExamAudienceResponse;
+import com.examportal.common.domain.dto.media.MediaUrlResponse;
 import com.examportal.common.domain.entity.ExamStatus;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.service.AnswerSubmissionService;
 import com.examportal.exam.service.ExamService;
+import com.examportal.exam.service.SessionMediaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -23,6 +25,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Exam Controller
@@ -38,6 +41,7 @@ public class ExamController {
 
     private final ExamService examService;
     private final AnswerSubmissionService answerService;
+    private final SessionMediaService sessionMediaService;
 
     // ==================== Exam CRUD Operations ====================
 
@@ -150,6 +154,20 @@ public class ExamController {
         log.debug("Getting questions batch {} for session: {}", batch, sessionId);
 
         return examService.getNextQuestions(sessionId, batch, principal.getId())
+                .map(ApiResponse::success);
+    }
+
+    @GetMapping("/session/{sessionId}/media/{mediaId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR', 'STUDENT')")
+    @Operation(summary = "Get a media URL", description = "Short-lived (5 minutes) download URL for one media of the session's exam. "
+            + "Only inside the caller's own running session. Audio/video with maxPlays: every call counts as one play, "
+            + "409 MEDIA_PLAYS_EXHAUSTED when used up; images are unlimited.")
+    public Mono<ApiResponse<MediaUrlResponse>> getSessionMediaUrl(
+            @PathVariable String sessionId,
+            @PathVariable UUID mediaId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return sessionMediaService.getMediaUrl(sessionId, mediaId, principal.getId())
                 .map(ApiResponse::success);
     }
 

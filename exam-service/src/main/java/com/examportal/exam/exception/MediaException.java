@@ -49,6 +49,11 @@ public class MediaException extends ApplicationException {
         return new MediaException("Media cannot be attached: " + reason, HttpStatus.BAD_REQUEST, "MEDIA_NOT_ATTACHABLE");
     }
 
+    public static MediaException playsExhausted() {
+        return new MediaException("This media cannot be played again in this session", HttpStatus.CONFLICT,
+                "MEDIA_PLAYS_EXHAUSTED");
+    }
+
     public static MediaException inUse() {
         return new MediaException("The media is used by a published exam", HttpStatus.CONFLICT, "MEDIA_IN_USE");
     }

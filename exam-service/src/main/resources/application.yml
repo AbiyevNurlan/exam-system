@@ -79,6 +79,7 @@ exam:
     video-max-bytes: 209715200        # 200 MB
     upload-url-ttl-seconds: 600       # presigned PUT
     preview-url-ttl-seconds: 300      # presigned GET for owner/ADMIN
+    session-url-ttl-seconds: 300      # presigned GET for a participant inside a session
     max-pending-per-user: 50          # unconfirmed uploads one user may have
     pending-max-age-minutes: 60       # an unconfirmed upload older than this is removed
     cleanup-interval-ms: 300000       # how often the cleanup runs
