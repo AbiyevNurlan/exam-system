@@ -60,25 +60,29 @@ public class AuthService {
     /**
      * Register a new user. The account starts unverified and gets no tokens: a verification code is
      * emailed, and only verifyOtp turns it into a usable account.
+     *
+     * An email that is registered but was never verified does not belong to anyone yet: whoever
+     * registered it first may not own the mailbox. The new registration therefore takes the account
+     * over (password and name replaced, every older code invalidated) and answers exactly like a
+     * fresh one. Only a verified account is a conflict.
      */
     public Mono<Void> register(RegisterRequest request) {
         String email = normalizeEmail(request.getEmail());
         log.info("Registering new user with email: {}", maskEmail(email));
 
-        // Check if email already exists
-        return userRepository.existsByEmail(email)
-                .flatMap(exists -> {
-                    if (exists) {
-                        return Mono.error(new DuplicateEmailException(email));
-                    }
-                    // A concurrent registration can still hit the unique index
-                    return createUser(request, email)
-                            .onErrorMap(DuplicateKeyException.class, e -> new DuplicateEmailException(
-                                    "User with email '" + email + "' already exists", e));
-                })
+        // The row lock makes parallel registrations of one unverified email take turns
+        return userRepository.findByEmailForUpdate(email)
+                .flatMap(existing -> existing.isEmailVerified()
+                        ? Mono.<User>error(new DuplicateEmailException(email))
+                        : replaceUnverifiedUser(existing, request))
+                // A concurrent registration can still hit the unique index
+                .switchIfEmpty(Mono.defer(() -> createUser(request, email)
+                        .onErrorMap(DuplicateKeyException.class, e -> new DuplicateEmailException(
+                                "User with email '" + email + "' already exists", e))))
+                // Empty when the cooldown or the hourly limit refuses a new code: no email, same answer
                 .flatMap(user -> otpService.issue(user.getId(), OtpService.PURPOSE_EMAIL_VERIFICATION))
                 // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real
-                // transaction boundary: the user and the first code are stored together
+                // transaction boundary: the user (new or replaced) and the code are stored together
                 .as(transactionalOperator::transactional)
                 // After the commit, detached: a mail failure never undoes or fails the registration
                 .doOnNext(code -> verificationMailer.sendVerificationCode(email, code, otpService.getTtlMinutes()))
@@ -296,6 +300,21 @@ public class AuthService {
                 .build();
 
         return userRepository.save(user);
+    }
+
+    /**
+     * Replace the password and name of an unverified account with those of the new registration
+     * and invalidate its codes. The codes go even when the send limits then refuse a new one:
+     * a code that was issued for the previous password must never verify the new one.
+     */
+    private Mono<User> replaceUnverifiedUser(User existing, RegisterRequest request) {
+        log.info("Unverified account re-registered, replacing its credentials: {}", maskEmail(existing.getEmail()));
+
+        return userRepository.replaceUnverifiedAccount(existing.getId(),
+                        passwordEncoder.encode(request.getPassword()),
+                        request.getFirstName(), request.getLastName(), request.getPhoneNumber())
+                .then(otpService.invalidateAll(existing.getId(), OtpService.PURPOSE_EMAIL_VERIFICATION))
+                .thenReturn(existing);
     }
 
     /**

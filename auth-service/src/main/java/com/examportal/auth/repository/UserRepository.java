@@ -122,6 +122,31 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
     Mono<Integer> updatePasswordHash(UUID userId, String passwordHash);
 
     /**
+     * Find user by email and lock the row until the surrounding transaction ends
+     */
+    @Query("SELECT * FROM users WHERE email = :email FOR UPDATE")
+    Mono<User> findByEmailForUpdate(@Param("email") String email);
+
+    /**
+     * Hand an unverified account over to a new registration: its password and name are replaced and
+     * it starts again as a fresh, active, unlocked account. Never touches a verified account.
+     */
+    @Modifying
+    @Query("""
+            UPDATE users
+            SET password_hash = :passwordHash, first_name = :firstName, last_name = :lastName,
+                phone_number = :phoneNumber, active = true,
+                failed_login_attempts = 0, account_locked = false, locked_until = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :userId AND email_verified = false
+            """)
+    Mono<Integer> replaceUnverifiedAccount(@Param("userId") UUID userId,
+                                           @Param("passwordHash") String passwordHash,
+                                           @Param("firstName") String firstName,
+                                           @Param("lastName") String lastName,
+                                           @Param("phoneNumber") String phoneNumber);
+
+    /**
      * Verify email
      */
     @Modifying

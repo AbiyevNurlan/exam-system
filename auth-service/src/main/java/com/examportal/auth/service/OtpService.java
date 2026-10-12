@@ -143,6 +143,21 @@ public class OtpService {
     }
 
     /**
+     * Invalidate every code of the user that is still valid, without creating a new one.
+     * The rows stay, so the send limits keep counting them. Joins a surrounding transaction.
+     */
+    public Mono<Void> invalidateAll(UUID userId, String purpose) {
+        return databaseClient.sql("""
+                        UPDATE email_otp SET consumed_at = LOCALTIMESTAMP
+                        WHERE user_id = :userId AND purpose = :purpose AND consumed_at IS NULL
+                        """)
+                .bind("userId", userId)
+                .bind("purpose", purpose)
+                .then()
+                .as(transactionalOperator::transactional);
+    }
+
+    /**
      * Check a code against the user's valid code (not used, not expired, not burned).
      * A match consumes the code (single use). A wrong code is counted, and the code is burned when
      * the counter reaches the limit. Emits false as well when there is no valid code at all.
