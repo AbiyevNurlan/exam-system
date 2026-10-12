@@ -12,8 +12,8 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [x] Soft-deleted exams are still returned by `GET /api/exams/{id}`
 - [x] ADMIN cannot publish or archive another user's exam
 - [x] Unused code: `activeSessionExists`, `countCompletedAttempts`, `existsByExamIdAndUserIdAndStatus`, `findTimedOutSessions`, `hasTimedOut`
-- [ ] No upper bounds in request validation (points, text lengths, number of questions and options)
-- [ ] Database constraint errors surface as 500 instead of 4xx
+- [x] No upper bounds in request validation (points, text lengths, number of questions and options)
+- [x] Database constraint errors surface as 500 instead of 4xx
 - [ ] Inactive `@Transactional` on `ExamService.deleteExam` and `updateExamStatus`
 - [ ] Manual grading for open-ended questions (today: exact match only, `needs_manual_review` is always false)
 - [ ] "Show correct answers after the exam" setting (does not exist; results never include the key)

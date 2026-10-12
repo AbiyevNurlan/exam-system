@@ -63,6 +63,7 @@ public class UpdateExamRequest {
     private Long categoryId;
 
     @NotEmpty(message = "At least one question is required")
+    @Size(max = 200, message = "An exam cannot have more than 200 questions")
     @Valid
     private List<QuestionDTO> questions;
 }

@@ -2,9 +2,12 @@ package com.examportal.common.exception;
 
 import com.examportal.common.domain.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.r2dbc.BadSqlGrammarException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -178,6 +181,51 @@ public class GlobalExceptionHandler {
         response.setPath(exchange.getRequest().getPath().value());
 
         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response));
+    }
+
+    // The database refused the data (unique, foreign key, not-null or check constraint). The driver's
+    // message contains SQL and values, so it is neither returned nor logged.
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public Mono<ResponseEntity<ApiResponse<Void>>> handleDataIntegrityViolation(
+            DataIntegrityViolationException ex, ServerWebExchange exchange) {
+        
+        boolean duplicate = ex instanceof DuplicateKeyException;
+        return dataError(exchange,
+                duplicate ? HttpStatus.CONFLICT : HttpStatus.BAD_REQUEST,
+                duplicate ? "DATA_CONFLICT" : "DATA_CONSTRAINT_VIOLATION",
+                duplicate ? "The request conflicts with existing data" : "The request contains data that cannot be stored");
+    }
+
+    // SQLSTATE class 22 (value too long, numeric overflow, bad format) is reported by the driver as
+    // "bad grammar" although the statement is fine and the client's data is at fault: 400.
+    // Every other grammar error is a real server bug and stays a 500.
+    @ExceptionHandler(BadSqlGrammarException.class)
+    public Mono<ResponseEntity<ApiResponse<Void>>> handleBadSqlGrammar(
+            BadSqlGrammarException ex, ServerWebExchange exchange) {
+        
+        String sqlState = ex.getR2dbcException() != null ? ex.getR2dbcException().getSqlState() : null;
+        if (sqlState != null && sqlState.startsWith("22")) {
+            return dataError(exchange, HttpStatus.BAD_REQUEST, "DATA_VALUE_INVALID",
+                    "The request contains a value that is too large or malformed");
+        }
+        return handleGenericException(ex, exchange);
+    }
+
+    private Mono<ResponseEntity<ApiResponse<Void>>> dataError(
+            ServerWebExchange exchange, HttpStatus status, String code, String message) {
+        
+        log.warn("Data rejected by the database: {} ({}) - Path: {}", code, status.value(), exchange.getRequest().getPath());
+        
+        ApiResponse<Void> response = ApiResponse.error(
+                message,
+                ApiResponse.ErrorDetails.builder()
+                        .code(code)
+                        .description(message)
+                        .build()
+        );
+        response.setPath(exchange.getRequest().getPath().value());
+        
+        return Mono.just(ResponseEntity.status(status).body(response));
     }
 
     @ExceptionHandler(OptimisticLockingFailureException.class)

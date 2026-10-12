@@ -4,7 +4,10 @@ import com.examportal.common.domain.entity.QuestionType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -27,13 +30,16 @@ public class QuestionDTO {
     private Long id;
 
     @NotBlank(message = "Question text is required")
+    @Size(max = 5000, message = "Question text cannot exceed 5000 characters")
     private String questionText;
 
     @NotNull(message = "Question type is required")
     private QuestionType questionType;
 
     @NotNull(message = "Points are required")
-    @Positive(message = "Points must be positive")
+    @DecimalMin(value = "0.01", message = "Points must be at least 0.01")
+    @DecimalMax(value = "1000", message = "Points cannot exceed 1000")
+    @Digits(integer = 4, fraction = 2, message = "Points allow at most 2 decimal places")
     private BigDecimal points;
 
     @NotNull(message = "Order index is required")
@@ -46,8 +52,10 @@ public class QuestionDTO {
     @Builder.Default
     private Boolean isRequired = true;
 
+    @Size(max = 5000, message = "Explanation cannot exceed 5000 characters")
     private String explanation;
 
+    @Size(max = 10, message = "A question cannot have more than 10 options")
     @Valid
     private List<OptionDTO> options;
 }
