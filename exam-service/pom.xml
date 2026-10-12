@@ -113,6 +113,20 @@
             <artifactId>bucket4j-core</artifactId>
         </dependency>
 
+        <!-- S3-compatible object storage for question media (presigned URLs, metadata checks) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.25.60</version>
+            <exclusions>
+                <!-- Only the async (Netty) client is used -->
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- Connection Pooling -->
         <dependency>
             <groupId>io.r2dbc</groupId>

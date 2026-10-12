@@ -72,6 +72,19 @@ exam:
     max-duration-minutes: 180
     auto-submit-buffer-seconds: 30
     result-cache-ttl-minutes: 60
+  media:
+    # S3-compatible object storage for question media (SeaweedFS in development). Files go straight
+    # from the browser to the storage with presigned URLs; this service keeps only the metadata.
+    # Without endpoint and credentials the service starts and media endpoints answer 503.
+    storage:
+      endpoint: ${MEDIA_S3_ENDPOINT:}                 # how this service reaches the storage
+      public-endpoint: ${MEDIA_S3_PUBLIC_ENDPOINT:}   # host inside presigned URLs; must be reachable from the browser
+      region: ${MEDIA_S3_REGION:us-east-1}
+      bucket: ${MEDIA_S3_BUCKET:exam-media}
+      access-key: ${MEDIA_S3_ACCESS_KEY:}
+      secret-key: ${MEDIA_S3_SECRET_KEY:}
+      # Frontend origins allowed to PUT/GET directly at the storage (comma separated); written to the bucket at startup
+      cors-allowed-origins: ${MEDIA_CORS_ORIGINS:}
 
 management:
   endpoints:

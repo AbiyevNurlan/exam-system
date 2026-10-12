@@ -53,6 +53,30 @@ services:
     networks:
       - exam-network
 
+  # SeaweedFS: S3-compatible object storage for question media (development).
+  # Only the S3 API is published, on 127.0.0.1 only. The credentials are the storage's root
+  # identity and have no default: without them in .env the stack refuses to start.
+  # The bucket is private; exam-service creates it (and its CORS rules) at startup.
+  media-storage:
+    image: chrislusf/seaweedfs:4.48
+    container_name: exam-media-storage
+    restart: unless-stopped
+    command: server -dir=/data -s3 -s3.port=8333
+    environment:
+      AWS_ACCESS_KEY_ID: ${MEDIA_S3_ACCESS_KEY:?MEDIA_S3_ACCESS_KEY is required - copy .env.example to .env}
+      AWS_SECRET_ACCESS_KEY: ${MEDIA_S3_SECRET_KEY:?MEDIA_S3_SECRET_KEY is required - copy .env.example to .env}
+    ports:
+      - "127.0.0.1:8333:8333"   # S3 API (presigned URLs point here in development)
+    volumes:
+      - media_data:/data
+    networks:
+      - exam-network
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://127.0.0.1:8333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   # Auth Service
   auth-service:
     build:
@@ -107,6 +131,15 @@ services:
       # Optional: without it, adding group members by email and the CSV import answer 503
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       AUTH_INTERNAL_URL: http://auth-service:8081
+      # Question media. MEDIA_S3_ENDPOINT is how this service reaches the storage; the public endpoint
+      # is the host inside presigned URLs and must be reachable from the browser.
+      MEDIA_S3_ENDPOINT: http://media-storage:8333
+      MEDIA_S3_PUBLIC_ENDPOINT: ${MEDIA_S3_PUBLIC_ENDPOINT:-http://localhost:8333}
+      MEDIA_S3_BUCKET: exam-media
+      MEDIA_S3_ACCESS_KEY: ${MEDIA_S3_ACCESS_KEY:?MEDIA_S3_ACCESS_KEY is required - copy .env.example to .env}
+      MEDIA_S3_SECRET_KEY: ${MEDIA_S3_SECRET_KEY:?MEDIA_S3_SECRET_KEY is required - copy .env.example to .env}
+      # Frontend origins that may upload/download directly at the storage (comma separated)
+      MEDIA_CORS_ORIGINS: ${MEDIA_CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_db
@@ -120,6 +153,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      media-storage:
         condition: service_healthy
 
   # API Gateway
@@ -194,4 +229,7 @@ volumes:
   # NEVER remove it (no "down -v", no "docker volume rm") - see "Database safety" in README.md
   postgres_data:
     name: exam-system_postgres_data
+  # Question media files. Same rule as the database volume: explicit name, NEVER remove it.
+  media_data:
+    name: exam-system_media_data
   redis_data:
