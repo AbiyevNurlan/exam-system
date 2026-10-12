@@ -43,6 +43,22 @@ Details: README, section "Database safety".
   text questions go only to ADMIN and the INSTRUCTOR who owns the exam. Results never contain
   per-question correctness.
 - **Someone else's session is a 404**, the same as an unknown one, on every session endpoint.
+- **Exam access is decided in one place: `ExamAccessPolicy`.** ADMIN and the INSTRUCTOR who owns the
+  exam always; a PUBLIC exam every authenticated user; a GROUP exam only members of at least one of
+  its active audience groups. Every endpoint that touches an exam asks the policy; lists filter in
+  SQL with the policy's condition (`ExamRepository.ACCESS_CONDITION`), never in memory.
+- **An exam the caller may not access is a 404 (`EXAM_NOT_FOUND`), never a 403**, exactly like an
+  exam that does not exist. 403 is only for an exam the caller can see but may not manage.
+- **Losing access blocks new starts only.** A session that is already IN_PROGRESS belongs to its
+  user and can be continued, submitted and read after the user left the group.
+- **Groups and memberships live in exam-service** (`exam_db`) and reference users by UUID. Every
+  change writes `group_audit_log` in the same transaction.
+- **Service-to-service endpoints are under `/internal/**`**, are not routed by the gateway and
+  require the `X-Internal-Secret` header (`INTERNAL_SERVICE_SECRET`, at least 32 characters; without
+  it they answer 404). Users are resolved only through auth-service, never by reading its database.
+- **Group access through an email needs a verified email.** An unverified account never becomes a
+  member by email; it stays a pending invite until `GroupInviteClient.applyForVerifiedUser` runs.
+- **Full email addresses are never logged** and never written to audit details; use `LogMaskUtils`.
 - **Errors**: expected client errors are 4xx with a code and a generic message; responses never
   contain SQL, stack traces or other internals. 4xx are logged once at WARN, 5xx at ERROR.
 - **Secrets** come from the environment (`.env`, git-ignored). Never commit or print them.
