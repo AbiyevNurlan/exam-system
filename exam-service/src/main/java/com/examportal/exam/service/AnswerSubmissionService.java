@@ -75,8 +75,7 @@ public class AnswerSubmissionService {
                 })
                 .flatMap(session -> processAnswer(session, request))
                 .doOnSuccess(response -> log.debug("Answer submitted successfully for question {}", 
-                        request.getQuestionId()))
-                .doOnError(err -> log.error("Failed to submit answer: {}", err.getMessage()));
+                        request.getQuestionId()));
     }
 
     /**

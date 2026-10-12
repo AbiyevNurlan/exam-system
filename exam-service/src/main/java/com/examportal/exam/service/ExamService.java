@@ -9,7 +9,6 @@ import com.examportal.exam.validator.ExamValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -63,8 +62,7 @@ public class ExamService {
         // boundary: exam, questions and options are stored together or not at all. The cache is filled after commit.
         return transactionalOperator.transactional(creation)
                 .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))
-                .doOnSuccess(exam -> log.info("Exam created successfully: {}", exam.getId()))
-                .doOnError(err -> log.error("Failed to create exam: {}", err.getMessage()));
+                .doOnSuccess(exam -> log.info("Exam created successfully: {}", exam.getId()));
     }
 
     /**
@@ -102,14 +100,12 @@ public class ExamService {
                 .flatMap(response -> cacheService.invalidateExamCache(examId)
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
-                .doOnSuccess(exam -> log.info("Exam updated successfully: {}", examId))
-                .doOnError(err -> log.error("Failed to update exam {}: {}", examId, err.getMessage()));
+                .doOnSuccess(exam -> log.info("Exam updated successfully: {}", examId));
     }
 
     /**
      * Delete an exam
      */
-    @Transactional
     public Mono<Void> deleteExam(Long examId, UUID userId) {
         log.info("Deleting exam {} for user {}", examId, userId);
 
@@ -128,8 +124,7 @@ public class ExamService {
                 })
                 .flatMap(exam -> examRepository.softDelete(examId)
                         .then(cacheService.invalidateExamCache(examId)))
-                .doOnSuccess(v -> log.info("Exam deleted successfully: {}", examId))
-                .doOnError(err -> log.error("Failed to delete exam {}: {}", examId, err.getMessage()));
+                .doOnSuccess(v -> log.info("Exam deleted successfully: {}", examId));
     }
 
     /**
@@ -215,8 +210,7 @@ public class ExamService {
                             .switchIfEmpty(Mono.defer(() -> openSession(exam, userId, request)))
                             .flatMap(session -> toStartResponse(exam, session));
                 })
-                .doOnSuccess(response -> log.info("Exam started: session {}", response.getSessionId()))
-                .doOnError(err -> log.error("Failed to start exam {}: {}", examId, err.getMessage()));
+                .doOnSuccess(response -> log.info("Exam started: session {}", response.getSessionId()));
     }
 
     /**
@@ -275,7 +269,6 @@ public class ExamService {
     /**
      * Update exam status
      */
-    @Transactional
     public Mono<ExamResponse> updateExamStatus(Long examId, ExamStatus newStatus, UUID userId, String role) {
         log.info("Updating exam {} status to {} by user {}", examId, newStatus, userId);
 
@@ -293,8 +286,7 @@ public class ExamService {
                 .flatMap(response -> cacheService.invalidateExamCache(examId)
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
-                .doOnSuccess(exam -> log.info("Exam {} status updated to {}", examId, newStatus))
-                .doOnError(err -> log.error("Failed to update exam {} status: {}", examId, err.getMessage()));
+                .doOnSuccess(exam -> log.info("Exam {} status updated to {}", examId, newStatus));
     }
 
     // ==================== Private Helper Methods ====================

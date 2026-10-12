@@ -19,7 +19,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
@@ -54,7 +53,6 @@ public class AuthService {
     /**
      * Register a new user
      */
-    @Transactional
     public Mono<AuthResponse> register(RegisterRequest request) {
         String email = normalizeEmail(request.getEmail());
         log.info("Registering new user with email: {}", maskEmail(email));
@@ -63,7 +61,6 @@ public class AuthService {
         return userRepository.existsByEmail(email)
                 .flatMap(exists -> {
                     if (exists) {
-                        log.warn("Registration failed: Email already exists - {}", maskEmail(email));
                         return Mono.error(new DuplicateEmailException(email));
                     }
                     // A concurrent registration can still hit the unique index
@@ -73,8 +70,6 @@ public class AuthService {
                 })
                 .flatMap(user -> generateAuthResponse(user))
                 .doOnSuccess(response -> log.info("User registered successfully: {}", maskEmail(email)))
-                .doOnError(error -> log.error("Registration failed for email: {} - {}",
-                        maskEmail(email), error.getClass().getSimpleName()))
                 // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real transaction boundary
                 .as(transactionalOperator::transactional);
     }
@@ -82,7 +77,6 @@ public class AuthService {
     /**
      * Authenticate user and generate tokens
      */
-    @Transactional
     public Mono<AuthResponse> login(LoginRequest request) {
         String email = normalizeEmail(request.getEmail());
         log.info("Login attempt for email: {}", maskEmail(email));
@@ -124,8 +118,7 @@ public class AuthService {
                                     .map(newRefreshToken -> buildAuthResponse(user, accessToken, newRefreshToken.getToken()));
                         })
                 )
-                .doOnSuccess(response -> log.info("Access token refreshed successfully"))
-                .doOnError(error -> log.error("Token refresh failed", error));
+                .doOnSuccess(response -> log.info("Access token refreshed successfully"));
     }
 
     /**
@@ -135,14 +128,12 @@ public class AuthService {
         log.debug("Logging out user");
 
         return tokenService.revokeRefreshToken(refreshToken)
-                .doOnSuccess(v -> log.info("User logged out successfully"))
-                .doOnError(error -> log.error("Logout failed", error));
+                .doOnSuccess(v -> log.info("User logged out successfully"));
     }
 
     /**
      * Request password reset
      */
-    @Transactional
     public Mono<Void> forgotPassword(ForgotPasswordRequest request) {
         String email = normalizeEmail(request.getEmail());
         log.info("Password reset requested for email: {}", maskEmail(email));
@@ -161,11 +152,10 @@ public class AuthService {
                 })
                 .then()
                 .doOnSuccess(v -> log.info("Password reset request processed for: {}", maskEmail(email)))
-                .doOnError(error -> log.error("Password reset request failed for: {} - {}",
-                        maskEmail(email), error.getClass().getSimpleName()))
-                // Always return success to prevent email enumeration
+                // Always return success to prevent email enumeration. Nothing in this flow is an expected
+                // client error and the failure never reaches the exception handler, so it is logged here.
                 .onErrorResume(e -> {
-                    log.warn("Error in forgot password, returning success anyway to prevent enumeration");
+                    log.error("Password reset request failed for {}; answering success anyway", maskEmail(email), e);
                     return Mono.empty();
                 });
     }
@@ -173,7 +163,6 @@ public class AuthService {
     /**
      * Reset password with token
      */
-    @Transactional
     public Mono<Void> resetPassword(ResetPasswordRequest request) {
         log.info("Password reset attempt with token");
 
@@ -190,7 +179,6 @@ public class AuthService {
                             .then();
                 })
                 .doOnSuccess(v -> log.info("Password reset successful"))
-                .doOnError(error -> log.error("Password reset failed", error))
                 // Password update, token consumption and session revocation must succeed or fail together
                 .as(transactionalOperator::transactional);
     }
@@ -242,19 +230,19 @@ public class AuthService {
     private Mono<User> validateUserAndPassword(User user, String password) {
         // Check if account is locked (before the password, so a correct password never logs in)
         if (user.isAccountLocked()) {
-            log.warn("Login attempt for locked account: {}", maskEmail(user.getEmail()));
+            log.info("Login attempt for locked account: {}", maskEmail(user.getEmail()));
             return Mono.error(new AccountLockedException());
         }
 
         // Check if account is active
         if (!user.isActive()) {
-            log.warn("Login attempt for inactive account: {}", maskEmail(user.getEmail()));
+            log.info("Login attempt for inactive account: {}", maskEmail(user.getEmail()));
             return Mono.error(new InvalidCredentialsException());
         }
 
         // Validate password
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
-            log.warn("Invalid password for user: {}", maskEmail(user.getEmail()));
+            log.info("Invalid password for user: {}", maskEmail(user.getEmail()));
             return Mono.error(new InvalidCredentialsException());
         }
 

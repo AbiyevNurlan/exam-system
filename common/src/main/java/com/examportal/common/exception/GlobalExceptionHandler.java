@@ -2,6 +2,7 @@ package com.examportal.common.exception;
 
 import com.examportal.common.domain.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -31,9 +32,15 @@ public class GlobalExceptionHandler {
     public Mono<ResponseEntity<ApiResponse<Void>>> handleApplicationException(
             ApplicationException ex, ServerWebExchange exchange) {
         
-        // The message can carry user data (e.g. an email), so only the code, status and path are logged
-        log.error("Application error: {} ({}) - Path: {}",
-                ex.getErrorCode(), ex.getStatus().value(), exchange.getRequest().getPath());
+        // The message can carry user data (e.g. an email), so only the code, status and path are logged.
+        // Expected client errors (4xx) are logged once, here, at WARN; server errors keep ERROR and the stack trace.
+        if (ex.getStatus().is5xxServerError()) {
+            log.error("Application error: {} ({}) - Path: {}",
+                    ex.getErrorCode(), ex.getStatus().value(), exchange.getRequest().getPath(), ex);
+        } else {
+            log.warn("Application error: {} ({}) - Path: {}",
+                    ex.getErrorCode(), ex.getStatus().value(), exchange.getRequest().getPath());
+        }
         
         ApiResponse<Void> response = ApiResponse.error(
                 ex.getMessage(),
@@ -276,6 +283,25 @@ public class GlobalExceptionHandler {
         response.setPath(exchange.getRequest().getPath().value());
 
         return Mono.just(ResponseEntity.status(ex.getStatusCode()).headers(ex.getHeaders()).body(response));
+    }
+
+    // Request body larger than the codec buffer limit: the client's request is at fault, not the server
+    @ExceptionHandler(DataBufferLimitException.class)
+    public Mono<ResponseEntity<ApiResponse<Void>>> handleDataBufferLimit(
+            DataBufferLimitException ex, ServerWebExchange exchange) {
+        
+        log.warn("Request rejected: PAYLOAD_TOO_LARGE - Path: {}", exchange.getRequest().getPath());
+        
+        ApiResponse<Void> response = ApiResponse.error(
+                "Request body is too large",
+                ApiResponse.ErrorDetails.builder()
+                        .code("PAYLOAD_TOO_LARGE")
+                        .description("Request body is too large")
+                        .build()
+        );
+        response.setPath(exchange.getRequest().getPath().value());
+        
+        return Mono.just(ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(response));
     }
 
     @ExceptionHandler(Exception.class)

@@ -61,11 +61,11 @@ public class TokenService {
                 .switchIfEmpty(Mono.error(new InvalidTokenException("Refresh token not found")))
                 .flatMap(refreshToken -> {
                     if (refreshToken.isRevoked()) {
-                        log.warn("Attempted to use revoked refresh token");
+                        log.info("Attempted to use revoked refresh token");
                         return Mono.error(new InvalidTokenException("Refresh token has been revoked"));
                     }
                     if (refreshToken.isExpired()) {
-                        log.warn("Attempted to use expired refresh token");
+                        log.info("Attempted to use expired refresh token");
                         return Mono.error(new TokenExpiredException("Refresh token has expired"));
                     }
                     return Mono.just(refreshToken);

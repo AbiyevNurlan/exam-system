@@ -41,9 +41,7 @@ public class AuthController {
         return authService.register(request)
                 .map(authResponse -> ResponseEntity.status(HttpStatus.CREATED)
                         .body(ApiResponse.success(authResponse, "User registered successfully")))
-                .doOnSuccess(response -> log.info("User registered: {}", LogMaskUtils.maskEmail(request.getEmail())))
-                .doOnError(error -> log.error("Registration failed: {} - {}",
-                        LogMaskUtils.maskEmail(request.getEmail()), error.getClass().getSimpleName()));
+                .doOnSuccess(response -> log.info("User registered: {}", LogMaskUtils.maskEmail(request.getEmail())));
     }
 
     /**
@@ -59,9 +57,7 @@ public class AuthController {
         return authService.login(request)
                 .map(authResponse -> ResponseEntity.ok(
                         ApiResponse.success(authResponse, "Login successful")))
-                .doOnSuccess(response -> log.info("User logged in: {}", LogMaskUtils.maskEmail(request.getEmail())))
-                .doOnError(error -> log.error("Login failed: {} - {}",
-                        LogMaskUtils.maskEmail(request.getEmail()), error.getClass().getSimpleName()));
+                .doOnSuccess(response -> log.info("User logged in: {}", LogMaskUtils.maskEmail(request.getEmail())));
     }
 
     /**
@@ -77,8 +73,7 @@ public class AuthController {
         return authService.refreshToken(request)
                 .map(authResponse -> ResponseEntity.ok(
                         ApiResponse.success(authResponse, "Token refreshed successfully")))
-                .doOnSuccess(response -> log.debug("Token refreshed successfully"))
-                .doOnError(error -> log.error("Token refresh failed", error));
+                .doOnSuccess(response -> log.debug("Token refreshed successfully"));
     }
 
     /**
@@ -94,8 +89,7 @@ public class AuthController {
         return authService.logout(request.getRefreshToken())
                 .then(Mono.just(ResponseEntity.ok(
                         ApiResponse.<Void>success(null, "Logged out successfully"))))
-                .doOnSuccess(response -> log.info("User logged out"))
-                .doOnError(error -> log.error("Logout failed", error));
+                .doOnSuccess(response -> log.info("User logged out"));
     }
 
     /**
@@ -112,9 +106,7 @@ public class AuthController {
                 .then(Mono.just(ResponseEntity.ok(
                         ApiResponse.<Void>success(null, "Password reset instructions sent to email"))))
                 .doOnSuccess(response -> log.info("Password reset email sent: {}",
-                        LogMaskUtils.maskEmail(request.getEmail())))
-                .doOnError(error -> log.error("Forgot password failed: {} - {}",
-                        LogMaskUtils.maskEmail(request.getEmail()), error.getClass().getSimpleName()));
+                        LogMaskUtils.maskEmail(request.getEmail())));
     }
 
     /**
@@ -130,8 +122,7 @@ public class AuthController {
         return authService.resetPassword(request)
                 .then(Mono.just(ResponseEntity.ok(
                         ApiResponse.<Void>success(null, "Password reset successfully"))))
-                .doOnSuccess(response -> log.info("Password reset successful"))
-                .doOnError(error -> log.error("Password reset failed", error));
+                .doOnSuccess(response -> log.info("Password reset successful"));
     }
 
     /**
