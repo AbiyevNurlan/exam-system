@@ -85,6 +85,12 @@ auth:
     max-attempts: 5              # wrong codes before the code is burned
     resend-cooldown-seconds: 60  # minimum time between two codes for one email
     max-sends-per-hour: 5        # codes per email per hour
+  cleanup:
+    enabled: true                # daily housekeeping job (AccountCleanupJob)
+    cron: "0 30 3 * * *"         # every day at 03:30
+    run-on-startup: true         # also once after every start
+    otp-retention-days: 7        # email_otp rows older than this are deleted
+    unverified-max-age-days: 14  # unverified accounts older than this are deactivated (never deleted)
   mail:
     from: ${MAIL_FROM:}          # sender address of every email
   bootstrap:
