@@ -1,15 +1,12 @@
 -- =====================================================
--- exam_db schema (exam-service)
--- Runs after 01-create-databases.sh has created the databases.
+-- V1 baseline: exam_db schema (exam-service)
 -- Mirrors: Exam, Question, QuestionOption, ExamSession, UserAnswer.
--- Indexes are plain CREATE INDEX (CONCURRENTLY is not allowed in init scripts).
+-- Applied by Flyway. NEVER edit this file once it has been applied anywhere: add V2__description.sql instead.
 -- User references (exams.created_by, exam_sessions.user_id) hold exam_auth.users.id (UUID);
 -- there is no foreign key because the users table lives in another database.
 -- =====================================================
 
-\connect exam_db
-
-CREATE TABLE IF NOT EXISTS categories (
+CREATE TABLE categories (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description TEXT,
@@ -21,7 +18,7 @@ CREATE TABLE IF NOT EXISTS categories (
     version BIGINT DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS exams (
+CREATE TABLE exams (
     id BIGSERIAL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     description TEXT,
@@ -43,7 +40,7 @@ CREATE TABLE IF NOT EXISTS exams (
     version BIGINT DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS questions (
+CREATE TABLE questions (
     id BIGSERIAL PRIMARY KEY,
     exam_id BIGINT NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
     question_text TEXT NOT NULL,
@@ -59,7 +56,7 @@ CREATE TABLE IF NOT EXISTS questions (
     version BIGINT DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS question_options (
+CREATE TABLE question_options (
     id BIGSERIAL PRIMARY KEY,
     question_id BIGINT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
     option_text TEXT NOT NULL,
@@ -69,7 +66,7 @@ CREATE TABLE IF NOT EXISTS question_options (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS exam_sessions (
+CREATE TABLE exam_sessions (
     id BIGSERIAL PRIMARY KEY,
     session_id VARCHAR(100) NOT NULL UNIQUE,
     exam_id BIGINT NOT NULL REFERENCES exams(id),
@@ -91,7 +88,7 @@ CREATE TABLE IF NOT EXISTS exam_sessions (
 
 -- selected_option_ids: the only storage for chosen options (one element for single choice and true/false)
 -- needs_manual_review: always false until manual grading of open questions exists
-CREATE TABLE IF NOT EXISTS user_answers (
+CREATE TABLE user_answers (
     id BIGSERIAL PRIMARY KEY,
     session_id BIGINT NOT NULL REFERENCES exam_sessions(id) ON DELETE CASCADE,
     question_id BIGINT NOT NULL REFERENCES questions(id),
@@ -108,23 +105,27 @@ CREATE TABLE IF NOT EXISTS user_answers (
 );
 
 -- exams (scheduler and listing queries filter on status/time and active = true)
-CREATE INDEX IF NOT EXISTS idx_exams_created_by ON exams(created_by) WHERE active = true;
-CREATE INDEX IF NOT EXISTS idx_exams_status_start ON exams(status, start_time) WHERE active = true;
-CREATE INDEX IF NOT EXISTS idx_exams_status_end ON exams(status, end_time) WHERE active = true;
-CREATE INDEX IF NOT EXISTS idx_exams_category_id ON exams(category_id);
+CREATE INDEX idx_exams_created_by ON exams(created_by) WHERE active = true;
+CREATE INDEX idx_exams_status_start ON exams(status, start_time) WHERE active = true;
+CREATE INDEX idx_exams_status_end ON exams(status, end_time) WHERE active = true;
+CREATE INDEX idx_exams_category_id ON exams(category_id);
 
 -- questions / options
-CREATE INDEX IF NOT EXISTS idx_questions_exam_order ON questions(exam_id, order_index);
-CREATE INDEX IF NOT EXISTS idx_options_question_order ON question_options(question_id, order_index);
-CREATE INDEX IF NOT EXISTS idx_options_correct ON question_options(question_id) WHERE is_correct = true;
+CREATE INDEX idx_questions_exam_order ON questions(exam_id, order_index);
+CREATE INDEX idx_options_question_order ON question_options(question_id, order_index);
+CREATE INDEX idx_options_correct ON question_options(question_id) WHERE is_correct = true;
 
 -- exam_sessions (the UNIQUE constraint on session_id already provides the lookup index)
-CREATE INDEX IF NOT EXISTS idx_sessions_exam_user_status ON exam_sessions(exam_id, user_id, status);
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON exam_sessions(user_id);
+CREATE INDEX idx_sessions_exam_user_status ON exam_sessions(exam_id, user_id, status);
+CREATE INDEX idx_sessions_user_id ON exam_sessions(user_id);
 -- At most one active session per user and exam; ExamSessionRepository.insertIfAttemptsRemain relies on it (ON CONFLICT)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_sessions_one_in_progress ON exam_sessions(exam_id, user_id) WHERE status = 'IN_PROGRESS';
-CREATE INDEX IF NOT EXISTS idx_sessions_in_progress_start ON exam_sessions(start_time) WHERE status = 'IN_PROGRESS';
-CREATE INDEX IF NOT EXISTS idx_sessions_in_progress_end ON exam_sessions(end_time) WHERE status = 'IN_PROGRESS';
+CREATE UNIQUE INDEX uq_sessions_one_in_progress ON exam_sessions(exam_id, user_id) WHERE status = 'IN_PROGRESS';
+CREATE INDEX idx_sessions_in_progress_start ON exam_sessions(start_time) WHERE status = 'IN_PROGRESS';
+CREATE INDEX idx_sessions_in_progress_end ON exam_sessions(end_time) WHERE status = 'IN_PROGRESS';
 
 -- user_answers (UNIQUE (session_id, question_id) already serves session_id lookups)
-CREATE INDEX IF NOT EXISTS idx_answers_question_id ON user_answers(question_id);
+CREATE INDEX idx_answers_question_id ON user_answers(question_id);
+
+-- Folded in from the former schema-optimized.sql: serves the scheduling-conflict check
+-- (ExamRepository.findOverlappingExams) that runs on every exam create and update.
+CREATE INDEX idx_exams_time_range ON exams(created_by, start_time, end_time) WHERE active = true AND status IN ('SCHEDULED', 'ACTIVE');

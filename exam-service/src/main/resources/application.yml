@@ -26,6 +26,18 @@ spring:
       max-size: 50
       max-idle-time: 30m
       validation-query: SELECT 1
+  # Schema migrations (db/migration). Flyway connects over JDBC with the same settings as R2DBC and runs
+  # before the application serves requests; any failure aborts startup.
+  flyway:
+    enabled: true
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:exam_db}
+    user: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    clean-disabled: true
+    baseline-on-migrate: false
+    connect-retries: 10
   data:
     redis:
       enabled: true

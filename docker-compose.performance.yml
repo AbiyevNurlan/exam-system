@@ -13,13 +13,15 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       POSTGRES_DB: exam_db
+      # Read by init-scripts/01-create-databases.sh (exam_db already exists through POSTGRES_DB)
+      POSTGRES_MULTIPLE_DATABASES: exam_auth,exam_monitoring
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Only creates the empty databases; tables and indexes come from each service's Flyway migrations
       - ./init-scripts:/docker-entrypoint-initdb.d
-      - ./exam-service/src/main/resources/schema-optimized.sql:/docker-entrypoint-initdb.d/05-perf-indexes.sql
     command:
       - "postgres"
       - "-c" 
@@ -55,7 +57,9 @@ services:
           cpus: '2'
           memory: 4G
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      # TCP on purpose: during first-time initialisation Postgres only listens on its unix socket, so this
+      # turns healthy only after init-scripts created the databases (Flyway in the services needs them)
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d exam_monitoring"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -190,7 +194,7 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: auth_db
+      DB_NAME: exam_auth
       DB_USERNAME: postgres
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis

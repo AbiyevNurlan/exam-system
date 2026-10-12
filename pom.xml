@@ -34,6 +34,8 @@
         <!-- Database -->
         <postgresql.version>42.7.1</postgresql.version>
         <r2dbc-postgresql.version>1.0.4.RELEASE</r2dbc-postgresql.version>
+        <!-- 10.x: PostgreSQL 16 support lives in flyway-database-postgresql -->
+        <flyway.version>10.10.0</flyway.version>
 
         <!-- Mapping & Utilities -->
         <lombok.version>1.18.30</lombok.version>
@@ -98,6 +100,18 @@
                 <groupId>org.postgresql</groupId>
                 <artifactId>r2dbc-postgresql</artifactId>
                 <version>${r2dbc-postgresql.version}</version>
+            </dependency>
+
+            <!-- Flyway (schema migrations; runs over JDBC, the applications stay on R2DBC) -->
+            <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-core</artifactId>
+                <version>${flyway.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-database-postgresql</artifactId>
+                <version>${flyway.version}</version>
             </dependency>
 
             <!-- Lombok -->

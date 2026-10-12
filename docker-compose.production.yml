@@ -39,13 +39,16 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Only creates the empty databases; tables come from each service's Flyway migrations
       - ./init-scripts:/docker-entrypoint-initdb.d
       - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     networks:
       - exam-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d exam_db"]
+      # TCP on purpose: during first-time initialisation Postgres only listens on its unix socket, so this
+      # turns healthy only after init-scripts created the databases (Flyway in the services needs them)
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d exam_monitoring"]
       interval: 5s
       timeout: 3s
       retries: 10

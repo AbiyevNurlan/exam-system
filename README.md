@@ -213,11 +213,10 @@ exam-system/
 │   └── Dockerfile.websocket          # WebSocket Service image
 │
 ├── 🗄️ Database Scripts
-│   └── init-scripts/                 # Run by Postgres on first start (alphabetical order)
-│       ├── 01-create-databases.sh    # Creates exam_auth, exam_db, exam_monitoring
-│       ├── 02-auth.sql               # Auth service schema (exam_auth)
-│       ├── 03-exam.sql               # Exam service schema (exam_db)
-│       └── 04-monitoring.sql         # Monitoring database (no tables yet)
+│   ├── init-scripts/                 # Run by Postgres on first start of an empty volume
+│   │   └── 01-create-databases.sh    # Creates the empty databases exam_auth, exam_db, exam_monitoring
+│   ├── auth-service/src/main/resources/db/migration/   # Flyway migrations for exam_auth (V1__baseline.sql, ...)
+│   └── exam-service/src/main/resources/db/migration/   # Flyway migrations for exam_db (V1__baseline.sql, ...)
 │
 ├── 📈 Monitoring Config
 │   ├── prometheus/prometheus.yml     # Prometheus scrape config
@@ -263,8 +262,9 @@ Run infrastructure in Docker, services locally:
 # Step 1: Start only infrastructure
 docker-compose up -d postgres redis prometheus grafana
 
-# Step 2: Databases and schemas are created automatically by init-scripts/ on the first
-# start of an empty Postgres volume. To re-run them: docker-compose down -v (deletes data)
+# Step 2: Nothing to do by hand. The empty databases are created by init-scripts/ on the first
+# start of an empty Postgres volume; tables are created and upgraded by Flyway when
+# auth-service and exam-service start (see "Database safety" below).
 
 # Step 3: Build the whole project
 mvn clean install -DskipTests
