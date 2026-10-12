@@ -300,6 +300,20 @@ start-all-services.bat
 | `JWT_SECRET` | *(required, no default)* | Base64-encoded JWT signing secret, at least 32 bytes. For docker-compose copy `.env.example` to `.env` |
 | `JWT_ACCESS_EXPIRY` | `900` | Access token TTL (seconds) |
 | `JWT_REFRESH_EXPIRY` | `604800` | Refresh token TTL (seconds) |
+| `OTP_HMAC_SECRET` | *(required, no default)* | auth-service only. Base64 of at least 32 random bytes; email codes (verification, password reset) are stored only as an HMAC under this key. Use a different value than `JWT_SECRET` |
+| `INTERNAL_SERVICE_SECRET` | *(empty = switched off)* | At least 32 characters, shared by auth-service and exam-service only. Protects their service-to-service endpoints (`/internal/**`). Without it adding group members, the CSV import and member names do not work |
+| `MAIL_HOST` / `MAIL_PORT` | *(empty)* / `587` | SMTP server for outgoing email (verification and password reset codes). Required in production |
+| `MAIL_USERNAME` / `MAIL_PASSWORD` | *(empty)* | SMTP credentials |
+| `MAIL_FROM` | *(empty)* | Sender address of every email; its domain needs SPF/DKIM at the provider |
+
+All of these are described in `.env.example`; copy it to `.env` (git-ignored) and replace every `CHANGE_ME`.
+
+### Email in development (Mailpit)
+
+`docker-compose.yml` starts [Mailpit](https://mailpit.axllent.org/), a local SMTP server that catches every
+email and delivers nothing. The development stack ignores `MAIL_*` and sends to it. Open
+<http://localhost:8025> to read the verification and password reset codes. Production
+(`docker-compose.production.yml`) has no Mailpit and needs the `MAIL_*` variables of a real SMTP provider.
 
 ### Virtual Threads (Java 21)
 
@@ -322,13 +336,14 @@ All requests go through the **API Gateway at port 8080**.
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/register` | ❌ | Register a new user |
+| `POST` | `/register` | ❌ | Register; emails a 6-digit code, returns no tokens |
+| `POST` | `/verify-otp` | ❌ | Verify the email with the code and receive JWT tokens |
+| `POST` | `/resend-otp` | ❌ | Send a new verification code |
 | `POST` | `/login` | ❌ | Login and receive JWT tokens |
 | `POST` | `/refresh` | ❌ | Refresh access token |
 | `POST` | `/logout` | ✅ | Invalidate refresh token |
-| `POST` | `/forgot-password` | ❌ | Request password reset email |
-| `POST` | `/reset-password` | ❌ | Reset password with token |
-| `GET` | `/verify-email` | ❌ | Verify email address |
+| `POST` | `/forgot-password` | ❌ | Email a 6-digit password reset code |
+| `POST` | `/reset-password` | ❌ | Set a new password with `{email, code, newPassword}` |
 
 **Example — Register:**
 ```json
