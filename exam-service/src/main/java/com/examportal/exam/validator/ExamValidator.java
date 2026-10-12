@@ -6,16 +6,12 @@ import com.examportal.common.domain.dto.QuestionDTO;
 import com.examportal.common.domain.dto.UpdateExamRequest;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.exam.exception.ExamException;
-import com.examportal.exam.repository.ExamRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Exam Validator
@@ -23,10 +19,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class ExamValidator {
-
-    private final ExamRepository examRepository;
 
     /**
      * Validate create exam request
@@ -164,20 +157,5 @@ public class ExamValidator {
         if (correctCount != 1) {
             throw new ValidationException("Question " + questionNumber + ": True/False questions must have exactly 1 correct option");
         }
-    }
-
-    /**
-     * Check for scheduling conflicts
-     */
-    public Mono<Void> validateNoSchedulingConflict(UUID userId, LocalDateTime startTime, 
-                                                    LocalDateTime endTime, Long excludeExamId) {
-        return examRepository.findOverlappingExams(userId, startTime, endTime, excludeExamId)
-                .hasElements()
-                .flatMap(hasConflict -> {
-                    if (hasConflict) {
-                        return Mono.error(ExamException.schedulingConflict());
-                    }
-                    return Mono.empty();
-                });
     }
 }

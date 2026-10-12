@@ -52,19 +52,28 @@ public class ExamService {
     public Mono<ExamResponse> createExam(CreateExamRequest request, UUID userId) {
         log.info("Creating exam '{}' for user {}", request.getTitle(), userId);
 
+        // PUBLIC unless the request says otherwise; a GROUP exam gets its audience in the same call
+        ExamAccessType accessType = request.getAccessType() != null ? request.getAccessType() : ExamAccessType.PUBLIC;
+        List<Long> groupIds = audienceGroupIds(accessType, request.getGroupIds());
+
         Mono<ExamResponse> creation = validator.validateCreateRequest(request)
-                .then(validator.validateNoSchedulingConflict(userId, request.getStartTime(),
-                        request.getEndTime(), null))
+                .then(requireValidAudience(accessType, groupIds))
                 .then(Mono.defer(() -> {
                     Exam exam = mapper.toEntity(request, userId);
+                    exam.setAccessType(accessType);
                     return examRepository.save(exam);
                 }))
                 .flatMap(savedExam -> saveQuestionsAndOptions(savedExam.getId(), request.getQuestions())
+                        .then(groupIds.isEmpty()
+                                ? Mono.<Void>empty()
+                                : writeAudience(savedExam.getId(), savedExam.getStatus(), ExamAccessType.PUBLIC,
+                                        accessType, List.of(), groupIds, userId))
                         .then(Mono.just(savedExam)))
                 .flatMap(this::loadExamWithQuestions);
 
         // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real
-        // boundary: exam, questions and options are stored together or not at all. The cache is filled after commit.
+        // boundary: exam, questions, options and audience are stored together or not at all. The cache is
+        // filled after commit.
         return transactionalOperator.transactional(creation)
                 .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))
                 .doOnSuccess(exam -> log.info("Exam created successfully: {}", exam.getId()));
@@ -75,6 +84,10 @@ public class ExamService {
      */
     public Mono<ExamResponse> updateExam(Long examId, UpdateExamRequest request, UUID userId, String role) {
         log.info("Updating exam {} for user {}", examId, userId);
+
+        // No accessType in the request = the audience stays as it is
+        ExamAccessType newAccessType = request.getAccessType();
+        List<Long> groupIds = audienceGroupIds(newAccessType, request.getGroupIds());
 
         Mono<ExamResponse> update = findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
@@ -87,12 +100,23 @@ public class ExamService {
                     return Mono.just(exam);
                 })
                 .flatMap(exam -> validator.validateUpdateRequest(request)
-                        .then(validator.validateNoSchedulingConflict(userId, request.getStartTime(),
-                                request.getEndTime(), examId))
+                        .then(newAccessType == null ? Mono.<Void>empty() : requireValidAudience(newAccessType, groupIds))
                         .thenReturn(exam))
                 .flatMap(exam -> {
+                    ExamAccessType oldAccessType = exam.getAccessType();
                     mapper.updateEntity(exam, request);
-                    return examRepository.save(exam);
+                    if (newAccessType == null) {
+                        return examRepository.save(exam);
+                    }
+                    exam.setAccessType(newAccessType);
+                    return examRepository.save(exam)
+                            .flatMap(saved -> audienceRepository.findGroupIdsByExamId(examId).collectList()
+                                    // An unchanged audience writes nothing, so it leaves no audit entry either
+                                    .flatMap(oldGroupIds -> oldAccessType == newAccessType && oldGroupIds.equals(groupIds)
+                                            ? Mono.<Void>empty()
+                                            : writeAudience(examId, saved.getStatus(), oldAccessType, newAccessType,
+                                                    oldGroupIds, groupIds, userId))
+                                    .thenReturn(saved));
                 })
                 .flatMap(exam -> deleteExistingQuestionsAndOptions(examId)
                         .then(saveQuestionsAndOptions(examId, request.getQuestions()))
@@ -307,34 +331,19 @@ public class ExamService {
      */
     public Mono<ExamAudienceResponse> setAudience(Long examId, ExamAudienceRequest request, UUID userId, String role) {
         ExamAccessType accessType = request.getAccessType();
-        List<Long> groupIds = accessType == ExamAccessType.GROUP && request.getGroupIds() != null
-                ? request.getGroupIds().stream().distinct().sorted().toList()
-                : List.of();
+        List<Long> groupIds = audienceGroupIds(accessType, request.getGroupIds());
 
         Mono<ExamAudienceResponse> change = findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
                     if (!"ADMIN".equals(role) && !exam.getCreatedBy().equals(userId)) {
                         return Mono.error(ExamException.notOwner());
                     }
-                    if (accessType == ExamAccessType.GROUP && groupIds.isEmpty()) {
-                        return Mono.error(GroupException.audienceGroupsRequired());
-                    }
-                    Mono<Long> existing = groupIds.isEmpty()
-                            ? Mono.just(0L)
-                            : groupRepository.countActiveByIdIn(groupIds);
-                    return existing.flatMap(found -> found == groupIds.size()
-                            ? Mono.just(exam)
-                            : Mono.<Exam>error(GroupException.audienceGroupNotFound()));
+                    return requireValidAudience(accessType, groupIds).thenReturn(exam);
                 })
                 .flatMap(exam -> audienceRepository.findGroupIdsByExamId(examId).collectList()
-                        .flatMap(oldGroupIds -> audienceRepository.deleteByExamId(examId)
-                                .thenMany(Flux.fromIterable(groupIds)
-                                        .concatMap(groupId -> audienceRepository.add(examId, groupId)))
-                                .then(examRepository.updateAccessType(examId, accessType.name()))
-                                .then(auditService.record(userId, GroupAuditService.EXAM_AUDIENCE_CHANGED, null, null,
-                                        "examId=" + examId + " status=" + exam.getStatus()
-                                                + " accessType=" + exam.getAccessType() + " -> " + accessType
-                                                + " groups=" + oldGroupIds + " -> " + groupIds))
+                        .flatMap(oldGroupIds -> examRepository.updateAccessType(examId, accessType.name())
+                                .then(writeAudience(examId, exam.getStatus(), exam.getAccessType(), accessType,
+                                        oldGroupIds, groupIds, userId))
                                 .thenReturn(ExamAudienceResponse.builder()
                                         .examId(examId)
                                         .accessType(accessType)
@@ -366,6 +375,47 @@ public class ExamService {
     private Mono<Exam> findAccessibleExam(Long examId, UUID userId, String role) {
         return findExistingExam(examId)
                 .flatMap(exam -> accessPolicy.requireAccess(userId, role, exam));
+    }
+
+    /**
+     * The groups of an audience request: distinct and sorted for GROUP, none for PUBLIC (or no type)
+     */
+    private List<Long> audienceGroupIds(ExamAccessType accessType, List<Long> requested) {
+        return accessType == ExamAccessType.GROUP && requested != null
+                ? requested.stream().distinct().sorted().toList()
+                : List.of();
+    }
+
+    /**
+     * A GROUP audience needs at least one group, and every group must exist and be active
+     */
+    private Mono<Void> requireValidAudience(ExamAccessType accessType, List<Long> groupIds) {
+        if (accessType == ExamAccessType.GROUP && groupIds.isEmpty()) {
+            return Mono.error(GroupException.audienceGroupsRequired());
+        }
+        if (groupIds.isEmpty()) {
+            return Mono.empty();
+        }
+        return groupRepository.countActiveByIdIn(groupIds)
+                .flatMap(found -> found == groupIds.size()
+                        ? Mono.<Void>empty()
+                        : Mono.<Void>error(GroupException.audienceGroupNotFound()));
+    }
+
+    /**
+     * Replace the audience rows of an exam and write the audit entry. The caller stores the access
+     * type on the exam row and provides the transaction.
+     */
+    private Mono<Void> writeAudience(Long examId, ExamStatus status, ExamAccessType oldAccessType,
+                                     ExamAccessType newAccessType, List<Long> oldGroupIds, List<Long> groupIds,
+                                     UUID userId) {
+        return audienceRepository.deleteByExamId(examId)
+                .thenMany(Flux.fromIterable(groupIds)
+                        .concatMap(groupId -> audienceRepository.add(examId, groupId)))
+                .then(auditService.record(userId, GroupAuditService.EXAM_AUDIENCE_CHANGED, null, null,
+                        "examId=" + examId + " status=" + status
+                                + " accessType=" + oldAccessType + " -> " + newAccessType
+                                + " groups=" + oldGroupIds + " -> " + groupIds));
     }
 
     private int maxAttempts(Exam exam) {

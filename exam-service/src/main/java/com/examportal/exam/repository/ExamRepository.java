@@ -104,23 +104,6 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
     Mono<Boolean> existsByTitleAndCreatedBy(String title, UUID userId);
 
     /**
-     * Find overlapping exams for scheduling conflict check
-     */
-    @Query("""
-        SELECT * FROM exams 
-        WHERE created_by = :userId 
-        AND status IN ('SCHEDULED', 'ACTIVE') 
-        AND active = true
-        AND id != COALESCE(:excludeId, -1)
-        AND (
-            (start_time <= :startTime AND end_time > :startTime) OR
-            (start_time < :endTime AND end_time >= :endTime) OR
-            (start_time >= :startTime AND end_time <= :endTime)
-        )
-    """)
-    Flux<Exam> findOverlappingExams(UUID userId, LocalDateTime startTime, LocalDateTime endTime, Long excludeId);
-
-    /**
      * Update exam status
      */
     @Modifying

@@ -28,6 +28,8 @@ public class UserLookupResponse {
         private UUID id;
         /** Normalized (trimmed, lower case) */
         private String email;
+        private String firstName;
+        private String lastName;
         private boolean emailVerified;
     }
 }

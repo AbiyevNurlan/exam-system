@@ -5,6 +5,7 @@ import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -31,4 +32,18 @@ public interface PendingGroupInviteRepository extends R2dbcRepository<PendingGro
     Mono<Integer> removeInvite(Long groupId, String email);
 
     Mono<Long> countByGroupId(Long groupId);
+
+    @Query("""
+        SELECT * FROM pending_group_invites
+        WHERE group_id = :groupId
+        ORDER BY created_at DESC, id DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    Flux<PendingGroupInvite> findPageByGroupId(Long groupId, int limit, long offset);
+
+    /**
+     * Cancel one invite of the group; emits its email, or nothing when there is no such invite
+     */
+    @Query("DELETE FROM pending_group_invites WHERE id = :id AND group_id = :groupId RETURNING email_normalized")
+    Mono<String> deleteInvite(Long id, Long groupId);
 }

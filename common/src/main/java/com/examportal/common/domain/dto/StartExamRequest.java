@@ -1,6 +1,5 @@
 package com.examportal.common.domain.dto;
 
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,7 +8,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * Start Exam Request DTO
- * Used for starting an exam session.
+ * Used for starting an exam session. The whole body is optional.
  */
 @Data
 @Builder
@@ -17,7 +16,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class StartExamRequest {
 
-    @NotNull(message = "Exam ID is required")
+    // Optional and ignored: the exam is identified by the path (/api/exams/{id}/start)
     private Long examId;
 
     @Size(max = 50, message = "IP address cannot exceed 50 characters")

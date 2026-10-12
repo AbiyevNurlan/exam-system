@@ -24,6 +24,7 @@ public class GroupAuditService {
     public static final String MEMBER_ADDED = "MEMBER_ADDED";
     public static final String MEMBER_REMOVED = "MEMBER_REMOVED";
     public static final String INVITE_CREATED = "INVITE_CREATED";
+    public static final String INVITE_CANCELLED = "INVITE_CANCELLED";
     public static final String EXAM_AUDIENCE_CHANGED = "EXAM_AUDIENCE_CHANGED";
     public static final String CSV_IMPORT = "CSV_IMPORT";
     // INVITE_APPLIED is written in SQL by GroupImportRepository.applyPendingInvites

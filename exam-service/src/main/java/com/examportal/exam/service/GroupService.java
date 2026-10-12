@@ -7,8 +7,12 @@ import com.examportal.common.domain.dto.group.AddGroupMemberResponse.Status;
 import com.examportal.common.domain.dto.group.GroupMemberResponse;
 import com.examportal.common.domain.dto.group.GroupRequest;
 import com.examportal.common.domain.dto.group.GroupResponse;
+import com.examportal.common.domain.dto.group.GroupInviteResponse;
+import com.examportal.common.domain.dto.group.GroupSummaryResponse;
+import com.examportal.common.domain.dto.internal.UserLookupResponse.UserRef;
 import com.examportal.common.domain.entity.GroupMemberSource;
 import com.examportal.common.domain.entity.UserGroup;
+import com.examportal.common.domain.entity.UserGroupMember;
 import com.examportal.common.utils.LogMaskUtils;
 import com.examportal.exam.client.UserDirectoryClient;
 import com.examportal.exam.exception.GroupException;
@@ -23,8 +27,12 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Group Service
@@ -138,14 +146,68 @@ public class GroupService {
         return findGroup(groupId)
                 .flatMap(group -> memberRepository.countByGroupId(groupId))
                 .flatMap(total -> memberRepository.findPageByGroupId(groupId, pageSize, (long) pageNumber * pageSize)
-                        .map(member -> GroupMemberResponse.builder()
-                                .userId(member.getUserId())
-                                .source(member.getSource())
-                                .addedBy(member.getAddedBy())
-                                .addedAt(member.getCreatedAt())
+                        .collectList()
+                        // Names and emails live in auth-service: one lookup for the whole page
+                        .flatMap(members -> lookupUsers(members.stream().map(UserGroupMember::getUserId).toList())
+                                .map(users -> members.stream()
+                                        .map(member -> {
+                                            UserRef user = users.get(member.getUserId());
+                                            return GroupMemberResponse.builder()
+                                                    .userId(member.getUserId())
+                                                    .firstName(user != null ? user.getFirstName() : null)
+                                                    .lastName(user != null ? user.getLastName() : null)
+                                                    .email(user != null ? LogMaskUtils.maskEmail(user.getEmail()) : null)
+                                                    .source(member.getSource())
+                                                    .addedBy(member.getAddedBy())
+                                                    .addedAt(member.getCreatedAt())
+                                                    .build();
+                                        })
+                                        .toList()))
+                        .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
+    }
+
+    /**
+     * Id and name of the active groups, for choosing an exam audience (ADMIN and INSTRUCTOR)
+     */
+    public Mono<PageResponse<GroupSummaryResponse>> listGroupNames(String name, int page, int size) {
+        return searchGroups(name, page, size)
+                .map(found -> PageResponse.of(
+                        found.getContent().stream()
+                                .map(group -> GroupSummaryResponse.builder().id(group.getId()).name(group.getName()).build())
+                                .toList(),
+                        found.getPage(), found.getSize(), found.getTotalElements()));
+    }
+
+    /**
+     * Pending invites of a group, newest first. The email is masked: the list is for seeing how many
+     * invites are open and cancelling one, not for reading addresses.
+     */
+    public Mono<PageResponse<GroupInviteResponse>> getInvites(Long groupId, int page, int size) {
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+
+        return findGroup(groupId)
+                .flatMap(group -> inviteRepository.countByGroupId(groupId))
+                .flatMap(total -> inviteRepository.findPageByGroupId(groupId, pageSize, (long) pageNumber * pageSize)
+                        .map(invite -> GroupInviteResponse.builder()
+                                .id(invite.getId())
+                                .email(LogMaskUtils.maskEmail(invite.getEmailNormalized()))
+                                .createdBy(invite.getCreatedBy())
+                                .createdAt(invite.getCreatedAt())
                                 .build())
                         .collectList()
                         .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
+    }
+
+    public Mono<Void> cancelInvite(Long groupId, Long inviteId, UUID actorId) {
+        Mono<Void> cancellation = findGroup(groupId)
+                .flatMap(group -> inviteRepository.deleteInvite(inviteId, groupId))
+                .switchIfEmpty(Mono.error(GroupException.inviteNotFound()))
+                .flatMap(email -> auditService.record(actorId, GroupAuditService.INVITE_CANCELLED, groupId, null,
+                        "email=" + LogMaskUtils.maskEmail(email)));
+
+        return transactionalOperator.transactional(cancellation)
+                .doOnSuccess(v -> log.info("Invite {} of group {} cancelled by {}", inviteId, groupId, actorId));
     }
 
     /**
@@ -221,6 +283,22 @@ public class GroupService {
 
         return transactionalOperator.transactional(invitation)
                 .map(status -> AddGroupMemberResponse.builder().status(status).build());
+    }
+
+    /**
+     * Users by id from auth-service in one call. The member list is still useful without names, so
+     * a failed lookup only leaves them out.
+     */
+    private Mono<Map<UUID, UserRef>> lookupUsers(List<UUID> userIds) {
+        if (userIds.isEmpty()) {
+            return Mono.just(Map.of());
+        }
+        return userDirectory.lookup(List.of(), userIds)
+                .map(users -> users.stream().collect(Collectors.toMap(UserRef::getId, Function.identity(), (a, b) -> a)))
+                .onErrorResume(e -> {
+                    log.warn("Member names could not be loaded: {}", e.getClass().getSimpleName());
+                    return Mono.just(Map.of());
+                });
     }
 
     private String escapeLike(String value) {

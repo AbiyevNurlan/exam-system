@@ -56,10 +56,6 @@ public class ExamException extends ApplicationException {
         return new ExamException("Exam session is already completed", HttpStatus.CONFLICT, "SESSION_COMPLETED");
     }
 
-    public static ExamException schedulingConflict() {
-        return new ExamException("Exam time conflicts with another exam", HttpStatus.CONFLICT, "EXAM_SCHEDULING_CONFLICT");
-    }
-
     public static ExamException invalidTimeRange() {
         return new ExamException("End time must be after start time", HttpStatus.BAD_REQUEST, "EXAM_INVALID_TIME_RANGE");
     }

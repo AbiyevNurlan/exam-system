@@ -5,6 +5,7 @@ import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.group.AddGroupMemberRequest;
 import com.examportal.common.domain.dto.group.AddGroupMemberResponse;
 import com.examportal.common.domain.dto.group.CsvImportResponse;
+import com.examportal.common.domain.dto.group.GroupInviteResponse;
 import com.examportal.common.domain.dto.group.GroupMemberResponse;
 import com.examportal.common.domain.dto.group.GroupRequest;
 import com.examportal.common.domain.dto.group.GroupResponse;
@@ -127,6 +128,28 @@ public class GroupAdminController {
 
         return importService.importMembers(id, file, dryRun, principal.getId())
                 .map(ApiResponse::success);
+    }
+
+    @GetMapping("/{id}/invites")
+    @Operation(summary = "List pending invites", description = "Paginated pending invites of a group with masked emails, max 50 per page")
+    public Mono<ApiResponse<PageResponse<GroupInviteResponse>>> getInvites(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
+
+        return groupService.getInvites(id, page, size)
+                .map(ApiResponse::success);
+    }
+
+    @DeleteMapping("/{id}/invites/{inviteId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Cancel a pending invite")
+    public Mono<Void> cancelInvite(
+            @PathVariable Long id,
+            @PathVariable Long inviteId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return groupService.cancelInvite(id, inviteId, principal.getId());
     }
 
     @DeleteMapping("/{id}/members/{userId}")

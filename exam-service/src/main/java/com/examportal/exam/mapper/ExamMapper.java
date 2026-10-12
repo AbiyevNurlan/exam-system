@@ -36,7 +36,7 @@ public class ExamMapper {
                 .maxAttempts(request.getMaxAttempts() != null ? request.getMaxAttempts() : 1)
                 .categoryId(request.getCategoryId())
                 .createdBy(userId)
-                // A new exam is open to everyone until its audience is set (PUT /api/exams/{id}/audience)
+                // Default; ExamService replaces it when the create request names an audience
                 .accessType(ExamAccessType.PUBLIC)
                 .active(true)
                 .createdAt(LocalDateTime.now())

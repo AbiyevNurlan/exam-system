@@ -1,5 +1,6 @@
 package com.examportal.common.domain.dto;
 
+import com.examportal.common.domain.entity.ExamAccessType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
@@ -60,6 +61,13 @@ public class CreateExamRequest {
     private BigDecimal passingScore;
 
     private Long categoryId;
+
+    // Who may take the exam. Create: PUBLIC when omitted. Update: omitted = audience unchanged.
+    private ExamAccessType accessType;
+
+    // Audience groups, required (at least one) when accessType is GROUP; ignored for PUBLIC
+    @Size(max = 50, message = "An exam can have at most 50 audience groups")
+    private List<@NotNull(message = "Group id must not be null") Long> groupIds;
 
     @NotEmpty(message = "At least one question is required")
     @Size(max = 200, message = "An exam cannot have more than 200 questions")

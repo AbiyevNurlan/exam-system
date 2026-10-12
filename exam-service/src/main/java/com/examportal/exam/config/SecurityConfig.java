@@ -54,6 +54,8 @@ public class SecurityConfig {
 
                         // Group administration - admin only, enforced here by path as well as by @PreAuthorize
                         .pathMatchers("/api/admin/**").hasRole("ADMIN")
+                        // Group names for choosing an exam audience - read only
+                        .pathMatchers(HttpMethod.GET, "/api/groups").hasAnyRole("ADMIN", "INSTRUCTOR")
 
                         // Exam management - only admin and instructors
                         .pathMatchers(HttpMethod.POST, "/api/exams").hasAnyRole("ADMIN", "INSTRUCTOR")

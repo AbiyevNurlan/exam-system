@@ -64,6 +64,8 @@ public class InternalUserController {
                 .map(user -> UserLookupResponse.UserRef.builder()
                         .id(user.getId())
                         .email(user.getEmail())
+                        .firstName(user.getFirstName())
+                        .lastName(user.getLastName())
                         .emailVerified(user.isEmailVerified())
                         .build())
                 .collectList()

@@ -20,6 +20,13 @@ import java.util.UUID;
 public class GroupMemberResponse {
 
     private UUID userId;
+
+    // From auth-service; null when the account no longer exists or is inactive
+    private String firstName;
+    private String lastName;
+    // Masked (first character and domain), never the full address
+    private String email;
+
     private GroupMemberSource source;
     private UUID addedBy;
     private LocalDateTime addedAt;

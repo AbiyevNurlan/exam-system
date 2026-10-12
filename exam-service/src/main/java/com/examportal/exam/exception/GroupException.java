@@ -28,6 +28,10 @@ public class GroupException extends ApplicationException {
         return new GroupException("The user is not a member of this group", HttpStatus.NOT_FOUND, "GROUP_MEMBER_NOT_FOUND");
     }
 
+    public static GroupException inviteNotFound() {
+        return new GroupException("The group has no such pending invite", HttpStatus.NOT_FOUND, "GROUP_INVITE_NOT_FOUND");
+    }
+
     public static GroupException userNotFound() {
         return new GroupException("User not found", HttpStatus.NOT_FOUND, "USER_NOT_FOUND");
     }
