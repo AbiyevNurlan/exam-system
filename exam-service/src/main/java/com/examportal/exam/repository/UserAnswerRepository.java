@@ -39,6 +39,12 @@ public interface UserAnswerRepository extends R2dbcRepository<UserAnswer, Long> 
     Mono<Long> countBySessionId(Long sessionId);
 
     /**
+     * Count answers that were graded at completion (answers to questions still active in the exam)
+     */
+    @Query("SELECT COUNT(*) FROM user_answers WHERE session_id = :sessionId AND is_correct IS NOT NULL")
+    Mono<Long> countGradedBySessionId(Long sessionId);
+
+    /**
      * Count correct answers for a session
      */
     @Query("SELECT COUNT(*) FROM user_answers WHERE session_id = :sessionId AND is_correct = true")

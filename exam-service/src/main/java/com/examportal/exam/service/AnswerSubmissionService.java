@@ -20,9 +20,11 @@ import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -214,17 +216,20 @@ public class AnswerSubmissionService {
     private Mono<ExamResultResponse> storedResult(ExamSession session) {
         return Mono.zip(
                         examRepository.findById(session.getExamId()),
-                        answerRepository.countBySessionId(session.getId()),
-                        answerRepository.countCorrectBySessionId(session.getId()))
+                        answerRepository.countGradedBySessionId(session.getId()),
+                        answerRepository.countCorrectBySessionId(session.getId()),
+                        questionRepository.countActiveByExamId(session.getExamId()))
                 .map(tuple -> {
                     int answered = tuple.getT2().intValue();
                     int correct = tuple.getT3().intValue();
+                    int total = tuple.getT4().intValue();
                     return ExamResultResponse.builder()
                             .sessionId(session.getSessionId())
                             .examId(session.getExamId())
-                            .totalQuestions(answered)
+                            .totalQuestions(total)
                             .correctAnswers(correct)
                             .incorrectAnswers(answered - correct)
+                            .unansweredQuestions(Math.max(0, total - answered))
                             .totalScore(session.getScore())
                             .maxScore(session.getTotalPoints())
                             .percentageScore(session.getPercentage())
@@ -236,92 +241,83 @@ public class AnswerSubmissionService {
                 });
     }
 
+    /**
+     * Grade a session against ALL active questions of its exam: unanswered questions earn zero
+     * but still count towards the maximum score and the percentage.
+     */
     private Mono<GradedSession> calculateScore(ExamSession session, BigDecimal passingScore) {
-        return answerRepository.findBySessionId(session.getId())
-                .collectList()
-                .flatMap(answers -> {
-                    if (answers.isEmpty()) {
-                        // Nothing answered (typical for an expired session): zero score, no IN () query
-                        return Mono.just(new GradedSession(ExamResultResponse.builder()
-                                .sessionId(session.getSessionId())
-                                .examId(session.getExamId())
-                                .totalQuestions(0)
-                                .correctAnswers(0)
-                                .incorrectAnswers(0)
-                                .totalScore(BigDecimal.ZERO)
-                                .maxScore(BigDecimal.ZERO)
-                                .percentageScore(BigDecimal.ZERO)
-                                .passed(BigDecimal.ZERO.compareTo(passingScore) >= 0)
-                                .passingScore(passingScore)
-                                .startTime(session.getStartTime())
-                                .completedAt(LocalDateTime.now())
-                                .build(), answers));
+        return Mono.zip(
+                        questionRepository.findActiveByExamIdOrderByOrderIndex(session.getExamId()).collectList(),
+                        answerRepository.findBySessionId(session.getId()).collectList())
+                .flatMap(tuple -> {
+                    List<Question> questions = tuple.getT1();
+                    List<UserAnswer> answers = tuple.getT2();
+                    if (questions.isEmpty()) {
+                        // No questions: nothing to grade, and no IN () query
+                        return Mono.just(grade(session, passingScore, questions, answers, Map.of()));
                     }
-
-                    List<Long> questionIds = answers.stream()
-                            .map(UserAnswer::getQuestionId)
-                            .collect(Collectors.toList());
-                    
-                    return questionRepository.findAllById(questionIds)
-                            .collectMap(q -> q.getId(), q -> q)
-                            .flatMap(questionMap -> {
-                                // Get correct options for all questions
-                                return optionRepository.findCorrectOptionsByQuestionIds(questionIds)
-                                        .collectMultimap(QuestionOption::getQuestionId)
-                                        .map(correctOptionsMap -> {
-                                            BigDecimal totalPoints = BigDecimal.ZERO;
-                                            BigDecimal earnedPoints = BigDecimal.ZERO;
-                                            int correctCount = 0;
-                                            int incorrectCount = 0;
-                                            
-                                            for (UserAnswer answer : answers) {
-                                                var question = questionMap.get(answer.getQuestionId());
-                                                if (question == null) continue;
-                                                
-                                                totalPoints = totalPoints.add(question.getPoints());
-                                                
-                                                var correctOptions = correctOptionsMap.getOrDefault(
-                                                        answer.getQuestionId(), List.of());
-                                                
-                                                boolean isCorrect = isAnswerCorrect(question, answer, correctOptions);
-                                                
-                                                if (isCorrect) {
-                                                    earnedPoints = earnedPoints.add(question.getPoints());
-                                                    correctCount++;
-                                                    answer.setPointsEarned(question.getPoints());
-                                                    answer.setCorrect(true);
-                                                } else {
-                                                    incorrectCount++;
-                                                    answer.setPointsEarned(BigDecimal.ZERO);
-                                                    answer.setCorrect(false);
-                                                }
-                                            }
-                                            
-                                            // Calculate percentage
-                                            BigDecimal percentage = totalPoints.compareTo(BigDecimal.ZERO) > 0
-                                                    ? earnedPoints.multiply(BigDecimal.valueOf(100))
-                                                            .divide(totalPoints, 2, RoundingMode.HALF_UP)
-                                                    : BigDecimal.ZERO;
-                                            
-                                            boolean passed = percentage.compareTo(passingScore) >= 0;
-                                            
-                                            return new GradedSession(ExamResultResponse.builder()
-                                                    .sessionId(session.getSessionId())
-                                                    .examId(session.getExamId())
-                                                    .totalQuestions(answers.size())
-                                                    .correctAnswers(correctCount)
-                                                    .incorrectAnswers(incorrectCount)
-                                                    .totalScore(earnedPoints)
-                                                    .maxScore(totalPoints)
-                                                    .percentageScore(percentage)
-                                                    .passed(passed)
-                                                    .passingScore(passingScore)
-                                                    .startTime(session.getStartTime())
-                                                    .completedAt(LocalDateTime.now())
-                                                    .build(), answers);
-                                        });
-                            });
+                    List<Long> questionIds = questions.stream().map(Question::getId).toList();
+                    return optionRepository.findCorrectOptionsByQuestionIds(questionIds)
+                            .collectMultimap(QuestionOption::getQuestionId)
+                            .map(correctOptions -> grade(session, passingScore, questions, answers, correctOptions));
                 });
+    }
+
+    private GradedSession grade(ExamSession session, BigDecimal passingScore, List<Question> questions,
+                                List<UserAnswer> answers,
+                                Map<Long, java.util.Collection<QuestionOption>> correctOptions) {
+        Map<Long, UserAnswer> answerByQuestion = answers.stream()
+                .collect(Collectors.toMap(UserAnswer::getQuestionId, a -> a, (first, second) -> first));
+
+        BigDecimal totalPoints = BigDecimal.ZERO;
+        BigDecimal earnedPoints = BigDecimal.ZERO;
+        int correctCount = 0;
+        int incorrectCount = 0;
+        int unansweredCount = 0;
+        List<UserAnswer> graded = new ArrayList<>();
+
+        for (Question question : questions) {
+            totalPoints = totalPoints.add(question.getPoints());
+
+            UserAnswer answer = answerByQuestion.get(question.getId());
+            if (answer == null) {
+                unansweredCount++;
+                continue;
+            }
+
+            boolean isCorrect = isAnswerCorrect(question, answer,
+                    correctOptions.getOrDefault(question.getId(), List.of()));
+            if (isCorrect) {
+                earnedPoints = earnedPoints.add(question.getPoints());
+                correctCount++;
+                answer.setPointsEarned(question.getPoints());
+            } else {
+                incorrectCount++;
+                answer.setPointsEarned(BigDecimal.ZERO);
+            }
+            answer.setCorrect(isCorrect);
+            graded.add(answer);
+        }
+
+        BigDecimal percentage = totalPoints.compareTo(BigDecimal.ZERO) > 0
+                ? earnedPoints.multiply(BigDecimal.valueOf(100)).divide(totalPoints, 2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        return new GradedSession(ExamResultResponse.builder()
+                .sessionId(session.getSessionId())
+                .examId(session.getExamId())
+                .totalQuestions(questions.size())
+                .correctAnswers(correctCount)
+                .incorrectAnswers(incorrectCount)
+                .unansweredQuestions(unansweredCount)
+                .totalScore(earnedPoints)
+                .maxScore(totalPoints)
+                .percentageScore(percentage)
+                .passed(percentage.compareTo(passingScore) >= 0)
+                .passingScore(passingScore)
+                .startTime(session.getStartTime())
+                .completedAt(LocalDateTime.now())
+                .build(), graded);
     }
 
     private boolean isAnswerCorrect(Question question, UserAnswer answer,
