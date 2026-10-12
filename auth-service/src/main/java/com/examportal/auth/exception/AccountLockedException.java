@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 public class AccountLockedException extends ApplicationException {
 
     public AccountLockedException() {
-        super("Account is locked. Try again later or contact support.", HttpStatus.LOCKED, "ACCOUNT_LOCKED");
+        super("Account temporarily locked. Try again later or contact support.",
+                HttpStatus.LOCKED, "ACCOUNT_LOCKED");
     }
 }

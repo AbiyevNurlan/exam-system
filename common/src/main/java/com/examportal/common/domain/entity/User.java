@@ -8,6 +8,8 @@ import lombok.experimental.SuperBuilder;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
+import java.time.LocalDateTime;
+
 /**
  * User Entity
  * Represents a system user with authentication and authorization information.
@@ -46,6 +48,9 @@ public class User extends BaseEntity {
 
     @Column("failed_login_attempts")
     private int failedLoginAttempts;
+
+    @Column("locked_until")
+    private LocalDateTime lockedUntil;
 
     public String getFullName() {
         return firstName + " " + lastName;

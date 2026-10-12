@@ -15,6 +15,7 @@ import com.examportal.common.utils.CodeGenerator;
 import com.examportal.common.utils.LogMaskUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -42,8 +43,13 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final TransactionalOperator transactionalOperator;
 
-    private static final int MAX_FAILED_ATTEMPTS = 5;
     private static final int PASSWORD_RESET_TOKEN_EXPIRY_HOURS = 1;
+
+    @Value("${auth.lockout.max-attempts:5}")
+    private int lockoutMaxAttempts;
+
+    @Value("${auth.lockout.duration-minutes:15}")
+    private int lockoutDurationMinutes; // 0 = locked until an admin unlocks
 
     /**
      * Register a new user
@@ -83,6 +89,7 @@ public class AuthService {
 
         return userRepository.findByEmail(email)
                 .switchIfEmpty(Mono.error(new InvalidCredentialsException()))
+                .flatMap(this::unlockIfLockExpired)
                 .flatMap(user -> validateUserAndPassword(user, request.getPassword()))
                 .flatMap(user -> {
                     // Reset failed login attempts on successful login
@@ -234,7 +241,7 @@ public class AuthService {
      * Validate user status and password
      */
     private Mono<User> validateUserAndPassword(User user, String password) {
-        // Check if account is locked
+        // Check if account is locked (before the password, so a correct password never logs in)
         if (user.isAccountLocked()) {
             log.warn("Login attempt for locked account: {}", maskEmail(user.getEmail()));
             return Mono.error(new AccountLockedException());
@@ -256,21 +263,41 @@ public class AuthService {
     }
 
     /**
-     * Handle failed login attempt
+     * Lift a temporary lock that has run out, so the login continues with a fresh attempt counter
+     */
+    private Mono<User> unlockIfLockExpired(User user) {
+        if (!user.isAccountLocked()) {
+            return Mono.just(user);
+        }
+        return userRepository.unlockIfLockExpired(user.getId())
+                .map(updated -> {
+                    if (updated > 0) {
+                        log.info("Temporary lock expired, account unlocked: {}", maskEmail(user.getEmail()));
+                        user.setAccountLocked(false);
+                        user.setLockedUntil(null);
+                        user.setFailedLoginAttempts(0);
+                    }
+                    return user;
+                });
+    }
+
+    /**
+     * Handle failed login attempt.
+     * The counter and the lock are one atomic SQL statement; no transaction annotation is involved.
      */
     private Mono<Void> handleFailedLogin(String email) {
-        return userRepository.findByEmail(email)
-                .flatMap(user -> {
-                    int attempts = user.getFailedLoginAttempts() + 1;
-                    
-                    if (attempts >= MAX_FAILED_ATTEMPTS) {
+        return userRepository.registerFailedLogin(email, lockoutMaxAttempts, lockoutDurationMinutes)
+                .doOnNext(locked -> {
+                    if (locked) {
                         log.warn("Account locked due to too many failed attempts: {}", maskEmail(email));
-                        return userRepository.lockAccount(user.getId()).then();
-                    } else {
-                        return userRepository.incrementFailedLoginAttempts(user.getId()).then();
                     }
                 })
-                .onErrorResume(e -> Mono.empty()); // Ignore errors to prevent enumeration
+                .then()
+                // The caller still answers 401; a failure here must not change the response
+                .onErrorResume(e -> {
+                    log.error("Could not record failed login: {}", e.getClass().getSimpleName());
+                    return Mono.empty();
+                });
     }
 
     /**

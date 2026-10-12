@@ -32,11 +32,37 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
     Mono<User> findByEmailAndActive(String email, boolean active);
 
     /**
-     * Increment failed login attempts
+     * Count a failed login and lock the account once the limit is reached, in ONE atomic statement
+     * so concurrent wrong attempts cannot skip the limit. Uses the database clock.
+     * lockMinutes = 0 locks without an expiry (only an admin can unlock).
+     * Emits whether the account is now locked; empty if the email is unknown or already locked.
+     */
+    @Query("""
+            UPDATE users
+            SET failed_login_attempts = failed_login_attempts + 1,
+                account_locked = (failed_login_attempts + 1 >= :maxAttempts),
+                locked_until = CASE
+                    WHEN failed_login_attempts + 1 >= :maxAttempts AND :lockMinutes > 0
+                        THEN LOCALTIMESTAMP + make_interval(mins => :lockMinutes)
+                    WHEN failed_login_attempts + 1 >= :maxAttempts THEN NULL
+                    ELSE locked_until END,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE email = :email AND account_locked = false
+            RETURNING account_locked
+            """)
+    Mono<Boolean> registerFailedLogin(String email, int maxAttempts, int lockMinutes);
+
+    /**
+     * Lift a temporary lock whose locked_until has passed (database clock); returns 1 if it was lifted
      */
     @Modifying
-    @Query("UPDATE users SET failed_login_attempts = failed_login_attempts + 1, updated_at = CURRENT_TIMESTAMP WHERE id = :userId")
-    Mono<Integer> incrementFailedLoginAttempts(UUID userId);
+    @Query("""
+            UPDATE users
+            SET account_locked = false, locked_until = NULL, failed_login_attempts = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :userId AND account_locked = true
+              AND locked_until IS NOT NULL AND locked_until <= LOCALTIMESTAMP
+            """)
+    Mono<Integer> unlockIfLockExpired(UUID userId);
 
     /**
      * Reset failed login attempts
@@ -46,17 +72,10 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
     Mono<Integer> resetFailedLoginAttempts(UUID userId);
 
     /**
-     * Lock user account
-     */
-    @Modifying
-    @Query("UPDATE users SET account_locked = true, updated_at = CURRENT_TIMESTAMP WHERE id = :userId")
-    Mono<Integer> lockAccount(UUID userId);
-
-    /**
      * Unlock user account
      */
     @Modifying
-    @Query("UPDATE users SET account_locked = false, failed_login_attempts = 0, updated_at = CURRENT_TIMESTAMP WHERE id = :userId")
+    @Query("UPDATE users SET account_locked = false, locked_until = NULL, failed_login_attempts = 0, updated_at = CURRENT_TIMESTAMP WHERE id = :userId")
     Mono<Integer> unlockAccount(UUID userId);
 
     /**

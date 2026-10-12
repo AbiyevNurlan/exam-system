@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
     email_verified BOOLEAN DEFAULT FALSE,
     account_locked BOOLEAN DEFAULT FALSE,
     failed_login_attempts INTEGER DEFAULT 0,
+    -- End of a temporary lockout; NULL while unlocked or when only an admin can unlock
+    locked_until TIMESTAMP,
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
