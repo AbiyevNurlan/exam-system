@@ -15,6 +15,6 @@ public class DuplicateEmailException extends ApplicationException {
     }
 
     public DuplicateEmailException(String message, Throwable cause) {
-        super(message, HttpStatus.CONFLICT, cause);
+        super(message, HttpStatus.CONFLICT, "EMAIL_ALREADY_EXISTS", cause);
     }
 }

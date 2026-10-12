@@ -42,4 +42,10 @@ public class ApplicationException extends RuntimeException {
         this.status = status;
         this.errorCode = "ERROR";
     }
+
+    public ApplicationException(String message, HttpStatus status, String errorCode, Throwable cause) {
+        super(message, cause);
+        this.status = status;
+        this.errorCode = errorCode;
+    }
 }

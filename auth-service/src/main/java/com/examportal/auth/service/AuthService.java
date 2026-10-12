@@ -1,5 +1,6 @@
 package com.examportal.auth.service;
 
+import com.examportal.auth.exception.AccountLockedException;
 import com.examportal.auth.exception.DuplicateEmailException;
 import com.examportal.auth.exception.InvalidCredentialsException;
 import com.examportal.auth.exception.InvalidTokenException;
@@ -66,7 +67,7 @@ public class AuthService {
                 .flatMap(user -> generateAuthResponse(user))
                 .doOnSuccess(response -> log.info("User registered successfully: {}", maskEmail(email)))
                 .doOnError(error -> log.error("Registration failed for email: {}", maskEmail(email), error))
-                // Explicit transactional boundary; joins the @Transactional transaction when one is already active
+                // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real transaction boundary
                 .as(transactionalOperator::transactional);
     }
 
@@ -180,7 +181,9 @@ public class AuthService {
                             .then();
                 })
                 .doOnSuccess(v -> log.info("Password reset successful"))
-                .doOnError(error -> log.error("Password reset failed", error));
+                .doOnError(error -> log.error("Password reset failed", error))
+                // Password update, token consumption and session revocation must succeed or fail together
+                .as(transactionalOperator::transactional);
     }
 
     // ==================== Private Helper Methods ====================
@@ -234,13 +237,13 @@ public class AuthService {
         // Check if account is locked
         if (user.isAccountLocked()) {
             log.warn("Login attempt for locked account: {}", user.getEmail());
-            return Mono.error(new InvalidCredentialsException("Account is locked"));
+            return Mono.error(new AccountLockedException());
         }
 
         // Check if account is active
         if (!user.isActive()) {
             log.warn("Login attempt for inactive account: {}", user.getEmail());
-            return Mono.error(new InvalidCredentialsException("Account is inactive"));
+            return Mono.error(new InvalidCredentialsException());
         }
 
         // Validate password
