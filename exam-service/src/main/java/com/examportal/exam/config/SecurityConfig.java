@@ -57,6 +57,9 @@ public class SecurityConfig {
                         // Group names for choosing an exam audience - read only
                         .pathMatchers(HttpMethod.GET, "/api/groups").hasAnyRole("ADMIN", "INSTRUCTOR")
 
+                        // Media upload and management - admin and instructors; participants get media
+                        // only through their session (/api/exams/session/{sessionId}/media/{mediaId})
+                        .pathMatchers("/api/media/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         // Exam management - only admin and instructors
                         .pathMatchers(HttpMethod.POST, "/api/exams").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers(HttpMethod.PUT, "/api/exams/**").hasAnyRole("ADMIN", "INSTRUCTOR")

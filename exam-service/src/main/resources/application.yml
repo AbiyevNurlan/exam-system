@@ -73,6 +73,15 @@ exam:
     auto-submit-buffer-seconds: 30
     result-cache-ttl-minutes: 60
   media:
+    # Allowed uploads: IMAGE jpeg/png/webp, AUDIO mp3/ogg/m4a, VIDEO mp4 (MediaTypePolicy)
+    image-max-bytes: 5242880          # 5 MB
+    audio-max-bytes: 20971520         # 20 MB
+    video-max-bytes: 209715200        # 200 MB
+    upload-url-ttl-seconds: 600       # presigned PUT
+    preview-url-ttl-seconds: 300      # presigned GET for owner/ADMIN
+    max-pending-per-user: 50          # unconfirmed uploads one user may have
+    pending-max-age-minutes: 60       # an unconfirmed upload older than this is removed
+    cleanup-interval-ms: 300000       # how often the cleanup runs
     # S3-compatible object storage for question media (SeaweedFS in development). Files go straight
     # from the browser to the storage with presigned URLs; this service keeps only the metadata.
     # Without endpoint and credentials the service starts and media endpoints answer 503.
