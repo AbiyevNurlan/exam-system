@@ -109,5 +109,8 @@ rebel.xml
 # Docker
 docker-compose.override.yml
 
+# Database backups (scripts/backup.ps1) - contain user data, never commit
+backups/
+
 # Kubernetes
 *.kubeconfig
