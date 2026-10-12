@@ -18,8 +18,8 @@ import java.time.Duration;
  * account existed) into memberships. Groups live in exam-service's database, so this calls its
  * internal endpoint, authenticated with the shared service secret.
  *
- * Call applyForVerifiedUser whenever a user is known to own a VERIFIED email: today on login; the
- * future email verification (OTP) flow MUST call it right after it sets email_verified = true.
+ * Call applyForVerifiedUser whenever a user is known to own a VERIFIED email: right after the email
+ * was verified with a code (AuthService.verifyOtp) and on every login.
  * It never fails the caller: a problem is logged and the invites stay pending for the next call.
  */
 @Slf4j

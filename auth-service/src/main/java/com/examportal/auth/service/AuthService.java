@@ -110,6 +110,9 @@ public class AuthService {
                         }))
                 .switchIfEmpty(Mono.error(new InvalidOtpException()))
                 .doOnNext(user -> log.info("Email verified for: {}", maskEmail(email)))
+                // Group invites imported for this now verified email become memberships. Same hook as on
+                // login; it never fails the verification (a failure is logged and the next login retries).
+                .flatMap(user -> groupInviteClient.applyForVerifiedUser(user).thenReturn(user))
                 // The address is verified either way; tokens are still refused while the account is locked
                 .flatMap(this::unlockIfLockExpired)
                 .flatMap(user -> user.isAccountLocked()
