@@ -1,5 +1,6 @@
 package com.examportal.common.domain.dto;
 
+import com.examportal.common.domain.entity.ExamAccessType;
 import com.examportal.common.domain.entity.ExamStatus;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
@@ -40,6 +41,7 @@ public class ExamResponse {
     private String categoryName;
     private UUID createdBy;
     private String creatorUsername;
+    private ExamAccessType accessType;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private List<QuestionResponse> questions;

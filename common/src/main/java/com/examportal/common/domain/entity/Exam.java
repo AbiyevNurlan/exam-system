@@ -71,6 +71,9 @@ public class Exam {
     @Column("created_by")
     private UUID createdBy;
 
+    @Column("access_type")
+    private ExamAccessType accessType;
+
     @Column("active")
     private Boolean active;
 
