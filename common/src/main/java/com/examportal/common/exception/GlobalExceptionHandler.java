@@ -140,6 +140,44 @@ public class GlobalExceptionHandler {
         return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(response));
     }
 
+    // Spring Security's own exceptions (e.g. thrown by @PreAuthorize) share simple names with ours,
+    // hence the fully-qualified types. The message is generic and only the code and path are logged.
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public Mono<ResponseEntity<ApiResponse<Void>>> handleSecurityAccessDeniedException(
+            org.springframework.security.access.AccessDeniedException ex, ServerWebExchange exchange) {
+
+        log.warn("Authorization failure: ACCESS_DENIED - Path: {}", exchange.getRequest().getPath());
+
+        ApiResponse<Void> response = ApiResponse.error(
+                "Access denied",
+                ApiResponse.ErrorDetails.builder()
+                        .code("ACCESS_DENIED")
+                        .description("You do not have permission to perform this action")
+                        .build()
+        );
+        response.setPath(exchange.getRequest().getPath().value());
+
+        return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(response));
+    }
+
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    public Mono<ResponseEntity<ApiResponse<Void>>> handleSecurityAuthenticationException(
+            org.springframework.security.core.AuthenticationException ex, ServerWebExchange exchange) {
+
+        log.warn("Authorization failure: UNAUTHENTICATED - Path: {}", exchange.getRequest().getPath());
+
+        ApiResponse<Void> response = ApiResponse.error(
+                "Authentication required",
+                ApiResponse.ErrorDetails.builder()
+                        .code("UNAUTHENTICATED")
+                        .description("A valid access token is required")
+                        .build()
+        );
+        response.setPath(exchange.getRequest().getPath().value());
+
+        return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response));
+    }
+
     @ExceptionHandler(Exception.class)
     public Mono<ResponseEntity<ApiResponse<Void>>> handleGenericException(
             Exception ex, ServerWebExchange exchange) {
