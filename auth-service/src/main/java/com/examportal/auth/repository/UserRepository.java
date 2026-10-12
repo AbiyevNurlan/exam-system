@@ -7,8 +7,10 @@ import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.Collection;
 import java.util.UUID;
 
 /**
@@ -32,6 +34,18 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
      * Find user by email and active status
      */
     Mono<User> findByEmailAndActive(String email, boolean active);
+
+    /**
+     * Active users among the given (normalized) emails; for the internal lookup
+     */
+    @Query("SELECT * FROM users WHERE email IN (:emails) AND active = true")
+    Flux<User> findActiveByEmailIn(Collection<String> emails);
+
+    /**
+     * Active users among the given ids; for the internal lookup
+     */
+    @Query("SELECT * FROM users WHERE id IN (:ids) AND active = true")
+    Flux<User> findActiveByIdIn(Collection<UUID> ids);
 
     /**
      * Check if any user has the given role

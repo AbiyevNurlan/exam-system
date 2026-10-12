@@ -1,6 +1,8 @@
 package com.examportal.exam.controller;
 
 import com.examportal.common.domain.dto.*;
+import com.examportal.common.domain.dto.group.ExamAudienceRequest;
+import com.examportal.common.domain.dto.group.ExamAudienceResponse;
 import com.examportal.common.domain.entity.ExamStatus;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.security.UserPrincipal;
@@ -207,6 +209,20 @@ public class ExamController {
 
         return examService.getExamResults(id, principal.getId(), principal.getRole(), status, page, size)
                 .map(ApiResponse::success);
+    }
+
+    @PutMapping("/{id}/audience")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Set exam audience", description = "PUBLIC or GROUP with the groups whose members may take the exam (owner or admin)")
+    public Mono<ApiResponse<ExamAudienceResponse>> setAudience(
+            @PathVariable Long id,
+            @Valid @RequestBody ExamAudienceRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        log.info("Setting audience of exam: {} by user: {}", id, principal.getId());
+
+        return examService.setAudience(id, request, principal.getId(), principal.getRole())
+                .map(audience -> ApiResponse.success(audience, "Exam audience updated successfully"));
     }
 
     // ==================== Admin Operations ====================

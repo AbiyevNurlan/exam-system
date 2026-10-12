@@ -43,6 +43,9 @@ public class SecurityConfig {
                         .pathMatchers("/actuator/**").permitAll()
                         // API documentation
                         .pathMatchers("/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                        // Service-to-service endpoints: no JWT, the controller checks the shared secret
+                        // (InternalServiceAuth). The gateway does not route /internal/**.
+                        .pathMatchers("/internal/**").permitAll()
                         // Admin API: enforced here by path so it does not depend on method security
                         .pathMatchers("/auth/admin/**").hasRole("ADMIN")
                         // All other requests require authentication

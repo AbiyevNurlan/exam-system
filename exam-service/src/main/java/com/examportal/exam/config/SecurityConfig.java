@@ -48,6 +48,9 @@ public class SecurityConfig {
                         .pathMatchers("/actuator/**").permitAll()
                         .pathMatchers("/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         
+                        // Group administration - admin only, enforced here by path as well as by @PreAuthorize
+                        .pathMatchers("/api/admin/**").hasRole("ADMIN")
+
                         // Exam management - only admin and instructors
                         .pathMatchers(HttpMethod.POST, "/api/exams").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers(HttpMethod.PUT, "/api/exams/**").hasAnyRole("ADMIN", "INSTRUCTOR")

@@ -55,6 +55,8 @@ services:
       # Optional: first ADMIN is created on startup when both are set (no default values)
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Optional: shared secret for /internal/** between auth-service and exam-service (min 32 characters)
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_auth
@@ -81,6 +83,9 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env}
+      # Optional: without it, adding group members by email and the CSV import answer 503
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      AUTH_INTERNAL_URL: http://auth-service:8081
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_db

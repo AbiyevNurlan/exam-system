@@ -56,6 +56,16 @@ security:
   jwt:
     secret-key: ${JWT_SECRET:}
 
+# Service-to-service calls. Users live in auth-service, so emails and user ids are resolved through
+# its internal endpoint, authenticated with a shared secret (at least 32 characters).
+# Empty secret = adding group members by email or id and the CSV import answer 503.
+services:
+  auth:
+    url: ${AUTH_INTERNAL_URL:http://localhost:8081}
+
+internal:
+  service-secret: ${INTERNAL_SERVICE_SECRET:}
+
 exam:
   settings:
     max-questions-per-exam: 100

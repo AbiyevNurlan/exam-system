@@ -113,6 +113,8 @@ services:
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
+      # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -158,6 +160,8 @@ services:
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
+      # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -199,6 +203,9 @@ services:
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
+      # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      AUTH_INTERNAL_URL: http://auth-service-1:8081
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -239,6 +246,9 @@ services:
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
+      # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      AUTH_INTERNAL_URL: http://auth-service-1:8081
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -279,6 +289,9 @@ services:
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
+      # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      AUTH_INTERNAL_URL: http://auth-service-1:8081
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational

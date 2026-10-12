@@ -52,7 +52,7 @@ spring:
         - id: exam-service
           uri: http://exam-service:8082
           predicates:
-            - Path=/api/exams/**, /api/questions/**, /api/results/**
+            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/admin/groups/**
           filters:
             - name: CircuitBreaker
               args:

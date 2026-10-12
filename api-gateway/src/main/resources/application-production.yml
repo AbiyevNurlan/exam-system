@@ -89,7 +89,7 @@ spring:
         - id: exam-service
           uri: lb://exam-service
           predicates:
-            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/sessions/**
+            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/sessions/**, /api/admin/groups/**
           filters:
             - name: CircuitBreaker
               args:

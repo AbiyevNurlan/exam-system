@@ -51,6 +51,11 @@ security:
     refresh-token-expiration: 604800000  # 7 days
     issuer: exam-system
 
+# Shared secret for the service-to-service endpoints under /internal/** (at least 32 characters).
+# Empty = those endpoints are switched off.
+internal:
+  service-secret: ${INTERNAL_SERVICE_SECRET:}
+
 auth:
   lockout:
     max-attempts: 5        # wrong passwords before the account is locked

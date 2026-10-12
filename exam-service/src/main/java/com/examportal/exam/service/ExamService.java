@@ -1,8 +1,11 @@
 package com.examportal.exam.service;
 
 import com.examportal.common.domain.dto.*;
+import com.examportal.common.domain.dto.group.ExamAudienceRequest;
+import com.examportal.common.domain.dto.group.ExamAudienceResponse;
 import com.examportal.common.domain.entity.*;
 import com.examportal.exam.exception.ExamException;
+import com.examportal.exam.exception.GroupException;
 import com.examportal.exam.mapper.ExamMapper;
 import com.examportal.exam.repository.*;
 import com.examportal.exam.validator.ExamValidator;
@@ -33,6 +36,9 @@ public class ExamService {
     private final ExamCacheService cacheService;
     private final AnswerSubmissionService answerService;
     private final ExamAccessPolicy accessPolicy;
+    private final UserGroupRepository groupRepository;
+    private final ExamAudienceRepository audienceRepository;
+    private final GroupAuditService auditService;
     private final ExamValidator validator;
     private final ExamMapper mapper;
     private final TransactionalOperator transactionalOperator;
@@ -291,6 +297,55 @@ public class ExamService {
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
                 .doOnSuccess(exam -> log.info("Exam {} status updated to {}", examId, newStatus));
+    }
+
+    /**
+     * Set who may take an exam: PUBLIC (everyone) or GROUP (members of the given groups).
+     * Allowed for the owner and ADMIN in every exam status; changing a published exam takes effect
+     * at once for new starts, while sessions already in progress can be finished.
+     * This only stores the audience; who has access is decided by ExamAccessPolicy.
+     */
+    public Mono<ExamAudienceResponse> setAudience(Long examId, ExamAudienceRequest request, UUID userId, String role) {
+        ExamAccessType accessType = request.getAccessType();
+        List<Long> groupIds = accessType == ExamAccessType.GROUP && request.getGroupIds() != null
+                ? request.getGroupIds().stream().distinct().sorted().toList()
+                : List.of();
+
+        Mono<ExamAudienceResponse> change = findAccessibleExam(examId, userId, role)
+                .flatMap(exam -> {
+                    if (!"ADMIN".equals(role) && !exam.getCreatedBy().equals(userId)) {
+                        return Mono.error(ExamException.notOwner());
+                    }
+                    if (accessType == ExamAccessType.GROUP && groupIds.isEmpty()) {
+                        return Mono.error(GroupException.audienceGroupsRequired());
+                    }
+                    Mono<Long> existing = groupIds.isEmpty()
+                            ? Mono.just(0L)
+                            : groupRepository.countActiveByIdIn(groupIds);
+                    return existing.flatMap(found -> found == groupIds.size()
+                            ? Mono.just(exam)
+                            : Mono.<Exam>error(GroupException.audienceGroupNotFound()));
+                })
+                .flatMap(exam -> audienceRepository.findGroupIdsByExamId(examId).collectList()
+                        .flatMap(oldGroupIds -> audienceRepository.deleteByExamId(examId)
+                                .thenMany(Flux.fromIterable(groupIds)
+                                        .concatMap(groupId -> audienceRepository.add(examId, groupId)))
+                                .then(examRepository.updateAccessType(examId, accessType.name()))
+                                .then(auditService.record(userId, GroupAuditService.EXAM_AUDIENCE_CHANGED, null, null,
+                                        "examId=" + examId + " status=" + exam.getStatus()
+                                                + " accessType=" + exam.getAccessType() + " -> " + accessType
+                                                + " groups=" + oldGroupIds + " -> " + groupIds))
+                                .thenReturn(ExamAudienceResponse.builder()
+                                        .examId(examId)
+                                        .accessType(accessType)
+                                        .groupIds(groupIds)
+                                        .build())));
+
+        // Audience rows, access type and audit entry change together; the cached exam is dropped after commit
+        return transactionalOperator.transactional(change)
+                .flatMap(response -> cacheService.invalidateExamCache(examId).thenReturn(response))
+                .doOnSuccess(response -> log.info("Exam {} audience set to {} {} by user {}",
+                        examId, response.getAccessType(), response.getGroupIds(), userId));
     }
 
     // ==================== Private Helper Methods ====================

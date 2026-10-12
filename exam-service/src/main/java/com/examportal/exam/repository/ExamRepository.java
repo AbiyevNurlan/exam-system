@@ -135,6 +135,13 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
     Mono<Integer> updateTotalQuestions(Long id, Integer count);
 
     /**
+     * Set who may take the exam (PUBLIC or GROUP)
+     */
+    @Modifying
+    @Query("UPDATE exams SET access_type = :accessType, updated_at = CURRENT_TIMESTAMP WHERE id = :id")
+    Mono<Integer> updateAccessType(Long id, String accessType);
+
+    /**
      * Soft delete an exam
      */
     @Modifying
