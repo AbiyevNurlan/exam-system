@@ -65,6 +65,14 @@ auth:
   lockout:
     max-attempts: 5        # wrong passwords before the account is locked
     duration-minutes: 15   # 0 = locked until an admin unlocks
+  otp:
+    # Key for the HMAC under which codes are stored: base64 of at least 32 random bytes.
+    # Required: the service refuses to start without it.
+    hmac-secret: ${OTP_HMAC_SECRET:}
+    ttl-minutes: 10              # how long a code is valid
+    max-attempts: 5              # wrong codes before the code is burned
+    resend-cooldown-seconds: 60  # minimum time between two codes for one email
+    max-sends-per-hour: 5        # codes per email per hour
   bootstrap:
     # First ADMIN, created on startup only when both are set and no ADMIN exists yet
     admin-email: ${ADMIN_EMAIL:}

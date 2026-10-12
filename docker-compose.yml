@@ -55,6 +55,7 @@ services:
       # Optional: first ADMIN is created on startup when both are set (no default values)
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:?OTP_HMAC_SECRET is required - copy .env.example to .env}
       # Optional: shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       EXAM_INTERNAL_URL: http://exam-service:8082
