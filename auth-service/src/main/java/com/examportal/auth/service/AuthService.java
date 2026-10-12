@@ -13,12 +13,15 @@ import com.examportal.common.security.JwtTokenProvider;
 import com.examportal.common.utils.CodeGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -35,6 +38,7 @@ public class AuthService {
     private final TokenService tokenService;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final TransactionalOperator transactionalOperator;
 
     private static final int MAX_FAILED_ATTEMPTS = 5;
     private static final int PASSWORD_RESET_TOKEN_EXPIRY_HOURS = 1;
@@ -44,20 +48,26 @@ public class AuthService {
      */
     @Transactional
     public Mono<AuthResponse> register(RegisterRequest request) {
-        log.info("Registering new user with email: {}", request.getEmail());
+        String email = normalizeEmail(request.getEmail());
+        log.info("Registering new user with email: {}", maskEmail(email));
 
         // Check if email already exists
-        return userRepository.existsByEmail(request.getEmail())
+        return userRepository.existsByEmail(email)
                 .flatMap(exists -> {
                     if (exists) {
-                        log.warn("Registration failed: Email already exists - {}", request.getEmail());
-                        return Mono.error(new DuplicateEmailException(request.getEmail()));
+                        log.warn("Registration failed: Email already exists - {}", maskEmail(email));
+                        return Mono.error(new DuplicateEmailException(email));
                     }
-                    return createUser(request);
+                    // A concurrent registration can still hit the unique index
+                    return createUser(request, email)
+                            .onErrorMap(DuplicateKeyException.class, e -> new DuplicateEmailException(
+                                    "User with email '" + email + "' already exists", e));
                 })
                 .flatMap(user -> generateAuthResponse(user))
-                .doOnSuccess(response -> log.info("User registered successfully: {}", request.getEmail()))
-                .doOnError(error -> log.error("Registration failed for email: {}", request.getEmail(), error));
+                .doOnSuccess(response -> log.info("User registered successfully: {}", maskEmail(email)))
+                .doOnError(error -> log.error("Registration failed for email: {}", maskEmail(email), error))
+                // Explicit transactional boundary; joins the @Transactional transaction when one is already active
+                .as(transactionalOperator::transactional);
     }
 
     /**
@@ -65,9 +75,10 @@ public class AuthService {
      */
     @Transactional
     public Mono<AuthResponse> login(LoginRequest request) {
-        log.info("Login attempt for email: {}", request.getEmail());
+        String email = normalizeEmail(request.getEmail());
+        log.info("Login attempt for email: {}", maskEmail(email));
 
-        return userRepository.findByEmail(request.getEmail())
+        return userRepository.findByEmail(email)
                 .switchIfEmpty(Mono.error(new InvalidCredentialsException()))
                 .flatMap(user -> validateUserAndPassword(user, request.getPassword()))
                 .flatMap(user -> {
@@ -76,9 +87,9 @@ public class AuthService {
                             .thenReturn(user);
                 })
                 .flatMap(this::generateAuthResponse)
-                .doOnSuccess(response -> log.info("Login successful for email: {}", request.getEmail()))
+                .doOnSuccess(response -> log.info("Login successful for email: {}", maskEmail(email)))
                 .onErrorResume(InvalidCredentialsException.class, error -> 
-                    handleFailedLogin(request.getEmail()).then(Mono.error(error)));
+                    handleFailedLogin(email).then(Mono.error(error)));
     }
 
     /**
@@ -126,7 +137,7 @@ public class AuthService {
     public Mono<Void> forgotPassword(ForgotPasswordRequest request) {
         log.info("Password reset requested for email: {}", request.getEmail());
 
-        return userRepository.findByEmail(request.getEmail())
+        return userRepository.findByEmail(normalizeEmail(request.getEmail()))
                 .flatMap(user -> {
                     // Delete any existing reset tokens for this user
                     return passwordResetTokenRepository.deleteAllByUserId(user.getId())
@@ -175,13 +186,31 @@ public class AuthService {
     // ==================== Private Helper Methods ====================
 
     /**
+     * Trim and lowercase an email so it matches the lower(email) unique index
+     */
+    private String normalizeEmail(String email) {
+        return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Mask an email for logging, keeping only the first character and the domain
+     */
+    private String maskEmail(String email) {
+        if (email == null) {
+            return null;
+        }
+        int at = email.indexOf('@');
+        return at < 1 ? "***" : email.charAt(0) + "***" + email.substring(at);
+    }
+
+    /**
      * Create a new user entity
      */
-    private Mono<User> createUser(RegisterRequest request) {
+    private Mono<User> createUser(RegisterRequest request, String email) {
         String hashedPassword = passwordEncoder.encode(request.getPassword());
 
         User user = User.builder()
-                .email(request.getEmail())
+                .email(email)
                 .passwordHash(hashedPassword)
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
