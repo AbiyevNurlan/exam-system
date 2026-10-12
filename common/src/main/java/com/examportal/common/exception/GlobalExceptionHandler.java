@@ -9,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.support.WebExchangeBindException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -195,6 +196,38 @@ public class GlobalExceptionHandler {
         response.setPath(exchange.getRequest().getPath().value());
 
         return Mono.just(ResponseEntity.status(HttpStatus.CONFLICT).body(response));
+    }
+
+    // Framework errors: unmapped routes (404), malformed body / missing or mistyped parameters
+    // (ServerWebInputException, 400), wrong method or media type, etc. The status is kept, the message is
+    // generic (the framework's reason can echo request data) and only the code and path are logged.
+    @ExceptionHandler(ResponseStatusException.class)
+    public Mono<ResponseEntity<ApiResponse<Void>>> handleResponseStatusException(
+            ResponseStatusException ex, ServerWebExchange exchange) {
+
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        String code = status != null ? status.name() : "HTTP_" + ex.getStatusCode().value();
+        String message;
+        if (status == HttpStatus.NOT_FOUND) {
+            message = "Resource not found";
+        } else if (status == HttpStatus.BAD_REQUEST) {
+            message = "Malformed request";
+        } else {
+            message = status != null ? status.getReasonPhrase() : "Request failed";
+        }
+
+        log.warn("Request rejected: {} - Path: {}", code, exchange.getRequest().getPath());
+
+        ApiResponse<Void> response = ApiResponse.error(
+                message,
+                ApiResponse.ErrorDetails.builder()
+                        .code(code)
+                        .description(message)
+                        .build()
+        );
+        response.setPath(exchange.getRequest().getPath().value());
+
+        return Mono.just(ResponseEntity.status(ex.getStatusCode()).headers(ex.getHeaders()).body(response));
     }
 
     @ExceptionHandler(Exception.class)

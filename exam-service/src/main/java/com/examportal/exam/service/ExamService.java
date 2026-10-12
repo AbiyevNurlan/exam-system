@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -33,6 +34,7 @@ public class ExamService {
     private final ExamCacheService cacheService;
     private final ExamValidator validator;
     private final ExamMapper mapper;
+    private final TransactionalOperator transactionalOperator;
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_RESULTS_PAGE_SIZE = 50;
@@ -40,12 +42,11 @@ public class ExamService {
     /**
      * Create a new exam with questions and options
      */
-    @Transactional
     public Mono<ExamResponse> createExam(CreateExamRequest request, Long userId) {
         log.info("Creating exam '{}' for user {}", request.getTitle(), userId);
 
-        return validator.validateCreateRequest(request)
-                .then(validator.validateNoSchedulingConflict(userId, request.getStartTime(), 
+        Mono<ExamResponse> creation = validator.validateCreateRequest(request)
+                .then(validator.validateNoSchedulingConflict(userId, request.getStartTime(),
                         request.getEndTime(), null))
                 .then(Mono.defer(() -> {
                     Exam exam = mapper.toEntity(request, userId);
@@ -53,7 +54,11 @@ public class ExamService {
                 }))
                 .flatMap(savedExam -> saveQuestionsAndOptions(savedExam.getId(), request.getQuestions())
                         .then(Mono.just(savedExam)))
-                .flatMap(this::loadExamWithQuestions)
+                .flatMap(this::loadExamWithQuestions);
+
+        // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real
+        // boundary: exam, questions and options are stored together or not at all. The cache is filled after commit.
+        return transactionalOperator.transactional(creation)
                 .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))
                 .doOnSuccess(exam -> log.info("Exam created successfully: {}", exam.getId()))
                 .doOnError(err -> log.error("Failed to create exam: {}", err.getMessage()));
@@ -62,11 +67,10 @@ public class ExamService {
     /**
      * Update an existing exam
      */
-    @Transactional
     public Mono<ExamResponse> updateExam(Long examId, UpdateExamRequest request, Long userId) {
         log.info("Updating exam {} for user {}", examId, userId);
 
-        return examRepository.findById(examId)
+        Mono<ExamResponse> update = examRepository.findById(examId)
                 .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
                 .flatMap(exam -> {
                     if (!exam.getCreatedBy().equals(userId)) {
@@ -89,7 +93,10 @@ public class ExamService {
                         .then(saveQuestionsAndOptions(examId, request.getQuestions()))
                         .then(examRepository.updateTotalQuestions(examId, request.getQuestions().size()))
                         .thenReturn(exam))
-                .flatMap(this::loadExamWithQuestions)
+                .flatMap(this::loadExamWithQuestions);
+
+        // One transaction for the exam row and the replaced questions/options; the cache is refreshed after commit
+        return transactionalOperator.transactional(update)
                 .flatMap(response -> cacheService.invalidateExamCache(examId)
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
@@ -288,7 +295,8 @@ public class ExamService {
     private Mono<Void> saveQuestionsAndOptions(Long examId, List<QuestionDTO> questions) {
         return Flux.fromIterable(questions)
                 .index()
-                .flatMap(tuple -> {
+                // Sequential: these writes share the one connection of the surrounding transaction
+                .concatMap(tuple -> {
                     int index = tuple.getT1().intValue();
                     QuestionDTO dto = tuple.getT2();
                     dto.setOrderIndex(index);
@@ -316,7 +324,7 @@ public class ExamService {
                     dto.setOrderIndex(tuple.getT1().intValue());
                     return mapper.toEntity(dto, questionId);
                 })
-                .flatMap(optionRepository::save)
+                .concatMap(optionRepository::save)
                 .then();
     }
 
@@ -325,7 +333,7 @@ public class ExamService {
      */
     private Mono<Void> deleteExistingQuestionsAndOptions(Long examId) {
         return questionRepository.findByExamIdOrderByOrderIndex(examId)
-                .flatMap(question -> optionRepository.deleteByQuestionId(question.getId()))
+                .concatMap(question -> optionRepository.deleteByQuestionId(question.getId()))
                 .then(questionRepository.deleteByExamId(examId));
     }
 
