@@ -42,7 +42,7 @@ public class ExamService {
     /**
      * Create a new exam with questions and options
      */
-    public Mono<ExamResponse> createExam(CreateExamRequest request, Long userId) {
+    public Mono<ExamResponse> createExam(CreateExamRequest request, UUID userId) {
         log.info("Creating exam '{}' for user {}", request.getTitle(), userId);
 
         Mono<ExamResponse> creation = validator.validateCreateRequest(request)
@@ -67,7 +67,7 @@ public class ExamService {
     /**
      * Update an existing exam
      */
-    public Mono<ExamResponse> updateExam(Long examId, UpdateExamRequest request, Long userId) {
+    public Mono<ExamResponse> updateExam(Long examId, UpdateExamRequest request, UUID userId) {
         log.info("Updating exam {} for user {}", examId, userId);
 
         Mono<ExamResponse> update = examRepository.findById(examId)
@@ -108,7 +108,7 @@ public class ExamService {
      * Delete an exam
      */
     @Transactional
-    public Mono<Void> deleteExam(Long examId, Long userId) {
+    public Mono<Void> deleteExam(Long examId, UUID userId) {
         log.info("Deleting exam {} for user {}", examId, userId);
 
         return examRepository.findById(examId)
@@ -134,7 +134,7 @@ public class ExamService {
     /**
      * Get exam by ID with questions
      */
-    public Mono<ExamResponse> getExamById(Long examId, Long userId, String role) {
+    public Mono<ExamResponse> getExamById(Long examId, UUID userId, String role) {
         log.debug("Getting exam {} for user {}", examId, userId);
 
         return cacheService.getCachedExam(examId)
@@ -158,7 +158,7 @@ public class ExamService {
     /**
      * Get exams created by a user
      */
-    public Flux<ExamResponse> getMyExams(Long userId, ExamStatus status) {
+    public Flux<ExamResponse> getMyExams(UUID userId, ExamStatus status) {
         log.debug("Getting exams for user {} with status {}", userId, status);
 
         Flux<Exam> exams = status != null
@@ -171,7 +171,7 @@ public class ExamService {
     /**
      * Get available exams for participants
      */
-    public Flux<ExamResponse> getAvailableExams(Long userId) {
+    public Flux<ExamResponse> getAvailableExams(UUID userId) {
         log.debug("Getting available exams for user {}", userId);
 
         return examRepository.findAvailableExams()
@@ -192,7 +192,7 @@ public class ExamService {
     /**
      * Start an exam session
      */
-    public Mono<StartExamResponse> startExam(Long examId, Long userId, StartExamRequest request) {
+    public Mono<StartExamResponse> startExam(Long examId, UUID userId, StartExamRequest request) {
         log.info("Starting exam {} for user {}", examId, userId);
 
         return examRepository.findById(examId)
@@ -213,7 +213,7 @@ public class ExamService {
     /**
      * Get next batch of questions for a session
      */
-    public Mono<List<QuestionResponse>> getNextQuestions(String sessionId, int batch, Long userId) {
+    public Mono<List<QuestionResponse>> getNextQuestions(String sessionId, int batch, UUID userId) {
         log.debug("Getting questions batch {} for session {}", batch, sessionId);
 
         return sessionRepository.findBySessionId(sessionId)
@@ -234,7 +234,7 @@ public class ExamService {
     /**
      * One page of an exam's sessions for ADMIN or the INSTRUCTOR who owns the exam
      */
-    public Mono<PageResponse<SessionSummaryResponse>> getExamResults(Long examId, Long userId, String role,
+    public Mono<PageResponse<SessionSummaryResponse>> getExamResults(Long examId, UUID userId, String role,
                                                                      int page, int size) {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_RESULTS_PAGE_SIZE);
@@ -266,7 +266,7 @@ public class ExamService {
      * Update exam status
      */
     @Transactional
-    public Mono<ExamResponse> updateExamStatus(Long examId, ExamStatus newStatus, Long userId) {
+    public Mono<ExamResponse> updateExamStatus(Long examId, ExamStatus newStatus, UUID userId) {
         log.info("Updating exam {} status to {} by user {}", examId, newStatus, userId);
 
         return examRepository.findById(examId)
@@ -373,7 +373,7 @@ public class ExamService {
     /**
      * Create an exam session
      */
-    private Mono<ExamSession> openSession(Exam exam, Long userId, StartExamRequest request) {
+    private Mono<ExamSession> openSession(Exam exam, UUID userId, StartExamRequest request) {
         String sessionId = UUID.randomUUID().toString();
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime endTime = now.plusMinutes(exam.getDurationMinutes());

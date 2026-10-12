@@ -13,6 +13,7 @@ import org.springframework.data.relational.core.mapping.Table;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Exam Entity
@@ -68,7 +69,7 @@ public class Exam {
     private Long categoryId;
 
     @Column("created_by")
-    private Long createdBy;
+    private UUID createdBy;
 
     @Column("active")
     private Boolean active;

@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.UUID;
 
 /**
  * Answer Submission Service
@@ -51,7 +52,7 @@ public class AnswerSubmissionService {
     /**
      * Submit an answer for a question
      */
-    public Mono<SubmitAnswerResponse> submitAnswer(String sessionId, SubmitAnswerRequest request, Long userId) {
+    public Mono<SubmitAnswerResponse> submitAnswer(String sessionId, SubmitAnswerRequest request, UUID userId) {
         log.debug("Submitting answer for session {} question {}", sessionId, request.getQuestionId());
 
         return sessionRepository.findBySessionId(sessionId)
@@ -82,7 +83,7 @@ public class AnswerSubmissionService {
      * Submit the exam and calculate results.
      * Idempotent: a session that is already completed returns its stored result.
      */
-    public Mono<ExamResultResponse> submitExam(String sessionId, Long userId) {
+    public Mono<ExamResultResponse> submitExam(String sessionId, UUID userId) {
         log.info("Submitting exam for session {}", sessionId);
 
         return sessionRepository.findBySessionId(sessionId)
@@ -107,7 +108,7 @@ public class AnswerSubmissionService {
      * Result of a completed session for its owner. When the exam does not show results immediately,
      * only a submission summary is returned until the exam end time has passed.
      */
-    public Mono<SessionResultResponse> getSessionResult(String sessionId, Long userId) {
+    public Mono<SessionResultResponse> getSessionResult(String sessionId, UUID userId) {
         log.debug("Getting result for session {}", sessionId);
 
         return sessionRepository.findBySessionId(sessionId)

@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Exam Response DTO
@@ -37,7 +38,7 @@ public class ExamResponse {
     private Integer maxAttempts;
     private Long categoryId;
     private String categoryName;
-    private Long createdBy;
+    private UUID createdBy;
     private String creatorUsername;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

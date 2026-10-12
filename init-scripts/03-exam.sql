@@ -3,6 +3,8 @@
 -- Runs after 01-create-databases.sh has created the databases.
 -- Mirrors: Exam, Question, QuestionOption, ExamSession, UserAnswer.
 -- Indexes are plain CREATE INDEX (CONCURRENTLY is not allowed in init scripts).
+-- User references (exams.created_by, exam_sessions.user_id) hold exam_auth.users.id (UUID);
+-- there is no foreign key because the users table lives in another database.
 -- =====================================================
 
 \connect exam_db
@@ -34,7 +36,7 @@ CREATE TABLE IF NOT EXISTS exams (
     show_results_immediately BOOLEAN DEFAULT FALSE,
     max_attempts INTEGER DEFAULT 1,
     category_id BIGINT REFERENCES categories(id),
-    created_by BIGINT NOT NULL,
+    created_by UUID NOT NULL,
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -71,7 +73,7 @@ CREATE TABLE IF NOT EXISTS exam_sessions (
     id BIGSERIAL PRIMARY KEY,
     session_id VARCHAR(100) NOT NULL UNIQUE,
     exam_id BIGINT NOT NULL REFERENCES exams(id),
-    user_id BIGINT NOT NULL,
+    user_id UUID NOT NULL,
     start_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP,
     status VARCHAR(50) NOT NULL DEFAULT 'IN_PROGRESS',

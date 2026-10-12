@@ -11,6 +11,7 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Exam Session Repository
@@ -32,34 +33,34 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
     /**
      * Find all sessions for a user
      */
-    Flux<ExamSession> findByUserId(Long userId);
+    Flux<ExamSession> findByUserId(UUID userId);
 
     /**
      * Find sessions for a specific exam and user
      */
-    Flux<ExamSession> findByExamIdAndUserId(Long examId, Long userId);
+    Flux<ExamSession> findByExamIdAndUserId(Long examId, UUID userId);
 
     /**
      * Count attempts by user for an exam
      */
-    Mono<Long> countByExamIdAndUserId(Long examId, Long userId);
+    Mono<Long> countByExamIdAndUserId(Long examId, UUID userId);
 
     /**
      * Count completed attempts by user for an exam
      */
     @Query("SELECT COUNT(*) FROM exam_sessions WHERE exam_id = :examId AND user_id = :userId AND status = 'COMPLETED'")
-    Mono<Long> countCompletedAttempts(Long examId, Long userId);
+    Mono<Long> countCompletedAttempts(Long examId, UUID userId);
 
     /**
      * Find active session for user and exam
      */
     @Query("SELECT * FROM exam_sessions WHERE exam_id = :examId AND user_id = :userId AND status = 'IN_PROGRESS' LIMIT 1")
-    Mono<ExamSession> findActiveSession(Long examId, Long userId);
+    Mono<ExamSession> findActiveSession(Long examId, UUID userId);
 
     /**
      * Check if user has an active session
      */
-    Mono<Boolean> existsByExamIdAndUserIdAndStatus(Long examId, Long userId, SessionStatus status);
+    Mono<Boolean> existsByExamIdAndUserIdAndStatus(Long examId, UUID userId, SessionStatus status);
 
     /**
      * Open a session only while the user has attempts left (every existing session counts).
@@ -76,7 +77,7 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
                WHERE exam_id = :examId AND user_id = :userId) < :maxAttempts
         ON CONFLICT (exam_id, user_id) WHERE status = 'IN_PROGRESS' DO NOTHING
     """)
-    Mono<Integer> insertIfAttemptsRemain(String sessionId, Long examId, Long userId,
+    Mono<Integer> insertIfAttemptsRemain(String sessionId, Long examId, UUID userId,
                                          LocalDateTime startTime, LocalDateTime endTime,
                                          String ipAddress, String browserInfo, int maxAttempts);
 

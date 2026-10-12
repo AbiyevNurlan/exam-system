@@ -10,6 +10,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Exam Repository
@@ -21,12 +22,12 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
     /**
      * Find all exams created by a specific user
      */
-    Flux<Exam> findByCreatedBy(Long userId);
+    Flux<Exam> findByCreatedBy(UUID userId);
 
     /**
      * Find all exams created by a user with specific status
      */
-    Flux<Exam> findByCreatedByAndStatus(Long userId, ExamStatus status);
+    Flux<Exam> findByCreatedByAndStatus(UUID userId, ExamStatus status);
 
     /**
      * Find all exams with a specific status
@@ -48,12 +49,12 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
     /**
      * Check if an exam exists and belongs to a user
      */
-    Mono<Boolean> existsByIdAndCreatedBy(Long id, Long userId);
+    Mono<Boolean> existsByIdAndCreatedBy(Long id, UUID userId);
 
     /**
      * Check if exam title exists for a user
      */
-    Mono<Boolean> existsByTitleAndCreatedBy(String title, Long userId);
+    Mono<Boolean> existsByTitleAndCreatedBy(String title, UUID userId);
 
     /**
      * Find overlapping exams for scheduling conflict check
@@ -70,7 +71,7 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
             (start_time >= :startTime AND end_time <= :endTime)
         )
     """)
-    Flux<Exam> findOverlappingExams(Long userId, LocalDateTime startTime, LocalDateTime endTime, Long excludeId);
+    Flux<Exam> findOverlappingExams(UUID userId, LocalDateTime startTime, LocalDateTime endTime, Long excludeId);
 
     /**
      * Update exam status

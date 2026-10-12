@@ -13,6 +13,7 @@ import org.springframework.data.relational.core.mapping.Table;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Exam Session Entity
@@ -35,7 +36,7 @@ public class ExamSession {
     private Long examId;
 
     @Column("user_id")
-    private Long userId;
+    private UUID userId;
 
     @Column("start_time")
     private LocalDateTime startTime;

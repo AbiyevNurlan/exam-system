@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Exam Mapper
@@ -19,7 +20,7 @@ public class ExamMapper {
     /**
      * Map CreateExamRequest to Exam entity
      */
-    public Exam toEntity(CreateExamRequest request, Long userId) {
+    public Exam toEntity(CreateExamRequest request, UUID userId) {
         return Exam.builder()
                 .title(request.getTitle())
                 .description(request.getDescription())

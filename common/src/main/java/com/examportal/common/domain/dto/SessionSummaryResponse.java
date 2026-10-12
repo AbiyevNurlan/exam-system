@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Session Summary Response DTO
@@ -20,7 +21,7 @@ import java.time.LocalDateTime;
 public class SessionSummaryResponse {
 
     private String sessionId;
-    private Long userId;
+    private UUID userId;
     private SessionStatus status;
     private BigDecimal score;
     private BigDecimal percentage;

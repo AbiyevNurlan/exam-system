@@ -15,6 +15,7 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Exam Validator
@@ -168,7 +169,7 @@ public class ExamValidator {
     /**
      * Check for scheduling conflicts
      */
-    public Mono<Void> validateNoSchedulingConflict(Long userId, LocalDateTime startTime, 
+    public Mono<Void> validateNoSchedulingConflict(UUID userId, LocalDateTime startTime, 
                                                     LocalDateTime endTime, Long excludeExamId) {
         return examRepository.findOverlappingExams(userId, startTime, endTime, excludeExamId)
                 .hasElements()
