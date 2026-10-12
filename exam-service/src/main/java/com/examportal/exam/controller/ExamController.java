@@ -174,6 +174,36 @@ public class ExamController {
                 .map(result -> ApiResponse.success(result, "Exam submitted successfully"));
     }
 
+    // ==================== Results ====================
+
+    @GetMapping("/session/{sessionId}/result")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get session result", description = "Get the result of a completed session (owner only)")
+    public Mono<ApiResponse<SessionResultResponse>> getSessionResult(
+            @PathVariable String sessionId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        log.debug("Getting result for session: {}", sessionId);
+
+        return answerService.getSessionResult(sessionId, principal.getId())
+                .map(ApiResponse::success);
+    }
+
+    @GetMapping("/{id}/results")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Get exam results", description = "Paginated sessions of an exam (admin or owning instructor)")
+    public Mono<ApiResponse<PageResponse<SessionSummaryResponse>>> getExamResults(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        log.debug("Getting results of exam: {} for user: {}", id, principal.getId());
+
+        return examService.getExamResults(id, principal.getId(), principal.getRole(), page, size)
+                .map(ApiResponse::success);
+    }
+
     // ==================== Admin Operations ====================
 
     @PostMapping("/{id}/publish")

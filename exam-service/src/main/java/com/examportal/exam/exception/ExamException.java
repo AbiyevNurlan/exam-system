@@ -72,6 +72,10 @@ public class ExamException extends ApplicationException {
         return new ExamException("Question not found with ID: " + questionId, HttpStatus.NOT_FOUND, "QUESTION_NOT_FOUND");
     }
 
+    public static ExamException sessionNotCompleted() {
+        return new ExamException("Exam session is not completed yet", HttpStatus.CONFLICT, "SESSION_NOT_COMPLETED");
+    }
+
     public static ExamException selectionRequired() {
         return new ExamException("At least one option must be selected", HttpStatus.BAD_REQUEST, "ANSWER_SELECTION_REQUIRED");
     }

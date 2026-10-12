@@ -35,6 +35,7 @@ public class ExamService {
     private final ExamMapper mapper;
 
     private static final int DEFAULT_BATCH_SIZE = 10;
+    private static final int MAX_RESULTS_PAGE_SIZE = 50;
 
     /**
      * Create a new exam with questions and options
@@ -233,6 +234,37 @@ public class ExamService {
                     return cacheService.getCachedQuestions(sessionId, batch, DEFAULT_BATCH_SIZE)
                             .collectList();
                 });
+    }
+
+    /**
+     * One page of an exam's sessions for ADMIN or the INSTRUCTOR who owns the exam
+     */
+    public Mono<PageResponse<SessionSummaryResponse>> getExamResults(Long examId, Long userId, String role,
+                                                                     int page, int size) {
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_RESULTS_PAGE_SIZE);
+
+        return examRepository.findById(examId)
+                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+                .flatMap(exam -> {
+                    boolean owner = "INSTRUCTOR".equals(role) && userId.equals(exam.getCreatedBy());
+                    if (!"ADMIN".equals(role) && !owner) {
+                        return Mono.error(ExamException.notOwner());
+                    }
+                    return sessionRepository.countByExamId(examId);
+                })
+                .flatMap(total -> sessionRepository.findPageByExamId(examId, pageSize, (long) pageNumber * pageSize)
+                        .map(session -> SessionSummaryResponse.builder()
+                                .sessionId(session.getSessionId())
+                                .userId(session.getUserId())
+                                .status(session.getStatus())
+                                .score(session.getScore())
+                                .percentage(session.getPercentage())
+                                .passed(session.getPassed())
+                                .submittedAt(session.getSubmittedAt())
+                                .build())
+                        .collectList()
+                        .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
     }
 
     /**

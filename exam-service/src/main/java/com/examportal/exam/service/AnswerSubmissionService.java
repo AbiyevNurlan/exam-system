@@ -3,6 +3,8 @@ package com.examportal.exam.service;
 import com.examportal.common.domain.dto.SubmitAnswerRequest;
 import com.examportal.common.domain.dto.SubmitAnswerResponse;
 import com.examportal.common.domain.dto.ExamResultResponse;
+import com.examportal.common.domain.dto.SessionResultResponse;
+import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.domain.entity.ExamSession;
 import com.examportal.common.domain.entity.Question;
 import com.examportal.common.domain.entity.QuestionOption;
@@ -99,6 +101,56 @@ public class AnswerSubmissionService {
                 })
                 .doOnSuccess(result -> log.info("Exam submitted. Score: {}%", result.getPercentageScore()))
                 .doOnError(err -> log.error("Failed to submit exam {}: {}", sessionId, err.getMessage()));
+    }
+
+    /**
+     * Result of a completed session for its owner. When the exam does not show results immediately,
+     * only a submission summary is returned until the exam end time has passed.
+     */
+    public Mono<SessionResultResponse> getSessionResult(String sessionId, Long userId) {
+        log.debug("Getting result for session {}", sessionId);
+
+        return sessionRepository.findBySessionId(sessionId)
+                .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
+                .flatMap(session -> {
+                    // Someone else's session answers 404, same as an unknown id
+                    if (!session.getUserId().equals(userId)) {
+                        return Mono.error(ExamException.sessionNotFound(sessionId));
+                    }
+                    if (session.getStatus() != SessionStatus.COMPLETED) {
+                        return Mono.error(ExamException.sessionNotCompleted());
+                    }
+                    return examRepository.findById(session.getExamId())
+                            .flatMap(exam -> {
+                                SessionResultResponse.SessionResultResponseBuilder summary = SessionResultResponse.builder()
+                                        .sessionId(session.getSessionId())
+                                        .examId(session.getExamId())
+                                        .status(session.getStatus())
+                                        .submittedAt(session.getSubmittedAt());
+
+                                boolean withheld = !Boolean.TRUE.equals(exam.getShowResultsImmediately())
+                                        && LocalDateTime.now().isBefore(exam.getEndTime());
+                                if (withheld) {
+                                    return Mono.just(summary
+                                            .resultsAvailable(false)
+                                            .resultsAvailableAt(exam.getEndTime())
+                                            .build());
+                                }
+                                return storedResult(session)
+                                        .map(result -> summary
+                                                .resultsAvailable(true)
+                                                .totalQuestions(result.getTotalQuestions())
+                                                .correctAnswers(result.getCorrectAnswers())
+                                                .incorrectAnswers(result.getIncorrectAnswers())
+                                                .unansweredQuestions(result.getUnansweredQuestions())
+                                                .totalScore(result.getTotalScore())
+                                                .maxScore(result.getMaxScore())
+                                                .percentageScore(result.getPercentageScore())
+                                                .passed(result.getPassed())
+                                                .passingScore(result.getPassingScore())
+                                                .build());
+                            });
+                });
     }
 
     /**

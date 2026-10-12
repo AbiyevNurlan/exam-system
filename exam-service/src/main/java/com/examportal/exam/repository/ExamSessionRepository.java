@@ -62,6 +62,22 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
     Mono<Boolean> existsByExamIdAndUserIdAndStatus(Long examId, Long userId, SessionStatus status);
 
     /**
+     * One page of an exam's sessions, most recently submitted first (unsubmitted last)
+     */
+    @Query("""
+        SELECT * FROM exam_sessions
+        WHERE exam_id = :examId
+        ORDER BY submitted_at DESC NULLS LAST, id DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    Flux<ExamSession> findPageByExamId(Long examId, int limit, long offset);
+
+    /**
+     * Count all sessions of an exam
+     */
+    Mono<Long> countByExamId(Long examId);
+
+    /**
      * Update session status
      */
     @Modifying

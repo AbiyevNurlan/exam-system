@@ -54,6 +54,7 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.DELETE, "/api/exams/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/my").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/*/publish", "/api/exams/*/archive").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        .pathMatchers("/api/exams/*/results").hasAnyRole("ADMIN", "INSTRUCTOR")
                         
                         // Exam participation - all authenticated users
                         .pathMatchers("/api/exams/available").authenticated()
