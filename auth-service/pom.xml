@@ -33,6 +33,12 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
+        <!-- SMTP (email verification codes) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
         <!-- R2DBC PostgreSQL -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

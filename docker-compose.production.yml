@@ -117,6 +117,12 @@ services:
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       EXAM_INTERNAL_URL: http://exam-service-1:8082
       OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:?OTP_HMAC_SECRET is required (base64, at least 32 bytes)}
+      # SMTP for verification emails (any provider); see .env.example
+      MAIL_HOST: ${MAIL_HOST:?MAIL_HOST is required}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -166,6 +172,12 @@ services:
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       EXAM_INTERNAL_URL: http://exam-service-1:8082
       OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:?OTP_HMAC_SECRET is required (base64, at least 32 bytes)}
+      # SMTP for verification emails (any provider); see .env.example
+      MAIL_HOST: ${MAIL_HOST:?MAIL_HOST is required}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational

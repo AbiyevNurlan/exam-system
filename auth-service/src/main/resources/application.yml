@@ -31,6 +31,18 @@ spring:
     clean-disabled: true
     baseline-on-migrate: false
     connect-retries: 10
+  # Outgoing email over plain SMTP (any provider). Without MAIL_HOST no email is sent and the failure is logged.
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+      # Used when the server offers it (every real provider); the local Mailpit does not
+      mail.smtp.starttls.enable: true
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -73,12 +85,18 @@ auth:
     max-attempts: 5              # wrong codes before the code is burned
     resend-cooldown-seconds: 60  # minimum time between two codes for one email
     max-sends-per-hour: 5        # codes per email per hour
+  mail:
+    from: ${MAIL_FROM:}          # sender address of every email
   bootstrap:
     # First ADMIN, created on startup only when both are set and no ADMIN exists yet
     admin-email: ${ADMIN_EMAIL:}
     admin-password: ${ADMIN_PASSWORD:}
 
 management:
+  health:
+    # The mail server being down must not take the service out of rotation
+    mail:
+      enabled: false
   endpoints:
     web:
       exposure:

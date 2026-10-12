@@ -41,6 +41,18 @@ services:
       timeout: 5s
       retries: 5
 
+  # Mailpit: local SMTP server that catches every email (development only, nothing is delivered).
+  # Both ports are bound to 127.0.0.1, so the mailbox is not reachable from other machines.
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: exam-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"   # SMTP
+      - "127.0.0.1:8025:8025"   # Web UI and API
+    networks:
+      - exam-network
+
   # Auth Service
   auth-service:
     build:
@@ -56,6 +68,11 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:?OTP_HMAC_SECRET is required - copy .env.example to .env}
+      # Development: every email goes to the local Mailpit (http://localhost:8025), never to a real
+      # mailbox. The MAIL_* values of .env are used by docker-compose.production.yml only.
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      MAIL_FROM: no-reply@exam.localhost
       # Optional: shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       EXAM_INTERNAL_URL: http://exam-service:8082
@@ -73,6 +90,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
 
   # Exam Service
   exam-service:
