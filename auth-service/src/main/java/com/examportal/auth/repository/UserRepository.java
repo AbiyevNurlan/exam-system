@@ -5,6 +5,7 @@ import com.examportal.common.domain.entity.UserRole;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.r2dbc.repository.R2dbcRepository;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 
@@ -47,13 +48,14 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
             WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'ADMIN')
             ON CONFLICT DO NOTHING
             """)
-    Mono<Integer> insertFirstAdmin(String email, String passwordHash);
+    Mono<Integer> insertFirstAdmin(@Param("email") String email, @Param("passwordHash") String passwordHash);
 
     /**
      * Count a failed login and lock the account once the limit is reached, in ONE atomic statement
      * so concurrent wrong attempts cannot skip the limit. Uses the database clock.
      * lockMinutes = 0 locks without an expiry (only an admin can unlock).
      * Emits whether the account is now locked; empty if the email is unknown or already locked.
+     * The build has no -parameters flag, so parameters that are reused in the SQL need explicit @Param names.
      */
     @Query("""
             UPDATE users
@@ -68,7 +70,9 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
             WHERE email = :email AND account_locked = false
             RETURNING account_locked
             """)
-    Mono<Boolean> registerFailedLogin(String email, int maxAttempts, int lockMinutes);
+    Mono<Boolean> registerFailedLogin(@Param("email") String email,
+                                      @Param("maxAttempts") int maxAttempts,
+                                      @Param("lockMinutes") int lockMinutes);
 
     /**
      * Lift a temporary lock whose locked_until has passed (database clock); returns 1 if it was lifted
@@ -80,7 +84,7 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
             WHERE id = :userId AND account_locked = true
               AND locked_until IS NOT NULL AND locked_until <= LOCALTIMESTAMP
             """)
-    Mono<Integer> unlockIfLockExpired(UUID userId);
+    Mono<Integer> unlockIfLockExpired(@Param("userId") UUID userId);
 
     /**
      * Reset failed login attempts
