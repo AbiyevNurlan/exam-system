@@ -12,6 +12,7 @@ import com.examportal.common.domain.entity.User;
 import com.examportal.common.domain.entity.UserRole;
 import com.examportal.common.security.JwtTokenProvider;
 import com.examportal.common.utils.CodeGenerator;
+import com.examportal.common.utils.LogMaskUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -66,7 +67,8 @@ public class AuthService {
                 })
                 .flatMap(user -> generateAuthResponse(user))
                 .doOnSuccess(response -> log.info("User registered successfully: {}", maskEmail(email)))
-                .doOnError(error -> log.error("Registration failed for email: {}", maskEmail(email), error))
+                .doOnError(error -> log.error("Registration failed for email: {} - {}",
+                        maskEmail(email), error.getClass().getSimpleName()))
                 // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real transaction boundary
                 .as(transactionalOperator::transactional);
     }
@@ -136,24 +138,25 @@ public class AuthService {
      */
     @Transactional
     public Mono<Void> forgotPassword(ForgotPasswordRequest request) {
-        log.info("Password reset requested for email: {}", request.getEmail());
+        String email = normalizeEmail(request.getEmail());
+        log.info("Password reset requested for email: {}", maskEmail(email));
 
-        return userRepository.findByEmail(normalizeEmail(request.getEmail()))
+        return userRepository.findByEmail(email)
                 .flatMap(user -> {
                     // Delete any existing reset tokens for this user
                     return passwordResetTokenRepository.deleteAllByUserId(user.getId())
                             .then(createPasswordResetToken(user.getId()))
                             .flatMap(token -> {
-                                // In production, send email with reset link
-                                log.info("Password reset token created for user: {} - Token: {}", 
-                                        user.getEmail(), token.getToken());
+                                // In production, send email with reset link (the token itself must never be logged)
+                                log.info("Password reset token created for user: {}", maskEmail(user.getEmail()));
                                 // TODO: Send email with reset link
                                 return Mono.empty();
                             });
                 })
                 .then()
-                .doOnSuccess(v -> log.info("Password reset token created for: {}", request.getEmail()))
-                .doOnError(error -> log.error("Password reset request failed for: {}", request.getEmail(), error))
+                .doOnSuccess(v -> log.info("Password reset request processed for: {}", maskEmail(email)))
+                .doOnError(error -> log.error("Password reset request failed for: {} - {}",
+                        maskEmail(email), error.getClass().getSimpleName()))
                 // Always return success to prevent email enumeration
                 .onErrorResume(e -> {
                     log.warn("Error in forgot password, returning success anyway to prevent enumeration");
@@ -199,11 +202,7 @@ public class AuthService {
      * Mask an email for logging, keeping only the first character and the domain
      */
     private String maskEmail(String email) {
-        if (email == null) {
-            return null;
-        }
-        int at = email.indexOf('@');
-        return at < 1 ? "***" : email.charAt(0) + "***" + email.substring(at);
+        return LogMaskUtils.maskEmail(email);
     }
 
     /**
@@ -218,7 +217,8 @@ public class AuthService {
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
                 .phoneNumber(request.getPhoneNumber())
-                .role(UserRole.valueOf(request.getRole()))
+                // Self-registration always creates a STUDENT; any client-supplied role is ignored
+                .role(UserRole.STUDENT)
                 .emailVerified(false)
                 .accountLocked(false)
                 .failedLoginAttempts(0)
@@ -236,19 +236,19 @@ public class AuthService {
     private Mono<User> validateUserAndPassword(User user, String password) {
         // Check if account is locked
         if (user.isAccountLocked()) {
-            log.warn("Login attempt for locked account: {}", user.getEmail());
+            log.warn("Login attempt for locked account: {}", maskEmail(user.getEmail()));
             return Mono.error(new AccountLockedException());
         }
 
         // Check if account is active
         if (!user.isActive()) {
-            log.warn("Login attempt for inactive account: {}", user.getEmail());
+            log.warn("Login attempt for inactive account: {}", maskEmail(user.getEmail()));
             return Mono.error(new InvalidCredentialsException());
         }
 
         // Validate password
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
-            log.warn("Invalid password for user: {}", user.getEmail());
+            log.warn("Invalid password for user: {}", maskEmail(user.getEmail()));
             return Mono.error(new InvalidCredentialsException());
         }
 
@@ -264,7 +264,7 @@ public class AuthService {
                     int attempts = user.getFailedLoginAttempts() + 1;
                     
                     if (attempts >= MAX_FAILED_ATTEMPTS) {
-                        log.warn("Account locked due to too many failed attempts: {}", email);
+                        log.warn("Account locked due to too many failed attempts: {}", maskEmail(email));
                         return userRepository.lockAccount(user.getId()).then();
                     } else {
                         return userRepository.incrementFailedLoginAttempts(user.getId()).then();

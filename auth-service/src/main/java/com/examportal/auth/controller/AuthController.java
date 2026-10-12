@@ -3,6 +3,7 @@ package com.examportal.auth.controller;
 import com.examportal.auth.service.AuthService;
 import com.examportal.common.domain.dto.ApiResponse;
 import com.examportal.common.domain.dto.auth.*;
+import com.examportal.common.utils.LogMaskUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -35,13 +36,14 @@ public class AuthController {
     public Mono<ResponseEntity<ApiResponse<AuthResponse>>> register(
             @Valid @RequestBody RegisterRequest request) {
         
-        log.info("Registration request received for email: {}", request.getEmail());
+        log.info("Registration request received for email: {}", LogMaskUtils.maskEmail(request.getEmail()));
         
         return authService.register(request)
                 .map(authResponse -> ResponseEntity.status(HttpStatus.CREATED)
                         .body(ApiResponse.success(authResponse, "User registered successfully")))
-                .doOnSuccess(response -> log.info("User registered: {}", request.getEmail()))
-                .doOnError(error -> log.error("Registration failed: {}", request.getEmail(), error));
+                .doOnSuccess(response -> log.info("User registered: {}", LogMaskUtils.maskEmail(request.getEmail())))
+                .doOnError(error -> log.error("Registration failed: {} - {}",
+                        LogMaskUtils.maskEmail(request.getEmail()), error.getClass().getSimpleName()));
     }
 
     /**
@@ -52,13 +54,14 @@ public class AuthController {
     public Mono<ResponseEntity<ApiResponse<AuthResponse>>> login(
             @Valid @RequestBody LoginRequest request) {
         
-        log.info("Login request received for email: {}", request.getEmail());
+        log.info("Login request received for email: {}", LogMaskUtils.maskEmail(request.getEmail()));
         
         return authService.login(request)
                 .map(authResponse -> ResponseEntity.ok(
                         ApiResponse.success(authResponse, "Login successful")))
-                .doOnSuccess(response -> log.info("User logged in: {}", request.getEmail()))
-                .doOnError(error -> log.error("Login failed: {}", request.getEmail(), error));
+                .doOnSuccess(response -> log.info("User logged in: {}", LogMaskUtils.maskEmail(request.getEmail())))
+                .doOnError(error -> log.error("Login failed: {} - {}",
+                        LogMaskUtils.maskEmail(request.getEmail()), error.getClass().getSimpleName()));
     }
 
     /**
@@ -103,13 +106,15 @@ public class AuthController {
     public Mono<ResponseEntity<ApiResponse<Void>>> forgotPassword(
             @Valid @RequestBody ForgotPasswordRequest request) {
         
-        log.info("Password reset requested for email: {}", request.getEmail());
+        log.info("Password reset requested for email: {}", LogMaskUtils.maskEmail(request.getEmail()));
         
         return authService.forgotPassword(request)
                 .then(Mono.just(ResponseEntity.ok(
                         ApiResponse.<Void>success(null, "Password reset instructions sent to email"))))
-                .doOnSuccess(response -> log.info("Password reset email sent: {}", request.getEmail()))
-                .doOnError(error -> log.error("Forgot password failed: {}", request.getEmail(), error));
+                .doOnSuccess(response -> log.info("Password reset email sent: {}",
+                        LogMaskUtils.maskEmail(request.getEmail())))
+                .doOnError(error -> log.error("Forgot password failed: {} - {}",
+                        LogMaskUtils.maskEmail(request.getEmail()), error.getClass().getSimpleName()));
     }
 
     /**

@@ -26,7 +26,9 @@ public class GlobalExceptionHandler {
     public Mono<ResponseEntity<ApiResponse<Void>>> handleApplicationException(
             ApplicationException ex, ServerWebExchange exchange) {
         
-        log.error("Application error: {} - Path: {}", ex.getMessage(), exchange.getRequest().getPath());
+        // The message can carry user data (e.g. an email), so only the code, status and path are logged
+        log.error("Application error: {} ({}) - Path: {}",
+                ex.getErrorCode(), ex.getStatus().value(), exchange.getRequest().getPath());
         
         ApiResponse<Void> response = ApiResponse.error(
                 ex.getMessage(),

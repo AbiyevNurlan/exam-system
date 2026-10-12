@@ -1,5 +1,6 @@
 package com.examportal.common.domain.dto.auth;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -11,9 +12,11 @@ import lombok.NoArgsConstructor;
 
 /**
  * Register Request DTO
+ * Self-registration always creates a STUDENT, so a "role" sent by older clients is ignored.
  */
 @Data
 @Builder
+@JsonIgnoreProperties(ignoreUnknown = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class RegisterRequest {
@@ -38,8 +41,4 @@ public class RegisterRequest {
 
     @Pattern(regexp = "^[+]?[(]?[0-9]{1,4}[)]?[-\\s\\./0-9]*$", message = "Invalid phone number format")
     private String phoneNumber;
-
-    @NotBlank(message = "Role is required")
-    @Pattern(regexp = "STUDENT|INSTRUCTOR|ADMIN", message = "Role must be STUDENT, INSTRUCTOR, or ADMIN")
-    private String role;
 }
