@@ -143,7 +143,8 @@ public class ExamMediaService {
                 .concatMap(tuple -> {
                     QuestionMediaRef ref = tuple.getT2();
                     int position = ref.getPosition() != null ? ref.getPosition() : tuple.getT1().intValue();
-                    return linkRepository.attachToQuestion(questionId, ref.getMediaId(), position, ref.getMaxPlays());
+                    return linkRepository.attachToQuestion(questionId, ref.getMediaId(), position, ref.getMaxPlays())
+                            .flatMap(this::requireAttached);
                 })
                 .then();
     }
@@ -156,8 +157,19 @@ public class ExamMediaService {
             return Mono.empty();
         }
         return Flux.fromIterable(option.getMediaIds())
-                .concatMap(mediaId -> linkRepository.attachToOption(optionId, mediaId))
+                .concatMap(mediaId -> linkRepository.attachToOption(optionId, mediaId)
+                        .flatMap(this::requireAttached))
                 .then();
+    }
+
+    /**
+     * A media that stopped being ACTIVE between validate and the write (deleted, or cleaned up as
+     * an orphan) fails the whole save: the surrounding transaction rolls back
+     */
+    private Mono<Long> requireAttached(Long written) {
+        return written == 1
+                ? Mono.just(written)
+                : Mono.error(MediaException.notAttachable("it was deleted in the meantime"));
     }
 
     /**

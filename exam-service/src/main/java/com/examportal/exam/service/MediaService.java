@@ -59,6 +59,10 @@ public class MediaService {
     @Value("${exam.media.pending-max-age-minutes:60}")
     private int pendingMaxAgeMinutes;
 
+    // Not positive = the orphan cleanup is switched off
+    @Value("${exam.media.orphan-retention-days:14}")
+    private int orphanRetentionDays;
+
     /**
      * Register an upload and sign the URL for it
      */
@@ -167,6 +171,33 @@ public class MediaService {
                 .concatMap(asset -> assetRepository.markPendingDeleted(asset.getId())
                         .filter(updated -> updated > 0)
                         .flatMap(updated -> removeObject(asset).thenReturn(asset)))
+                .count();
+    }
+
+    /**
+     * Confirmed files that nothing uses: ACTIVE, attached to no question and no option of any exam
+     * (drafts included), and older than exam.media.orphan-retention-days. The retention is long on
+     * purpose: an admin may upload into a draft kept in the browser and come back days later.
+     * Emits how many assets were removed; switched off by a retention that is not positive.
+     *
+     * Per asset, in one transaction: lock the row, mark it DELETED only if it is still unused, then
+     * delete the object. A media in use is never touched, and a storage failure rolls the status
+     * back, so the asset stays ACTIVE and is tried again on the next run.
+     */
+    public Mono<Long> cleanupOrphans() {
+        if (orphanRetentionDays <= 0 || !storage.isConfigured()) {
+            return Mono.just(0L);
+        }
+        return assetRepository.findOrphans(orphanRetentionDays, CLEANUP_BATCH)
+                .concatMap(asset -> transactionalOperator.transactional(
+                                assetRepository.lockActive(asset.getId())
+                                        .flatMap(assetRepository::markOrphanDeleted)
+                                        .filter(updated -> updated > 0)
+                                        .flatMap(updated -> storage.delete(asset.getStorageKey()).thenReturn(asset)))
+                        .onErrorResume(e -> {
+                            log.warn("Orphan media {} not removed, will be retried: {}", asset.getId(), e.getClass().getSimpleName());
+                            return Mono.empty();
+                        }))
                 .count();
     }
 

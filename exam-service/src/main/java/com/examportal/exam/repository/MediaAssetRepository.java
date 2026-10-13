@@ -71,6 +71,42 @@ public interface MediaAssetRepository extends R2dbcRepository<MediaAsset, UUID> 
     """)
     Flux<MediaAsset> findStalePending(@Param("minutes") int minutes, @Param("limit") int limit);
 
+    /**
+     * ACTIVE assets that no question and no option of any exam (drafts included) uses and that
+     * became usable more than `days` days ago, oldest first (database clock)
+     */
+    @Query("""
+        SELECT m.* FROM media_assets m
+        WHERE m.status = 'ACTIVE'
+          AND COALESCE(m.activated_at, m.created_at) < LOCALTIMESTAMP - make_interval(days => :days)
+          AND NOT EXISTS (SELECT 1 FROM question_media qm WHERE qm.media_id = m.id)
+          AND NOT EXISTS (SELECT 1 FROM option_media om WHERE om.media_id = m.id)
+        ORDER BY m.created_at
+        LIMIT :limit
+    """)
+    Flux<MediaAsset> findOrphans(@Param("days") int days, @Param("limit") int limit);
+
+    /**
+     * Lock an ACTIVE asset until the end of the transaction; empty when it is not ACTIVE (any more).
+     * FOR UPDATE waits for, and then blocks, every statement that attaches the asset
+     * (MediaLinkRepository.attachToQuestion / attachToOption).
+     */
+    @Query("SELECT id FROM media_assets WHERE id = :id AND status = 'ACTIVE' FOR UPDATE")
+    Mono<UUID> lockActive(@Param("id") UUID id);
+
+    /**
+     * ACTIVE -> DELETED, but only while nothing uses the asset. Call it after lockActive in the same
+     * transaction: as its own statement it sees every link committed while the lock was waited for.
+     */
+    @Modifying
+    @Query("""
+        UPDATE media_assets m SET status = 'DELETED'
+        WHERE m.id = :id AND m.status = 'ACTIVE'
+          AND NOT EXISTS (SELECT 1 FROM question_media qm WHERE qm.media_id = m.id)
+          AND NOT EXISTS (SELECT 1 FROM option_media om WHERE om.media_id = m.id)
+    """)
+    Mono<Integer> markOrphanDeleted(@Param("id") UUID id);
+
     @Query("SELECT * FROM media_assets WHERE id IN (:ids)")
     Flux<MediaAsset> findByIdIn(@Param("ids") Collection<UUID> ids);
 }

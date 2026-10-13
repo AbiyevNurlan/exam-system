@@ -35,23 +35,42 @@ public class MediaLinkRepository {
                                 Integer durationSeconds, int position, Integer maxPlays, String storageKey) {
     }
 
-    public Mono<Void> attachToQuestion(Long questionId, UUID mediaId, int position, Integer maxPlays) {
+    /**
+     * Attach a media to a question, but only while the media is ACTIVE; emits how many rows were
+     * written (0 = it is no longer ACTIVE). The row lock (FOR KEY SHARE) and the orphan cleanup's
+     * FOR UPDATE on the same row exclude each other, so a media can never be attached while it is
+     * being removed, nor removed while it is being attached.
+     */
+    public Mono<Long> attachToQuestion(Long questionId, UUID mediaId, int position, Integer maxPlays) {
         DatabaseClient.GenericExecuteSpec spec = databaseClient.sql("""
                         INSERT INTO question_media (question_id, media_id, position, max_plays)
-                        VALUES (:questionId, :mediaId, :position, :maxPlays)
+                        SELECT :questionId, m.id, CAST(:position AS SMALLINT), CAST(:maxPlays AS SMALLINT)
+                        FROM media_assets m
+                        WHERE m.id = :mediaId AND m.status = 'ACTIVE'
+                        FOR KEY SHARE OF m
                         """)
                 .bind("questionId", questionId)
                 .bind("mediaId", mediaId)
                 .bind("position", position);
         spec = maxPlays != null ? spec.bind("maxPlays", maxPlays) : spec.bindNull("maxPlays", Integer.class);
-        return spec.then();
+        return spec.fetch().rowsUpdated();
     }
 
-    public Mono<Void> attachToOption(Long optionId, UUID mediaId) {
-        return databaseClient.sql("INSERT INTO option_media (option_id, media_id) VALUES (:optionId, :mediaId)")
+    /**
+     * Attach an image to an option; same guard as attachToQuestion
+     */
+    public Mono<Long> attachToOption(Long optionId, UUID mediaId) {
+        return databaseClient.sql("""
+                        INSERT INTO option_media (option_id, media_id)
+                        SELECT :optionId, m.id
+                        FROM media_assets m
+                        WHERE m.id = :mediaId AND m.status = 'ACTIVE'
+                        FOR KEY SHARE OF m
+                        """)
                 .bind("optionId", optionId)
                 .bind("mediaId", mediaId)
-                .then();
+                .fetch()
+                .rowsUpdated();
     }
 
     /**

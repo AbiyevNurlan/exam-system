@@ -87,6 +87,10 @@ exam:
     max-pending-per-user: 50          # unconfirmed uploads one user may have
     pending-max-age-minutes: 60       # an unconfirmed upload older than this is removed
     cleanup-interval-ms: 300000       # how often the cleanup runs
+    # Confirmed files that no exam (drafts included) uses are removed after this many days.
+    # 0 or less switches that cleanup off.
+    orphan-retention-days: ${MEDIA_ORPHAN_RETENTION_DAYS:14}
+    orphan-cleanup-interval-ms: 1800000   # how often the orphan cleanup runs (at most 200 files per run)
     # S3-compatible object storage for question media (SeaweedFS in development). Files go straight
     # from the browser to the storage with presigned URLs; this service keeps only the metadata.
     # Without endpoint and credentials the service starts and media endpoints answer 503.
