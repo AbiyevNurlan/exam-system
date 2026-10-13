@@ -12,6 +12,7 @@ import com.examportal.exam.repository.*;
 import com.examportal.exam.validator.ExamValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
@@ -146,7 +147,9 @@ public class ExamService {
     }
 
     /**
-     * Delete an exam
+     * Delete an exam for good. Only an exam nobody has started can go: with a single session it is
+     * refused (EXAM_CANNOT_DELETE) and nothing is removed; such an exam is archived instead, which
+     * keeps every attempt and result.
      */
     public Mono<Void> deleteExam(Long examId, UUID userId, String role) {
         log.info("Deleting exam {} for user {}", examId, userId);
@@ -157,17 +160,16 @@ public class ExamService {
                     if (!accessPolicy.canManage(userId, role, exam)) {
                         return Mono.error(ExamException.notOwner());
                     }
-                    return sessionRepository.existsByExamId(examId)
-                            .flatMap(hasAttempts -> {
-                                if (hasAttempts) {
-                                    return Mono.error(ExamException.cannotDelete());
-                                }
-                                return Mono.just(exam);
-                            });
+                    return Mono.just(exam);
                 })
-                // The delete and its audit entry are stored together or not at all
-                .flatMap(exam -> transactionalOperator.transactional(examRepository.softDelete(examId)
-                                .then(auditForeignExam(userId, exam, GroupAuditService.EXAM_DELETED_BY_ADMIN)))
+                // "No session" is decided by the DELETE itself. The exam, everything that belongs to it
+                // and the audit entry go together or not at all.
+                .flatMap(exam -> transactionalOperator.transactional(examRepository.deleteIfNoSessions(examId)
+                                .flatMap(deleted -> deleted == 1
+                                        ? auditDeletedExam(userId, exam)
+                                        : Mono.<Void>error(ExamException.cannotDelete())))
+                        // A session opened while the delete ran: the foreign key refused it
+                        .onErrorMap(DataIntegrityViolationException.class, e -> ExamException.cannotDelete())
                         .then(cacheService.invalidateExamCache(examId)))
                 .doOnSuccess(v -> log.info("Exam deleted successfully: {}", examId));
     }
@@ -523,6 +525,19 @@ public class ExamService {
         log.info("Admin {} on exam {} of user {}: {}", actorId, exam.getId(), exam.getCreatedBy(), action);
         return auditService.record(actorId, action, null, exam.getCreatedBy(),
                 "examId=" + exam.getId() + " status=" + exam.getStatus());
+    }
+
+    /**
+     * Audit entry for a deleted exam, written for the owner too: the row is gone afterwards, so
+     * this is the only trace of it. Part of the caller's transaction.
+     */
+    private Mono<Void> auditDeletedExam(UUID actorId, Exam exam) {
+        String title = exam.getTitle() == null ? "" : exam.getTitle();
+        return auditService.record(actorId,
+                actorId.equals(exam.getCreatedBy()) ? GroupAuditService.EXAM_DELETED : GroupAuditService.EXAM_DELETED_BY_ADMIN,
+                null, exam.getCreatedBy(),
+                "examId=" + exam.getId() + " status=" + exam.getStatus()
+                        + " title=" + (title.length() > 100 ? title.substring(0, 100) : title));
     }
 
     private String statusAuditAction(ExamStatus newStatus) {

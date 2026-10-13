@@ -36,7 +36,8 @@ public class ExamException extends ApplicationException {
     }
 
     public static ExamException cannotDelete() {
-        return new ExamException("Cannot delete exam with existing attempts", HttpStatus.BAD_REQUEST, "EXAM_CANNOT_DELETE");
+        return new ExamException("Cannot delete an exam that has attempts; archive it instead",
+                HttpStatus.CONFLICT, "EXAM_CANNOT_DELETE");
     }
 
     public static ExamException cannotReschedule() {

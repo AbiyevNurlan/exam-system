@@ -33,6 +33,8 @@ public class GroupAuditService {
     public static final String EXAM_ARCHIVED_BY_ADMIN = "EXAM_ARCHIVED_BY_ADMIN";
     public static final String EXAM_STATUS_CHANGED_BY_ADMIN = "EXAM_STATUS_CHANGED_BY_ADMIN";
     public static final String EXAM_DELETED_BY_ADMIN = "EXAM_DELETED_BY_ADMIN";
+    // The owner deleted the own exam (by someone else: EXAM_DELETED_BY_ADMIN)
+    public static final String EXAM_DELETED = "EXAM_DELETED";
     // Written for every reschedule, also the owner's own (targetUserId = the exam's creator)
     public static final String EXAM_RESCHEDULED = "EXAM_RESCHEDULED";
     // INVITE_APPLIED is written in SQL by GroupImportRepository.applyPendingInvites

@@ -125,11 +125,18 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
     Mono<Integer> updateAccessType(Long id, String accessType);
 
     /**
-     * Soft delete an exam
+     * Remove an exam for good, but only while it has no session: returns 1 when it was removed.
+     * Its questions, options, media links and audience rows go with it in the same statement
+     * (ON DELETE CASCADE); the media files themselves are not touched and are left to the orphan
+     * cleanup. A session opened at the same moment makes the statement fail on the foreign key
+     * of exam_sessions instead of removing an exam that now has an attempt.
      */
     @Modifying
-    @Query("UPDATE exams SET active = false, updated_at = CURRENT_TIMESTAMP WHERE id = :id")
-    Mono<Integer> softDelete(Long id);
+    @Query("""
+        DELETE FROM exams e
+        WHERE e.id = :id AND NOT EXISTS (SELECT 1 FROM exam_sessions s WHERE s.exam_id = e.id)
+    """)
+    Mono<Integer> deleteIfNoSessions(Long id);
 
     /**
      * The exam row, locked until the end of the surrounding transaction, so two changes of the same

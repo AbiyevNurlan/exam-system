@@ -78,7 +78,8 @@ public class ExamController {
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Delete an exam", description = "Delete an exam (soft delete)")
+    @Operation(summary = "Delete an exam", description = "Removes an exam for good, with its questions, options, media links "
+            + "and audience. Only an exam without any session: otherwise 409 EXAM_CANNOT_DELETE and nothing is removed; archive it instead.")
     public Mono<Void> deleteExam(
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {
@@ -321,7 +322,9 @@ public class ExamController {
 
     @PostMapping("/{id}/archive")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Archive an exam", description = "Change exam status to ARCHIVED")
+    @Operation(summary = "Archive an exam", description = "Change exam status to ARCHIVED: hidden from participants and from the "
+            + "default management list, every attempt and result is kept, sessions in progress can be finished. "
+            + "POST /{id}/reschedule brings it back.")
     public Mono<ApiResponse<ExamResponse>> archiveExam(
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {
