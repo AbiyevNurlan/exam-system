@@ -37,6 +37,8 @@ public class ExamResponse {
     private Boolean shuffleOptions;
     private Boolean showResultsImmediately;
     private Integer maxAttempts;
+    // Absent = no daily limit
+    private Integer maxAttemptsPerDay;
     private Long categoryId;
     private String categoryName;
     private UUID createdBy;
@@ -47,7 +49,12 @@ public class ExamResponse {
     private List<QuestionResponse> questions;
     
     // Computed fields for participants
+    // remainingAttempts: what can still be started now, so it respects the total and the daily limit
     private Integer remainingAttempts;
+    // Absent = no daily limit
+    private Integer remainingAttemptsToday;
+    // Only when today's attempts are used up and a later day is still inside the exam window
+    private LocalDateTime nextAttemptAt;
     private Boolean canStart;
     private BigDecimal totalPoints;
 }

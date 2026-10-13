@@ -65,6 +65,10 @@ public class Exam {
     @Column("max_attempts")
     private Integer maxAttempts;
 
+    // Sessions one user may open per calendar day; null = no daily limit
+    @Column("max_attempts_per_day")
+    private Integer maxAttemptsPerDay;
+
     @Column("category_id")
     private Long categoryId;
 

@@ -1,6 +1,7 @@
 package com.examportal.common.domain.dto;
 
 import com.examportal.common.domain.entity.ExamAccessType;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
@@ -54,8 +55,23 @@ public class UpdateExamRequest {
 
     @Builder.Default
     @Min(value = 1, message = "Max attempts must be at least 1")
-    @Max(value = 10, message = "Max attempts cannot exceed 10")
+    @Max(value = 100, message = "Max attempts cannot exceed 100")
     private Integer maxAttempts = 1;
+
+    // Sessions one user may open per calendar day. Omitted = the exam keeps its daily limit;
+    // an explicit null removes it.
+    @Min(value = 1, message = "Max attempts per day must be at least 1")
+    @Max(value = 100, message = "Max attempts per day cannot exceed 100")
+    private Integer maxAttemptsPerDay;
+
+    // True once maxAttemptsPerDay was given (also as null): tells "omitted" from "remove the limit"
+    @JsonIgnore
+    private boolean maxAttemptsPerDayPresent;
+
+    public void setMaxAttemptsPerDay(Integer maxAttemptsPerDay) {
+        this.maxAttemptsPerDay = maxAttemptsPerDay;
+        this.maxAttemptsPerDayPresent = true;
+    }
 
     @DecimalMin(value = "0.0", message = "Passing score must be non-negative")
     @DecimalMax(value = "100.0", message = "Passing score cannot exceed 100")

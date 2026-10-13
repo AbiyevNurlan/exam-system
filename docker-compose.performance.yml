@@ -248,6 +248,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # Zone whose midnight starts a new day for the daily attempt limit of an exam
+      EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
     depends_on:
       postgres:
         condition: service_healthy

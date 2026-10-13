@@ -164,6 +164,8 @@ services:
       MEDIA_CORS_ORIGINS: ${MEDIA_CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
       # Confirmed media that no exam uses is removed after this many days; 0 or less = never
       MEDIA_ORPHAN_RETENTION_DAYS: ${MEDIA_ORPHAN_RETENTION_DAYS:-14}
+      # Zone whose midnight starts a new day for the daily attempt limit of an exam
+      EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_db

@@ -34,6 +34,7 @@ public class ExamMapper {
                 .shuffleOptions(request.getShuffleOptions())
                 .showResultsImmediately(request.getShowResultsImmediately())
                 .maxAttempts(request.getMaxAttempts() != null ? request.getMaxAttempts() : 1)
+                .maxAttemptsPerDay(request.getMaxAttemptsPerDay())
                 .categoryId(request.getCategoryId())
                 .createdBy(userId)
                 // Default; ExamService replaces it when the create request names an audience
@@ -59,6 +60,10 @@ public class ExamMapper {
         exam.setShuffleOptions(request.getShuffleOptions());
         exam.setShowResultsImmediately(request.getShowResultsImmediately());
         exam.setMaxAttempts(request.getMaxAttempts());
+        // Omitted = unchanged (a client that does not know the field must not remove the limit)
+        if (request.isMaxAttemptsPerDayPresent()) {
+            exam.setMaxAttemptsPerDay(request.getMaxAttemptsPerDay());
+        }
         exam.setCategoryId(request.getCategoryId());
         exam.setUpdatedAt(LocalDateTime.now());
     }
@@ -114,6 +119,7 @@ public class ExamMapper {
                 .shuffleOptions(exam.getShuffleOptions())
                 .showResultsImmediately(exam.getShowResultsImmediately())
                 .maxAttempts(exam.getMaxAttempts())
+                .maxAttemptsPerDay(exam.getMaxAttemptsPerDay())
                 .categoryId(exam.getCategoryId())
                 .createdBy(exam.getCreatedBy())
                 .accessType(exam.getAccessType())
@@ -215,6 +221,7 @@ public class ExamMapper {
                 .shuffleOptions(full.getShuffleOptions())
                 .showResultsImmediately(full.getShowResultsImmediately())
                 .maxAttempts(full.getMaxAttempts())
+                .maxAttemptsPerDay(full.getMaxAttemptsPerDay())
                 .categoryId(full.getCategoryId())
                 .categoryName(full.getCategoryName())
                 .createdBy(full.getCreatedBy())
@@ -223,6 +230,8 @@ public class ExamMapper {
                 .updatedAt(full.getUpdatedAt())
                 .questions(questions)
                 .remainingAttempts(full.getRemainingAttempts())
+                .remainingAttemptsToday(full.getRemainingAttemptsToday())
+                .nextAttemptAt(full.getNextAttemptAt())
                 .canStart(full.getCanStart())
                 .totalPoints(full.getTotalPoints())
                 .build();

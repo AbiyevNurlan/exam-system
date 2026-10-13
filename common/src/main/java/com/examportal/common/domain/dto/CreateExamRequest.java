@@ -53,8 +53,13 @@ public class CreateExamRequest {
 
     @Builder.Default
     @Min(value = 1, message = "Max attempts must be at least 1")
-    @Max(value = 10, message = "Max attempts cannot exceed 10")
+    @Max(value = 100, message = "Max attempts cannot exceed 100")
     private Integer maxAttempts = 1;
+
+    // Sessions one user may open per calendar day; omitted or null = no daily limit
+    @Min(value = 1, message = "Max attempts per day must be at least 1")
+    @Max(value = 100, message = "Max attempts per day cannot exceed 100")
+    private Integer maxAttemptsPerDay;
 
     @DecimalMin(value = "0.0", message = "Passing score must be non-negative")
     @DecimalMax(value = "100.0", message = "Passing score cannot exceed 100")
