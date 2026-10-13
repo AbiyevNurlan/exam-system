@@ -4,6 +4,8 @@ import com.examportal.common.domain.dto.internal.UserLookupRequest;
 import com.examportal.common.domain.dto.internal.UserLookupResponse;
 import com.examportal.common.domain.dto.internal.UserLookupResponse.UserRef;
 import com.examportal.common.domain.dto.internal.UserSearchRequest;
+import com.examportal.common.domain.dto.internal.UserStatsRequest;
+import com.examportal.common.domain.dto.internal.UserStatsResponse;
 import com.examportal.common.security.InternalServiceAuth;
 import com.examportal.exam.exception.GroupException;
 import org.springframework.beans.factory.annotation.Value;
@@ -81,6 +83,27 @@ public class UserDirectoryClient {
                 .timeout(TIMEOUT)
                 .defaultIfEmpty(List.of())
                 // Only the exception type is kept: the original message may echo the request
+                .onErrorMap(e -> !(e instanceof GroupException), e -> GroupException.userDirectoryUnavailable(
+                        new IllegalStateException(e.getClass().getSimpleName())));
+    }
+
+    /**
+     * Aggregate user counts and the registrations per day of the last `days` days: numbers only.
+     * POST /internal/users/stats; fails like lookup.
+     */
+    public Mono<UserStatsResponse> stats(int days) {
+        if (!InternalServiceAuth.isConfigured(serviceSecret)) {
+            return Mono.error(GroupException.userDirectoryUnavailable(
+                    new IllegalStateException("INTERNAL_SERVICE_SECRET is not configured")));
+        }
+
+        return webClient.post()
+                .uri("/internal/users/stats")
+                .header(InternalServiceAuth.HEADER, serviceSecret)
+                .bodyValue(UserStatsRequest.builder().days(days).build())
+                .retrieve()
+                .bodyToMono(UserStatsResponse.class)
+                .timeout(TIMEOUT)
                 .onErrorMap(e -> !(e instanceof GroupException), e -> GroupException.userDirectoryUnavailable(
                         new IllegalStateException(e.getClass().getSimpleName())));
     }

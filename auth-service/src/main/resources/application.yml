@@ -75,6 +75,11 @@ security:
 internal:
   service-secret: ${INTERNAL_SERVICE_SECRET:}
 
+# The zone whose midnight starts a new day in the registration figures (POST /internal/users/stats).
+# The same setting as exam-service; dates stay UTC everywhere.
+stats:
+  day-zone: ${EXAM_DAY_ZONE:Asia/Baku}
+
 # exam-service keeps the user groups; a verified login reports there so pending group invites are applied
 services:
   exam:

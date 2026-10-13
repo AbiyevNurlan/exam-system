@@ -272,6 +272,112 @@ public class AnalyticsRepository {
                 .all();
     }
 
+    // ==================== Platform ====================
+
+    public record StatusCount(String status, int count) {
+    }
+
+    public record PlatformFigures(int activeNow, int pendingGrading, BigDecimal averagePercentage, BigDecimal passRate) {
+    }
+
+    public record PlatformDay(LocalDate day, int sessions, int participants) {
+    }
+
+    public record TopExam(Long examId, String title, String status, int sessions, int participants) {
+    }
+
+    /**
+     * Exams that are not deleted, per status
+     */
+    public Flux<StatusCount> countExamsByStatus() {
+        return databaseClient.sql("SELECT status, COUNT(*)::int AS exams FROM exams WHERE active = true GROUP BY status")
+                .map(row -> new StatusCount(row.get("status", String.class), number(row, "exams")))
+                .all();
+    }
+
+    /**
+     * Sessions running now, sessions waiting for a grader, and the average percentage and pass rate
+     * over every participant's best fully graded attempt per exam
+     */
+    public Mono<PlatformFigures> findPlatformFigures(LocalDateTime now) {
+        return databaseClient.sql("""
+                        WITH best AS (
+                            SELECT b.percentage, b.passed
+                            FROM (SELECT s.percentage, s.passed,
+                                         ROW_NUMBER() OVER (PARTITION BY s.exam_id, s.user_id
+                                                            ORDER BY s.percentage DESC NULLS LAST, s.submitted_at ASC NULLS LAST,
+                                                                     s.id ASC) AS rn
+                                  FROM exam_sessions s
+                                  WHERE s.status = 'COMPLETED' AND s.grading_status <> 'PENDING') b
+                            WHERE b.rn = 1
+                        )
+                        SELECT (SELECT COUNT(*) FROM exam_sessions
+                                WHERE status = 'IN_PROGRESS' AND end_time > :now)::int AS active_now,
+                               (SELECT COUNT(*) FROM exam_sessions
+                                WHERE status = 'COMPLETED' AND grading_status = 'PENDING')::int AS pending_grading,
+                               ROUND(AVG(percentage), 2) AS average_percentage,
+                               ROUND(100.0 * COUNT(*) FILTER (WHERE passed) / NULLIF(COUNT(*), 0), 2) AS pass_rate
+                        FROM best
+                        """)
+                .bind("now", now)
+                .map(row -> new PlatformFigures(
+                        number(row, "active_now"),
+                        number(row, "pending_grading"),
+                        row.get("average_percentage", BigDecimal.class),
+                        row.get("pass_rate", BigDecimal.class)))
+                .one();
+    }
+
+    /**
+     * Sessions started and different participants per calendar day of the given zone, every day
+     * from firstDay to lastDay (idx_sessions_start_time)
+     */
+    public Flux<PlatformDay> findPlatformDays(String zone, LocalDate firstDay, LocalDate lastDay, LocalDateTime fromUtc) {
+        return databaseClient.sql("""
+                        SELECT d.day::date AS day, COALESCE(c.sessions, 0)::int AS sessions,
+                               COALESCE(c.participants, 0)::int AS participants
+                        FROM generate_series(CAST(:firstDay AS date), CAST(:lastDay AS date), interval '1 day') AS d(day)
+                        LEFT JOIN (SELECT ((s.start_time AT TIME ZONE 'UTC') AT TIME ZONE :zone)::date AS day,
+                                          COUNT(*) AS sessions, COUNT(DISTINCT s.user_id) AS participants
+                                   FROM exam_sessions s
+                                   WHERE s.start_time >= :fromUtc
+                                   GROUP BY 1) c ON c.day = d.day::date
+                        ORDER BY 1
+                        """)
+                .bind("zone", zone)
+                .bind("firstDay", firstDay)
+                .bind("lastDay", lastDay)
+                .bind("fromUtc", fromUtc)
+                .map(row -> new PlatformDay(row.get("day", LocalDate.class), number(row, "sessions"), number(row, "participants")))
+                .all();
+    }
+
+    /**
+     * The exams with the most sessions started since fromUtc
+     */
+    public Flux<TopExam> findTopExams(LocalDateTime fromUtc, int limit) {
+        return databaseClient.sql("""
+                        SELECT x.id, x.title, x.status, c.sessions::int AS sessions, c.participants::int AS participants
+                        FROM (SELECT s.exam_id, COUNT(*) AS sessions, COUNT(DISTINCT s.user_id) AS participants
+                              FROM exam_sessions s
+                              WHERE s.start_time >= :fromUtc
+                              GROUP BY s.exam_id
+                              ORDER BY COUNT(*) DESC, s.exam_id ASC
+                              LIMIT :limit) c
+                        JOIN exams x ON x.id = c.exam_id
+                        ORDER BY c.sessions DESC, x.id ASC
+                        """)
+                .bind("fromUtc", fromUtc)
+                .bind("limit", limit)
+                .map(row -> new TopExam(
+                        row.get("id", Long.class),
+                        row.get("title", String.class),
+                        row.get("status", String.class),
+                        number(row, "sessions"),
+                        number(row, "participants")))
+                .all();
+    }
+
     // ==================== Private Helper Methods ====================
 
     static int number(Readable row, String column) {

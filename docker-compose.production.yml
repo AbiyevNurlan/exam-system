@@ -123,6 +123,8 @@ services:
       # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       EXAM_INTERNAL_URL: http://exam-service-1:8082
+      # Zone whose midnight starts a new day in the registration figures (same as exam-service)
+      EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
       OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:?OTP_HMAC_SECRET is required (base64, at least 32 bytes)}
       # SMTP for verification emails (any provider); see .env.example
       MAIL_HOST: ${MAIL_HOST:?MAIL_HOST is required}
@@ -185,6 +187,8 @@ services:
       # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       EXAM_INTERNAL_URL: http://exam-service-1:8082
+      # Zone whose midnight starts a new day in the registration figures (same as exam-service)
+      EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
       OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:?OTP_HMAC_SECRET is required (base64, at least 32 bytes)}
       # SMTP for verification emails (any provider); see .env.example
       MAIL_HOST: ${MAIL_HOST:?MAIL_HOST is required}

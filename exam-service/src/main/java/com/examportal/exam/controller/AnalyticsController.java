@@ -4,7 +4,11 @@ import com.examportal.common.domain.dto.ApiResponse;
 import com.examportal.common.domain.dto.analytics.ExamAnalyticsOverviewResponse;
 import com.examportal.common.domain.dto.analytics.QuestionAnalyticsResponse;
 import com.examportal.common.security.UserPrincipal;
+import com.examportal.common.domain.dto.analytics.PlatformOverviewResponse;
 import com.examportal.exam.service.ExamAnalyticsService;
+import com.examportal.exam.service.PlatformAnalyticsService;
+import org.springframework.web.bind.annotation.RequestParam;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -28,6 +32,7 @@ import reactor.core.publisher.Mono;
 public class AnalyticsController {
 
     private final ExamAnalyticsService examAnalyticsService;
+    private final PlatformAnalyticsService platformAnalyticsService;
 
     @GetMapping("/api/exams/{examId}/analytics/questions")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
@@ -41,6 +46,19 @@ public class AnalyticsController {
             @AuthenticationPrincipal UserPrincipal principal) {
 
         return examAnalyticsService.getQuestionAnalytics(examId, principal.getId(), principal.getRole())
+                .map(ApiResponse::success);
+    }
+
+    @GetMapping("/api/analytics/overview")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Get the platform overview", description = "ADMIN only. Exams per status, sessions running now, sessions "
+            + "and different participants per day of the last `days` days (1..90, default 30), overall average percentage and "
+            + "pass rate, sessions waiting for a grader, the 5 exams with the most sessions, and aggregate user counts from "
+            + "auth-service (users is null and usersAvailable false when it cannot be reached). Cached for 60 seconds.")
+    public Mono<ApiResponse<PlatformOverviewResponse>> getPlatformOverview(
+            @RequestParam(required = false) @Parameter(description = "Days to look back (1..90, default 30)") Integer days) {
+
+        return Mono.defer(() -> platformAnalyticsService.getOverview(days))
                 .map(ApiResponse::success);
     }
 

@@ -4,6 +4,13 @@ import com.examportal.auth.repository.UserRepository;
 import com.examportal.common.domain.dto.internal.UserLookupRequest;
 import com.examportal.common.domain.dto.internal.UserLookupResponse;
 import com.examportal.common.domain.dto.internal.UserSearchRequest;
+import com.examportal.common.domain.dto.internal.UserStatsRequest;
+import com.examportal.common.domain.dto.internal.UserStatsResponse;
+import com.examportal.auth.repository.UserStatsRepository;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import com.examportal.common.domain.entity.User;
 import com.examportal.common.security.InternalServiceAuth;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -35,8 +42,14 @@ public class InternalUserController {
 
     private final UserRepository userRepository;
 
+    private final UserStatsRepository userStatsRepository;
+
     @Value("${internal.service-secret:}")
     private String serviceSecret;
+
+    // The zone whose midnight starts a new day in the registration figures (same setting as exam-service)
+    @Value("${stats.day-zone:Asia/Baku}")
+    private String statsDayZone;
 
     /**
      * Active users whose first name, last name, full name or email starts with q (ignoring case),
@@ -74,6 +87,29 @@ public class InternalUserController {
                         .emailVerified(user.isEmailVerified())
                         .build())
                 .collectList();
+    }
+
+    /**
+     * Aggregate user counts and the registrations per day of the last `days` days (30 when omitted,
+     * at most 90). Numbers only: nothing that identifies a user.
+     */
+    @PostMapping("/stats")
+    public Mono<UserStatsResponse> stats(
+            @RequestHeader(name = InternalServiceAuth.HEADER, required = false) String secret,
+            @Valid @RequestBody(required = false) UserStatsRequest request) {
+
+        if (!InternalServiceAuth.matches(secret, serviceSecret)) {
+            return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
+        }
+
+        int days = request != null && request.getDays() != null ? request.getDays() : UserStatsRequest.DEFAULT_DAYS;
+        ZoneId zone = ZoneId.of(statsDayZone);
+        // The day is a calendar day in the configured zone; the table holds UTC
+        LocalDate lastDay = LocalDateTime.now().atOffset(ZoneOffset.UTC).atZoneSameInstant(zone).toLocalDate();
+        LocalDate firstDay = lastDay.minusDays(days - 1L);
+        LocalDateTime fromUtc = firstDay.atStartOfDay(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+
+        return userStatsRepository.stats(zone.getId(), firstDay, lastDay, fromUtc);
     }
 
     @PostMapping("/lookup")
