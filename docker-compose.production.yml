@@ -245,6 +245,10 @@ services:
       AUTH_INTERNAL_URL: http://auth-service-1:8081
       # Zone whose midnight starts a new day for the daily attempt limit of an exam
       EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
+      # Where the risk level of a session's fraud events turns MEDIUM, HIGH and CRITICAL (weighted sum)
+      EXAM_FRAUD_RISK_MEDIUM: ${EXAM_FRAUD_RISK_MEDIUM:-5}
+      EXAM_FRAUD_RISK_HIGH: ${EXAM_FRAUD_RISK_HIGH:-15}
+      EXAM_FRAUD_RISK_CRITICAL: ${EXAM_FRAUD_RISK_CRITICAL:-30}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -292,6 +296,10 @@ services:
       AUTH_INTERNAL_URL: http://auth-service-1:8081
       # Zone whose midnight starts a new day for the daily attempt limit of an exam
       EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
+      # Where the risk level of a session's fraud events turns MEDIUM, HIGH and CRITICAL (weighted sum)
+      EXAM_FRAUD_RISK_MEDIUM: ${EXAM_FRAUD_RISK_MEDIUM:-5}
+      EXAM_FRAUD_RISK_HIGH: ${EXAM_FRAUD_RISK_HIGH:-15}
+      EXAM_FRAUD_RISK_CRITICAL: ${EXAM_FRAUD_RISK_CRITICAL:-30}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -339,6 +347,10 @@ services:
       AUTH_INTERNAL_URL: http://auth-service-1:8081
       # Zone whose midnight starts a new day for the daily attempt limit of an exam
       EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
+      # Where the risk level of a session's fraud events turns MEDIUM, HIGH and CRITICAL (weighted sum)
+      EXAM_FRAUD_RISK_MEDIUM: ${EXAM_FRAUD_RISK_MEDIUM:-5}
+      EXAM_FRAUD_RISK_HIGH: ${EXAM_FRAUD_RISK_HIGH:-15}
+      EXAM_FRAUD_RISK_CRITICAL: ${EXAM_FRAUD_RISK_CRITICAL:-30}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational

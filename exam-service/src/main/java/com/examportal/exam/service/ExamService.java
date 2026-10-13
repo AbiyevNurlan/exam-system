@@ -337,36 +337,7 @@ public class ExamService {
                 });
     }
 
-    /**
-     * One page of an exam's sessions for ADMIN or the INSTRUCTOR who owns the exam
-     */
-    public Mono<PageResponse<SessionSummaryResponse>> getExamResults(Long examId, UUID userId, String role,
-                                                                     SessionStatus status, int page, int size) {
-        int pageNumber = Math.max(page, 0);
-        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-        String statusFilter = status != null ? status.name() : null;
-
-        return findAccessibleExam(examId, userId, role)
-                .flatMap(exam -> {
-                    if (!accessPolicy.canManage(userId, role, exam)) {
-                        return Mono.error(ExamException.notOwner());
-                    }
-                    return sessionRepository.countByExamIdAndOptionalStatus(examId, statusFilter);
-                })
-                .flatMap(total -> sessionRepository.findPageByExamId(examId, statusFilter, pageSize,
-                                (long) pageNumber * pageSize)
-                        .map(session -> SessionSummaryResponse.builder()
-                                .sessionId(session.getSessionId())
-                                .userId(session.getUserId())
-                                .status(session.getStatus())
-                                .score(session.getScore())
-                                .percentage(session.getPercentage())
-                                .passed(session.getPassed())
-                                .submittedAt(session.getSubmittedAt())
-                                .build())
-                        .collectList()
-                        .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
-    }
+    // The results of an exam (list, summary, review of a session): ExamResultsService
 
     /**
      * Update exam status

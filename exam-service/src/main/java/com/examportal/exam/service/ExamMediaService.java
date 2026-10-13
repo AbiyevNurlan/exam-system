@@ -191,6 +191,13 @@ public class ExamMediaService {
     }
 
     /**
+     * Media of an exam with a short-lived previewUrl each: only for callers who manage the exam
+     */
+    public Mono<MediaIndex> loadIndexWithPreviews(Long examId) {
+        return loadIndex(examId, true);
+    }
+
+    /**
      * A copy of the exam response with the media of its questions and options.
      * The given response is not changed: it may be the cached instance, which never carries media.
      */

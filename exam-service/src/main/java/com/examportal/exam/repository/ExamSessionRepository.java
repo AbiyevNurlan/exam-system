@@ -65,27 +65,7 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
 
     // Opening a session against the attempt limits: ExamAttemptRepository.openSessionIfAttemptsRemain
 
-    /**
-     * One page of an exam's sessions, most recently submitted first (unsubmitted last)
-     */
-    @Query("""
-        SELECT * FROM exam_sessions
-        WHERE exam_id = :examId
-          AND (CAST(:status AS VARCHAR) IS NULL OR status = CAST(:status AS VARCHAR))
-        ORDER BY submitted_at DESC NULLS LAST, id DESC
-        LIMIT :limit OFFSET :offset
-    """)
-    Flux<ExamSession> findPageByExamId(Long examId, String status, int limit, long offset);
-
-    /**
-     * Count the sessions of an exam, optionally only those in one status
-     */
-    @Query("""
-        SELECT COUNT(*) FROM exam_sessions
-        WHERE exam_id = :examId
-          AND (CAST(:status AS VARCHAR) IS NULL OR status = CAST(:status AS VARCHAR))
-    """)
-    Mono<Long> countByExamIdAndOptionalStatus(Long examId, String status);
+    // The sessions of one exam for its managers (list, filters, figures): ExamResultsRepository
 
     /**
      * Update session status

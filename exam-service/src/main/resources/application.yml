@@ -79,6 +79,12 @@ exam:
     # Events a participant's browser reports during a session (POST .../session/{id}/fraud-event)
     max-events-per-session: 300       # further events are accepted (202) but not stored
     max-events-per-minute: 60         # per session; more answers 429
+    # Risk level of a session from the weighted sum of its events (weights: FraudRiskPolicy).
+    # LOW below medium-from, MEDIUM below high-from, HIGH below critical-from, CRITICAL from there.
+    risk:
+      medium-from: ${EXAM_FRAUD_RISK_MEDIUM:5}
+      high-from: ${EXAM_FRAUD_RISK_HIGH:15}
+      critical-from: ${EXAM_FRAUD_RISK_CRITICAL:30}
   media:
     # Allowed uploads: IMAGE jpeg/png/webp, AUDIO mp3/ogg/m4a, VIDEO mp4 (MediaTypePolicy)
     image-max-bytes: 5242880          # 5 MB

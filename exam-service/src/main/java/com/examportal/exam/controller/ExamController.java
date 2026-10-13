@@ -5,9 +5,11 @@ import com.examportal.common.domain.dto.group.ExamAudienceRequest;
 import com.examportal.common.domain.dto.group.ExamAudienceResponse;
 import com.examportal.common.domain.dto.media.MediaUrlResponse;
 import com.examportal.common.domain.entity.ExamStatus;
+import com.examportal.common.domain.entity.GradingStatus;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.service.AnswerSubmissionService;
+import com.examportal.exam.service.ExamResultsService;
 import com.examportal.exam.service.ExamService;
 import com.examportal.exam.service.FraudEventService;
 import com.examportal.exam.service.SessionMediaService;
@@ -44,6 +46,7 @@ public class ExamController {
     private final AnswerSubmissionService answerService;
     private final SessionMediaService sessionMediaService;
     private final FraudEventService fraudEventService;
+    private final ExamResultsService resultsService;
 
     // ==================== Exam CRUD Operations ====================
 
@@ -275,17 +278,56 @@ public class ExamController {
 
     @GetMapping("/{id}/results")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Get exam results", description = "Paginated sessions of an exam (admin or owning instructor)")
+    @Operation(summary = "Get exam results", description = "Paginated sessions of an exam (admin or owning instructor) with "
+            + "participant name and email, attempt number, score, gradingStatus, violationCount and riskLevel. "
+            + "q: first name, last name, email prefix or a user id (at least 2 characters). "
+            + "bestOnly (default true): one row per participant, the completed attempt with the highest percentage. "
+            + "A call with only page, size and status is answered as before: every session, newest submission first.")
     public Mono<ApiResponse<PageResponse<SessionSummaryResponse>>> getExamResults(
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
             @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
             @RequestParam(required = false) @Parameter(description = "Only sessions in this status") SessionStatus status,
+            @RequestParam(required = false) @Parameter(description = "Participant name, email prefix or user id") String q,
+            @RequestParam(required = false) @Parameter(description = "Only passed (true) or failed (false) sessions") Boolean passed,
+            @RequestParam(required = false) @Parameter(description = "NOT_REQUIRED, PENDING or COMPLETE") GradingStatus gradingStatus,
+            @RequestParam(required = false) @Parameter(description = "Only sessions with (true) or without (false) fraud events") Boolean hasViolations,
+            @RequestParam(required = false) @Parameter(description = "One row per participant: the best completed attempt (default true)") Boolean bestOnly,
+            @RequestParam(required = false) @Parameter(description = "score, name, violations or submittedAt (default)") String sort,
+            @RequestParam(required = false) @Parameter(description = "asc or desc (default: desc, for name asc)") String order,
             @AuthenticationPrincipal UserPrincipal principal) {
 
         log.debug("Getting results of exam: {} for user: {}", id, principal.getId());
 
-        return examService.getExamResults(id, principal.getId(), principal.getRole(), status, page, size)
+        ExamResultsService.ListQuery query = new ExamResultsService.ListQuery(q, status, passed, gradingStatus,
+                hasViolations, bestOnly, sort, order);
+        return Mono.defer(() -> resultsService.getResults(id, query, page, size, principal.getId(), principal.getRole()))
+                .map(ApiResponse::success);
+    }
+
+    @GetMapping("/{id}/results/summary")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Get exam results summary", description = "Counts over all sessions, and average, pass rate, top and "
+            + "lowest scorers and violation rankings over each participant's best completed attempt. Sessions that still "
+            + "wait for a grader are counted in pendingGradingCount only.")
+    public Mono<ApiResponse<ExamResultsSummaryResponse>> getExamResultsSummary(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return resultsService.getSummary(id, principal.getId(), principal.getRole())
+                .map(ApiResponse::success);
+    }
+
+    @GetMapping("/session/{sessionId}/review")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Review a session", description = "Everything about one session for the admin or the owning instructor: "
+            + "participant, attempt number, score, every question with the answer key, what was answered and how it was graded, "
+            + "media with preview URLs, and the fraud events (counts by type and up to 300 in order). Never for participants.")
+    public Mono<ApiResponse<SessionReviewResponse>> getSessionReview(
+            @PathVariable String sessionId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return resultsService.getReview(sessionId, principal.getId(), principal.getRole())
                 .map(ApiResponse::success);
     }
 
