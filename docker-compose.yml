@@ -92,11 +92,19 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:?OTP_HMAC_SECRET is required - copy .env.example to .env}
-      # Development: every email goes to the local Mailpit (http://localhost:8025), never to a real
-      # mailbox. The MAIL_* values of .env are used by docker-compose.production.yml only.
-      MAIL_HOST: mailpit
-      MAIL_PORT: 1025
-      MAIL_FROM: no-reply@exam.localhost
+      # Email. Without MAIL_HOST in .env every email goes to the local Mailpit (http://localhost:8025)
+      # and nothing is delivered. With MAIL_HOST set to a real SMTP server, set the port and the
+      # MAIL_SMTP_AUTH / MAIL_STARTTLS / MAIL_SSL switches with it (the defaults here fit Mailpit only)
+      # and MAIL_FROM, without which auth-service refuses to start. See .env.example.
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-false}
+      MAIL_SSL: ${MAIL_SSL:-false}
       # Optional: shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
       EXAM_INTERNAL_URL: http://exam-service:8082

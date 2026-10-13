@@ -302,9 +302,12 @@ start-all-services.bat
 | `JWT_REFRESH_EXPIRY` | `604800` | Refresh token TTL (seconds) |
 | `OTP_HMAC_SECRET` | *(required, no default)* | auth-service only. Base64 of at least 32 random bytes; email codes (verification, password reset) are stored only as an HMAC under this key. Use a different value than `JWT_SECRET` |
 | `INTERNAL_SERVICE_SECRET` | *(empty = switched off)* | At least 32 characters, shared by auth-service and exam-service only. Protects their service-to-service endpoints (`/internal/**`). Without it adding group members, the CSV import and member names do not work |
-| `MAIL_HOST` / `MAIL_PORT` | *(empty)* / `587` | SMTP server for outgoing email (verification and password reset codes). Required in production |
+| `MAIL_HOST` / `MAIL_PORT` | *(empty)* / `587` (`docker-compose.yml`: `mailpit` / `1025`) | SMTP server for outgoing email (verification and password reset codes). Required in production |
+| `MAIL_SMTP_AUTH` | `true` (`docker-compose.yml`: `false`) | Log in with `MAIL_USERNAME` / `MAIL_PASSWORD` |
+| `MAIL_STARTTLS` / `MAIL_SSL` | `true` / `false` (`docker-compose.yml`: both `false`) | Transport security: STARTTLS on port 587, or implicit TLS on port 465. Never both |
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | *(empty)* | SMTP credentials |
-| `MAIL_FROM` | *(empty)* | Sender address of every email; its domain needs SPF/DKIM at the provider |
+| `MAIL_FROM` | *(empty)* | Sender address of every email; its domain needs SPF/DKIM at the provider. Required for every host but Mailpit: auth-service refuses to start without it |
+| `MAIL_FROM_NAME` | `Exam System` | Display name of the sender |
 | `MEDIA_S3_ACCESS_KEY` / `MEDIA_S3_SECRET_KEY` | *(required by `docker-compose.yml`, no default)* | Credentials of the object storage that holds question media. Letters and digits only |
 | `MEDIA_S3_PUBLIC_ENDPOINT` | `http://localhost:8333` | The storage address as the **browser** reaches it; it is the host inside every presigned URL |
 | `MEDIA_CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Frontend origins that may upload/download directly at the storage (comma separated) |
@@ -314,7 +317,7 @@ All of these are described in `.env.example`; copy it to `.env` (git-ignored) an
 ### Email in development (Mailpit)
 
 `docker-compose.yml` starts [Mailpit](https://mailpit.axllent.org/), a local SMTP server that catches every
-email and delivers nothing. The development stack ignores `MAIL_*` and sends to it. Open
+email and delivers nothing. Without `MAIL_HOST` in `.env` the development stack sends to it. Open
 <http://localhost:8025> to read the verification and password reset codes. Production
 (`docker-compose.production.yml`) has no Mailpit and needs the `MAIL_*` variables of a real SMTP provider.
 
