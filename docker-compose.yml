@@ -28,6 +28,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: exam-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes
@@ -83,6 +84,7 @@ services:
       context: .
       dockerfile: Dockerfile.auth
     container_name: exam-auth-service
+    restart: unless-stopped
     ports:
       - "8081:8081"
     environment:
@@ -132,6 +134,7 @@ services:
       context: .
       dockerfile: Dockerfile.exam
     container_name: exam-exam-service
+    restart: unless-stopped
     ports:
       - "8082:8082"
     environment:
@@ -172,6 +175,7 @@ services:
       context: .
       dockerfile: Dockerfile.gateway
     container_name: exam-api-gateway
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
@@ -192,6 +196,7 @@ services:
       context: .
       dockerfile: Dockerfile.websocket
     container_name: exam-websocket-service
+    restart: unless-stopped
     ports:
       - "8084:8084"
     environment:
@@ -211,6 +216,7 @@ services:
       context: .
       dockerfile: Dockerfile.monitoring
     container_name: exam-monitoring-service
+    restart: unless-stopped
     ports:
       - "8083:8083"
     environment:
