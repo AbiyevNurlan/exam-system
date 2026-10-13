@@ -62,6 +62,10 @@ public class ExamSession {
     @Column("submitted_at")
     private LocalDateTime submittedAt;
 
+    // PENDING while an open-ended answer waits for a grader: the score is not final then
+    @Column("grading_status")
+    private GradingStatus gradingStatus;
+
     @Column("ip_address")
     private String ipAddress;
 

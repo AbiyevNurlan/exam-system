@@ -12,6 +12,7 @@ import org.springframework.data.relational.core.mapping.Table;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * User Answer Entity
@@ -47,6 +48,20 @@ public class UserAnswer {
 
     @Column("needs_manual_review")
     private Boolean needsManualReview;
+
+    // Set by a manual grading (open-ended answers); graded_by is the grader's user id
+    @Column("graded_by")
+    private UUID gradedBy;
+
+    @Column("graded_at")
+    private LocalDateTime gradedAt;
+
+    @Column("feedback")
+    private String feedback;
+
+    // Number of manual gradings so far; a grader sends the version they saw
+    @Column("grade_version")
+    private Integer gradeVersion;
 
     @Column("answered_at")
     private LocalDateTime answeredAt;
