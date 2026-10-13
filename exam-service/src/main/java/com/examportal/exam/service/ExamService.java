@@ -2,6 +2,7 @@ package com.examportal.exam.service;
 
 import com.examportal.common.config.UtcDateTimeModule;
 import com.examportal.common.domain.dto.*;
+import com.examportal.common.domain.dto.group.ExamAudiencePreviewResponse;
 import com.examportal.common.domain.dto.group.ExamAudienceRequest;
 import com.examportal.common.domain.dto.group.ExamAudienceResponse;
 import com.examportal.common.domain.entity.*;
@@ -38,6 +39,7 @@ public class ExamService {
     private final ExamSessionRepository sessionRepository;
     private final ExamAttemptRepository attemptRepository;
     private final ExamManageRepository manageRepository;
+    private final GroupMembershipRepository membershipRepository;
     private final ExamDayClock dayClock;
     private final ExamCacheService cacheService;
     private final AnswerSubmissionService answerService;
@@ -52,6 +54,8 @@ public class ExamService {
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
+    // As many as the audience request allows (ExamAudienceRequest)
+    private static final int MAX_AUDIENCE_GROUPS = 50;
     private static final int MIN_SEARCH_LENGTH = 2;
     private static final int MAX_SEARCH_LENGTH = 100;
     // A draft is not published yet (normal update); CANCELLED is not set by any endpoint
@@ -460,6 +464,52 @@ public class ExamService {
                 .flatMap(response -> cacheService.invalidateExamCache(examId).thenReturn(response))
                 .doOnSuccess(response -> log.info("Exam {} audience set to {} {} by user {}",
                         examId, response.getAccessType(), response.getGroupIds(), userId));
+    }
+
+    /**
+     * How many participants an audience would reach: the members of each group and how many
+     * different people that is. Without groupIds the exam's stored audience is used.
+     * For ADMIN and the INSTRUCTOR who owns the exam; nothing is stored.
+     */
+    public Mono<ExamAudiencePreviewResponse> previewAudience(Long examId, List<Long> groupIds, UUID userId, String role) {
+        List<Long> requested = groupIds == null ? List.of() : groupIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
+        if (requested.size() > MAX_AUDIENCE_GROUPS) {
+            return Mono.error(new ValidationException("At most " + MAX_AUDIENCE_GROUPS + " groups can be previewed"));
+        }
+
+        return accessPolicy.findManageableExam(examId, userId, role)
+                .flatMap(exam -> (requested.isEmpty()
+                        ? audienceRepository.findGroupIdsByExamId(examId).collectList()
+                        : Mono.just(requested))
+                        .flatMap(ids -> ids.isEmpty()
+                                ? Mono.just(ExamAudiencePreviewResponse.builder()
+                                        .examId(examId)
+                                        .accessType(exam.getAccessType())
+                                        .storedAudience(requested.isEmpty())
+                                        .perGroup(List.of())
+                                        .distinctEligible(0)
+                                        .unknownGroupIds(List.of())
+                                        .build())
+                                // Two statements however many groups: the members per group and the distinct total
+                                : Mono.zip(membershipRepository.countMembersPerGroup(ids).collectList(),
+                                                membershipRepository.countDistinctMembers(ids))
+                                        .map(loaded -> {
+                                            List<ExamAudiencePreviewResponse.GroupMembers> perGroup = loaded.getT1().stream()
+                                                    .map(group -> new ExamAudiencePreviewResponse.GroupMembers(
+                                                            group.groupId(), group.name(), group.members()))
+                                                    .toList();
+                                            Set<Long> known = perGroup.stream()
+                                                    .map(ExamAudiencePreviewResponse.GroupMembers::getGroupId)
+                                                    .collect(Collectors.toSet());
+                                            return ExamAudiencePreviewResponse.builder()
+                                                    .examId(examId)
+                                                    .accessType(exam.getAccessType())
+                                                    .storedAudience(requested.isEmpty())
+                                                    .perGroup(perGroup)
+                                                    .distinctEligible(loaded.getT2())
+                                                    .unknownGroupIds(ids.stream().filter(id -> !known.contains(id)).toList())
+                                                    .build();
+                                        })));
     }
 
     // ==================== Private Helper Methods ====================

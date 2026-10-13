@@ -1,6 +1,7 @@
 package com.examportal.exam.controller;
 
 import com.examportal.common.domain.dto.*;
+import com.examportal.common.domain.dto.group.ExamAudiencePreviewResponse;
 import com.examportal.common.domain.dto.group.ExamAudienceRequest;
 import com.examportal.common.domain.dto.group.ExamAudienceResponse;
 import com.examportal.common.domain.dto.media.MediaUrlResponse;
@@ -328,6 +329,20 @@ public class ExamController {
             @AuthenticationPrincipal UserPrincipal principal) {
 
         return resultsService.getReview(sessionId, principal.getId(), principal.getRole())
+                .map(ApiResponse::success);
+    }
+
+    @GetMapping("/{id}/audience/preview")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Preview an exam audience", description = "How many participants the given groups reach: the members "
+            + "of each group and how many different people that is (somebody in two groups counts once). Without groupIds the "
+            + "exam's stored audience is used. Nothing is stored. Admin or owning instructor.")
+    public Mono<ApiResponse<ExamAudiencePreviewResponse>> previewAudience(
+            @PathVariable Long id,
+            @RequestParam(required = false) @Parameter(description = "Group ids, comma separated; omitted = the stored audience") List<Long> groupIds,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return Mono.defer(() -> examService.previewAudience(id, groupIds, principal.getId(), principal.getRole()))
                 .map(ApiResponse::success);
     }
 
