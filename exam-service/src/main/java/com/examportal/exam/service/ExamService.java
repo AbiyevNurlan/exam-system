@@ -351,6 +351,11 @@ public class ExamService {
                     if (!accessPolicy.canManage(userId, role, exam)) {
                         return Mono.error(ExamException.notOwner());
                     }
+                    // Publishing an exam whose window is over would only be undone by the scheduler
+                    // within a minute: it needs a new end time first (reschedule)
+                    if (newStatus == ExamStatus.ACTIVE && !exam.getEndTime().isAfter(LocalDateTime.now())) {
+                        return Mono.error(ExamException.windowEnded());
+                    }
                     return Mono.just(exam);
                 })
                 .flatMap(exam -> transactionalOperator.transactional(examRepository.updateStatus(examId, newStatus.name())

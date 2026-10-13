@@ -108,7 +108,7 @@ public class ExamException extends ApplicationException {
     }
 
     public static ExamException windowEnded() {
-        return new ExamException("The exam's end time has passed; give it a new end time with reschedule",
+        return new ExamException("The exam's end time has passed; give it a new end time with reschedule (a draft: edit it)",
                 HttpStatus.BAD_REQUEST, "EXAM_WINDOW_ENDED");
     }
 

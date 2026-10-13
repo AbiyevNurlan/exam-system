@@ -349,7 +349,8 @@ public class ExamController {
 
     @PostMapping("/{id}/publish")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Publish an exam", description = "Change exam status to ACTIVE")
+    @Operation(summary = "Publish an exam", description = "Change exam status to ACTIVE. An exam whose end time has passed "
+            + "answers 400 EXAM_WINDOW_ENDED: give it a new end time with POST /{id}/reschedule first.")
     public Mono<ApiResponse<ExamResponse>> publishExam(
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {
