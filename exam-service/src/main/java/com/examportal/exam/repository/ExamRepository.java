@@ -132,6 +132,58 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
     Mono<Integer> softDelete(Long id);
 
     /**
+     * The exam row, locked until the end of the surrounding transaction, so two changes of the same
+     * exam take turns. FOR NO KEY UPDATE: sessions can still be opened for it meanwhile.
+     */
+    @Query("SELECT * FROM exams WHERE id = :id AND active = true FOR NO KEY UPDATE")
+    Mono<Exam> lockById(Long id);
+
+    /**
+     * Give the exam a new time window and status; a null maxAttempts keeps the stored one, and the
+     * daily limit is only written when setMaxAttemptsPerDay is true (null then removes it).
+     * Questions, sessions and results are not touched.
+     */
+    @Modifying
+    @Query("""
+        UPDATE exams
+        SET start_time = :startTime,
+            end_time = :endTime,
+            status = :status,
+            max_attempts = COALESCE(CAST(:maxAttempts AS INTEGER), max_attempts),
+            max_attempts_per_day = CASE WHEN :setMaxAttemptsPerDay
+                                        THEN CAST(:maxAttemptsPerDay AS SMALLINT)
+                                        ELSE max_attempts_per_day END,
+            updated_at = CURRENT_TIMESTAMP,
+            version = COALESCE(version, 0) + 1
+        WHERE id = :id AND active = true
+    """)
+    Mono<Integer> reschedule(Long id, LocalDateTime startTime, LocalDateTime endTime, String status,
+                             Integer maxAttempts, boolean setMaxAttemptsPerDay, Integer maxAttemptsPerDay);
+
+    /**
+     * SCHEDULED to ACTIVE, but only while the exam is still SCHEDULED and due: returns 1 for the
+     * caller that made the transition. The scheduler works from a list it read earlier, so the
+     * condition is checked again here and a change made in between (reschedule, archive) wins.
+     */
+    @Modifying
+    @Query("""
+        UPDATE exams SET status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
+        WHERE id = :id AND status = 'SCHEDULED' AND start_time <= :now AND active = true
+    """)
+    Mono<Integer> activateIfDue(Long id, LocalDateTime now);
+
+    /**
+     * ACTIVE to COMPLETED, but only while the exam is still ACTIVE and its end time has passed
+     * (see activateIfDue): an exam that was just given a later end time is left alone.
+     */
+    @Modifying
+    @Query("""
+        UPDATE exams SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP
+        WHERE id = :id AND status = 'ACTIVE' AND end_time <= :now AND active = true
+    """)
+    Mono<Integer> completeIfEnded(Long id, LocalDateTime now);
+
+    /**
      * Find exams that should be activated (start time reached)
      */
     @Query("SELECT * FROM exams WHERE status = 'SCHEDULED' AND start_time <= :now AND active = true")

@@ -301,6 +301,24 @@ public class ExamController {
                 .map(exam -> ApiResponse.success(exam, "Exam published successfully"));
     }
 
+    @PostMapping("/{id}/reschedule")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Reschedule an exam", description = "Open a published exam again with a new time window "
+            + "(SCHEDULED, ACTIVE, COMPLETED or ARCHIVED; a draft answers 400 EXAM_CANNOT_RESCHEDULE). Body: endTime "
+            + "(required, in the future, after the start), optional startTime, maxAttempts, maxAttemptsPerDay "
+            + "(null removes the daily limit). The exam becomes SCHEDULED when the start is still ahead, otherwise ACTIVE. "
+            + "Questions, sessions and results are not touched. Admin or owning instructor. Answers the exam without its questions.")
+    public Mono<ApiResponse<ExamResponse>> rescheduleExam(
+            @PathVariable Long id,
+            @Valid @RequestBody RescheduleExamRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        log.info("Rescheduling exam: {} by user: {}", id, principal.getId());
+
+        return examService.rescheduleExam(id, request, principal.getId(), principal.getRole())
+                .map(exam -> ApiResponse.success(exam, "Exam rescheduled successfully"));
+    }
+
     @PostMapping("/{id}/archive")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
     @Operation(summary = "Archive an exam", description = "Change exam status to ARCHIVED")

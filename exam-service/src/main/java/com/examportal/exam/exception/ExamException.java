@@ -39,6 +39,15 @@ public class ExamException extends ApplicationException {
         return new ExamException("Cannot delete exam with existing attempts", HttpStatus.BAD_REQUEST, "EXAM_CANNOT_DELETE");
     }
 
+    public static ExamException cannotReschedule() {
+        return new ExamException("Only a published exam can be rescheduled; edit a draft instead",
+                HttpStatus.BAD_REQUEST, "EXAM_CANNOT_RESCHEDULE");
+    }
+
+    public static ExamException endTimeInPast() {
+        return new ExamException("End time must be in the future", HttpStatus.BAD_REQUEST, "EXAM_END_TIME_PAST");
+    }
+
     public static ExamException notActive() {
         return new ExamException("Exam is not currently active", HttpStatus.BAD_REQUEST, "EXAM_NOT_ACTIVE");
     }

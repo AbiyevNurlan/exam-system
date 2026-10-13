@@ -1,6 +1,5 @@
 package com.examportal.exam.service;
 
-import com.examportal.common.domain.entity.ExamStatus;
 import com.examportal.exam.repository.ExamRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,12 +31,14 @@ public class ExamSchedulerService {
         log.debug("Checking for exams to activate...");
         
         examRepository.findExamsToActivate(LocalDateTime.now())
-                .flatMap(exam -> {
-                    log.info("Activating exam: {} (ID: {})", exam.getTitle(), exam.getId());
-                    return examRepository.updateStatus(exam.getId(), ExamStatus.ACTIVE.name())
-                            .then(cacheService.invalidateExamCache(exam.getId()))
-                            .thenReturn(exam);
-                })
+                // The transition is decided again by the UPDATE itself: an exam that was rescheduled or
+                // archived since the list was read is skipped
+                .flatMap(exam -> examRepository.activateIfDue(exam.getId(), LocalDateTime.now())
+                        .filter(changed -> changed == 1)
+                        .flatMap(changed -> {
+                            log.info("Activating exam: {} (ID: {})", exam.getTitle(), exam.getId());
+                            return cacheService.invalidateExamCache(exam.getId()).thenReturn(exam);
+                        }))
                 .doOnError(err -> log.error("Error activating exam: {}", err.getMessage()))
                 .subscribe(
                         exam -> log.info("Exam activated: {}", exam.getId()),
@@ -54,12 +55,13 @@ public class ExamSchedulerService {
         log.debug("Checking for exams to complete...");
         
         examRepository.findExamsToComplete(LocalDateTime.now())
-                .flatMap(exam -> {
-                    log.info("Completing exam: {} (ID: {})", exam.getTitle(), exam.getId());
-                    return examRepository.updateStatus(exam.getId(), ExamStatus.COMPLETED.name())
-                            .then(cacheService.invalidateExamCache(exam.getId()))
-                            .thenReturn(exam);
-                })
+                // Same as activation: an exam that was just given a later end time stays ACTIVE
+                .flatMap(exam -> examRepository.completeIfEnded(exam.getId(), LocalDateTime.now())
+                        .filter(changed -> changed == 1)
+                        .flatMap(changed -> {
+                            log.info("Completing exam: {} (ID: {})", exam.getTitle(), exam.getId());
+                            return cacheService.invalidateExamCache(exam.getId()).thenReturn(exam);
+                        }))
                 .doOnError(err -> log.error("Error completing exam: {}", err.getMessage()))
                 .subscribe(
                         exam -> log.info("Exam completed: {}", exam.getId()),

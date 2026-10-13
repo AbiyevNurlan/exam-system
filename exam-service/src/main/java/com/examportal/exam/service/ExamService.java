@@ -1,5 +1,6 @@
 package com.examportal.exam.service;
 
+import com.examportal.common.config.UtcDateTimeModule;
 import com.examportal.common.domain.dto.*;
 import com.examportal.common.domain.dto.group.ExamAudienceRequest;
 import com.examportal.common.domain.dto.group.ExamAudienceResponse;
@@ -48,6 +49,9 @@ public class ExamService {
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
+    // A draft is not published yet (normal update); CANCELLED is not set by any endpoint
+    private static final Set<ExamStatus> RESCHEDULABLE = EnumSet.of(ExamStatus.SCHEDULED, ExamStatus.ACTIVE,
+            ExamStatus.COMPLETED, ExamStatus.ARCHIVED);
 
     /**
      * Create a new exam with questions and options
@@ -352,6 +356,65 @@ public class ExamService {
                         .thenReturn(response))
                 .flatMap(response -> examMedia.withMedia(response, true))
                 .doOnSuccess(exam -> log.info("Exam {} status updated to {}", examId, newStatus));
+    }
+
+    /**
+     * Open a published exam again with a new time window: SCHEDULED when the start is still ahead,
+     * otherwise ACTIVE. Works on SCHEDULED, ACTIVE, COMPLETED and ARCHIVED exams (so it also brings
+     * an archived exam back); a draft is changed with the normal update instead.
+     * Only the exam row changes: questions, sessions and results stay as they are, and a session in
+     * progress keeps its own end time. More attempts take effect at once; fewer never remove a session.
+     */
+    public Mono<ExamResponse> rescheduleExam(Long examId, RescheduleExamRequest request, UUID userId, String role) {
+        log.info("Rescheduling exam {} by user {}", examId, userId);
+
+        Mono<Exam> change = findAccessibleExam(examId, userId, role)
+                .flatMap(exam -> accessPolicy.canManage(userId, role, exam)
+                        ? Mono.just(exam)
+                        : Mono.<Exam>error(ExamException.notOwner()))
+                // Decided on the locked row, so two reschedules of the same exam take turns
+                .flatMap(checked -> examRepository.lockById(examId))
+                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+                .flatMap(exam -> {
+                    if (!RESCHEDULABLE.contains(exam.getStatus())) {
+                        return Mono.error(ExamException.cannotReschedule());
+                    }
+                    LocalDateTime now = LocalDateTime.now();
+                    LocalDateTime startTime = request.getStartTime() != null ? request.getStartTime() : exam.getStartTime();
+                    LocalDateTime endTime = request.getEndTime();
+                    if (!endTime.isAfter(now)) {
+                        return Mono.error(ExamException.endTimeInPast());
+                    }
+                    if (!endTime.isAfter(startTime)) {
+                        return Mono.error(ExamException.invalidTimeRange());
+                    }
+                    ExamStatus newStatus = startTime.isAfter(now) ? ExamStatus.SCHEDULED : ExamStatus.ACTIVE;
+                    Integer newMaxAttempts = request.getMaxAttempts() != null ? request.getMaxAttempts() : exam.getMaxAttempts();
+                    Integer newMaxAttemptsPerDay = request.isMaxAttemptsPerDayPresent()
+                            ? request.getMaxAttemptsPerDay()
+                            : exam.getMaxAttemptsPerDay();
+
+                    return examRepository.reschedule(examId, startTime, endTime, newStatus.name(),
+                                    request.getMaxAttempts(), request.isMaxAttemptsPerDayPresent(),
+                                    request.getMaxAttemptsPerDay())
+                            .then(auditService.record(userId, GroupAuditService.EXAM_RESCHEDULED, null, exam.getCreatedBy(),
+                                    "examId=" + examId
+                                            + " status=" + exam.getStatus() + " -> " + newStatus
+                                            + " window=" + UtcDateTimeModule.format(exam.getStartTime())
+                                            + ".." + UtcDateTimeModule.format(exam.getEndTime())
+                                            + " -> " + UtcDateTimeModule.format(startTime)
+                                            + ".." + UtcDateTimeModule.format(endTime)
+                                            + " maxAttempts=" + exam.getMaxAttempts() + " -> " + newMaxAttempts
+                                            + " maxAttemptsPerDay=" + exam.getMaxAttemptsPerDay()
+                                            + " -> " + newMaxAttemptsPerDay))
+                            .then(examRepository.findById(examId));
+                });
+
+        // The exam row and its audit entry change together; the cached exam is dropped after commit.
+        // The answer is the exam itself, without questions (so without the answer key).
+        return transactionalOperator.transactional(change)
+                .flatMap(exam -> cacheService.invalidateExamCache(examId).thenReturn(mapper.toResponse(exam)))
+                .doOnSuccess(exam -> log.info("Exam {} rescheduled: {} until {}", examId, exam.getStatus(), exam.getEndTime()));
     }
 
     /**
