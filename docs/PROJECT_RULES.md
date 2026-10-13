@@ -149,8 +149,35 @@ Details: README, section "Database safety".
   exam that does not exist. 403 is only for an exam the caller can see but may not manage.
 - **Losing access blocks new starts only.** A session that is already IN_PROGRESS belongs to its
   user and can be continued, submitted and read after the user left the group.
+- **An exam's audience is the union of its groups** (`exam_audience`, up to 50): somebody in two of
+  them counts once, and joining a group later makes the exam visible and startable at once, with
+  no change to the exam. `GET /api/exams/{id}/audience/preview?groupIds=…` says how many
+  participants that would be before anything is stored (without `groupIds`: the stored audience).
 - **Groups and memberships live in exam-service** (`exam_db`) and reference users by UUID. Every
-  change writes `group_audit_log` in the same transaction.
+  change writes `group_audit_log` in the same transaction. A membership says where it came from
+  (`user_group_members.source`): ADMIN (one at a time), CSV (import or pending invite), BULK (a
+  filter or a page selection), LINK (the group's join link). Changing a group, its members, its
+  join link or its join requests is ADMIN only (`/api/admin/**` and `/api/groups/{id}/**`).
+- **No service ever holds the whole user table.** The admin's participant list
+  (`GET /api/admin/participants`, `ParticipantService`) is filtered, sorted and paged in
+  auth-service's database (`POST /internal/users/participants`), a group filter is handed over as
+  the set of member ids, and the group names of the page come from one statement in exam-service.
+  Day filters are calendar days of `EXAM_DAY_ZONE` turned into UTC moments. Participant means a
+  user with the role STUDENT; the email is not masked here, because the list is for admins only.
+- **Mass membership is explicit and idempotent** (`GroupBulkService`): a dry run reports
+  `{matched, alreadyMembers, willAdd, cap}` and writes nothing; a real run by filter must carry the
+  `expectedCount` the dry run reported (409 `FILTER_COUNT_CHANGED` otherwise) and refuses more than
+  20 000 additions (422 `TOO_MANY_MATCHES`). The memberships are written in batches of 1000 inside
+  one transaction with one audit row, with `ON CONFLICT DO NOTHING`, so repeating a request adds
+  nobody twice.
+- **A join link is the group's secret** (`GroupJoinService`): one link per group, a 10 character
+  code from an alphabet without 0, O, 1 and I (50 bits of `SecureRandom`). Creating it again
+  replaces the code and resets the uses. Anything wrong with a code — unknown, switched off,
+  expired, used up, group deleted — is the same answer, 404 `JOIN_CODE_INVALID`, and the link
+  itself only ever gives away the group's name. Joining is for a STUDENT with a **verified** email
+  (checked against auth-service, not from the token), is idempotent, and takes turns on the locked
+  link row, so `max_uses` is never exceeded. `requires_approval` turns a join into a request an
+  admin approves. The code is never written to the audit log.
 - **Service-to-service endpoints are under `/internal/**`**, are not routed by the gateway and
   require the `X-Internal-Secret` header (`INTERNAL_SERVICE_SECRET`, at least 32 characters; without
   it they answer 404). Users are resolved only through auth-service, never by reading its database.

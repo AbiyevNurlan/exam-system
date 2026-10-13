@@ -127,6 +127,15 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Fraud events are written only: there is no endpoint for an admin to read `session_fraud_events`, and the frontend still posts the old body (`eventType`, `count`, `timestamp`), which now answers 400 instead of 404
 - [ ] The in-memory `FraudDetectionService` is not connected to anything
 - [ ] Roles can only be changed in the database: there is no admin endpoint for assigning ADMIN or INSTRUCTOR
+- [ ] Groups have no owner, so every group action is ADMIN only; an INSTRUCTOR cannot build the audience of their own exam and has to ask an admin
+- [ ] A join link cannot be deleted, only switched off or replaced; `group_join_links` keeps one row per group forever
+- [ ] A rejected join request does not stop the participant from asking again at once; there is no cool-down and no notification of the decision
+- [ ] Joining with a link does not tell the participant which exams the group gives access to, and nothing notifies them when a request is approved
+- [ ] The participant list and the bulk addition hand sets of user ids between the services (a group filter of 20 000 members is a 760 KB request body); the internal endpoints accept up to 16 MB, which is the real ceiling of these screens
+- [ ] `noGroup=true` and a group filter read every membership of the database into the request; fine at tens of thousands, not at millions
+- [ ] The bulk cap (20 000) is a constant in `ParticipantDtos`, not a setting
+- [ ] `feat/groups-bulk` was verified only against the running stack (no automated tests)
+- [ ] Test data of `feat/groups-bulk`: 20 000 synthetic participants `t-b5-%-6ace5e2a@x.test` (password hash `not-a-hash`, so none of them can log in), groups `T-b5-*`, accounts `be-b5-*` and `be-b5j-*@x.test`
 - [x] An ADMIN could attach the own media to another user's exam, and that owner could not save the exam again (now: media the exam already carries is accepted from every editor)
 - [ ] Exams deleted before `feat/exam-lifecycle` are still in the table as `active = false` (delete was a soft delete then); their media stays attached and is therefore never cleaned up
 - [ ] `feat/exam-lifecycle` was verified only against the running stack (no automated tests): daily limit, reschedule, delete, management list
@@ -203,6 +212,11 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Live monitoring (ADMIN, INSTRUCTOR for own exams): `GET /api/exams/monitoring/active`, `GET /api/exams/{examId}/monitoring?q=&riskLevel=&sort=risk|violations|startedAt|name|progress&order=&page=&size=` (header figures + `sessions` page), `GET /api/exams/session/{sessionId}/violations?sinceId=&limit=` (poll with the last id seen). Poll no faster than every 3 seconds: answers are cached that long
 - [ ] Exam analytics: `GET /api/exams/{examId}/analytics/questions` (rates 0..1, `difficulty`, `discriminationIndex`, `options`, `topAnswers`, grading figures) and `/analytics/overview` (percentages 0..100, `scoreDistribution`, `sessionsPerDay`); show `generatedAt`
 - [ ] Platform analytics (ADMIN): `GET /api/analytics/overview?days=`; handle `usersAvailable=false` (`users` is null)
+- [ ] Participant administration (ADMIN): `GET /api/admin/participants?q=&groupId=&noGroup=&verified=&blocked=&registeredFrom=&registeredTo=&sort=&order=&page=&size=` (rows carry the first three groups and `groupCount`) and `/api/admin/participants/summary`. `registeredFrom`/`registeredTo` are days (yyyy-MM-dd) in the exam day zone, both inclusive
+- [ ] Mass membership (ADMIN): `POST /api/groups/{id}/members/bulk-by-filter` `{filter, dryRun, expectedCount}` and `/bulk-by-ids` `{userIds (max 1000), dryRun}`. Always run the dry run first and send its `willAdd` back as `expectedCount`; handle 409 `FILTER_COUNT_CHANGED` (show the new figures) and 422 `TOO_MANY_MATCHES` (cap 20 000)
+- [ ] Join link (ADMIN): `GET/POST/PATCH /api/groups/{id}/join-link` (POST replaces the code), `GET /api/groups/{id}/join-requests?status=`, `POST .../join-requests/approve|reject` `{requestIds (max 500)}` and `POST .../join-requests/{requestId}/approve|reject`
+- [ ] Joining (participant): the invite URL carries the code; `GET /api/join/{code}` works without a token (group name only) and `POST /api/join/{code}` needs one. Keep the code across registration and verification and post it afterwards. Answers `{status: MEMBER|PENDING, groupName, changed}`; 404 `JOIN_CODE_INVALID` for every unusable code, 403 `EMAIL_NOT_VERIFIED`, 403 `JOIN_PARTICIPANTS_ONLY`
+- [ ] `GET /api/exams/{id}/audience/preview?groupIds=a,b,c` before saving an audience: members per group, `distinctEligible`, `unknownGroupIds`
 
 ## Later
 
