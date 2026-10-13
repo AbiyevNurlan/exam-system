@@ -59,6 +59,9 @@ public class SecurityConfig {
                                 "/auth/resend-otp").permitAll()
                         .pathMatchers("/auth/verify-email").permitAll()
                         .pathMatchers("/actuator/health").permitAll()
+                        // What a group's join link is for (name of the group only): opened before login.
+                        // Joining itself (POST) needs a token like everything else.
+                        .pathMatchers(HttpMethod.GET, "/api/join/*").permitAll()
                         // Everything else needs a valid JWT
                         .anyExchange().authenticated()
                 )
