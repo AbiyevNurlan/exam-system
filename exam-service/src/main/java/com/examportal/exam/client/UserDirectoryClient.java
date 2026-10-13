@@ -3,9 +3,11 @@ package com.examportal.exam.client;
 import com.examportal.common.domain.dto.internal.UserLookupRequest;
 import com.examportal.common.domain.dto.internal.UserLookupResponse;
 import com.examportal.common.domain.dto.internal.UserLookupResponse.UserRef;
+import com.examportal.common.domain.dto.internal.UserSearchRequest;
 import com.examportal.common.security.InternalServiceAuth;
 import com.examportal.exam.exception.GroupException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -53,6 +55,31 @@ public class UserDirectoryClient {
                 .bodyToMono(UserLookupResponse.class)
                 .timeout(TIMEOUT)
                 .map(response -> response.getUsers() != null ? response.getUsers() : List.<UserRef>of())
+                // Only the exception type is kept: the original message may echo the request
+                .onErrorMap(e -> !(e instanceof GroupException), e -> GroupException.userDirectoryUnavailable(
+                        new IllegalStateException(e.getClass().getSimpleName())));
+    }
+
+    /**
+     * The active users whose first name, last name, full name or email starts with q (ignoring
+     * case), or whose id is q; at most limit of them (auth-service allows up to 200).
+     * POST /internal/users/search; fails like lookup.
+     */
+    public Mono<List<UserRef>> search(String q, int limit) {
+        if (!InternalServiceAuth.isConfigured(serviceSecret)) {
+            return Mono.error(GroupException.userDirectoryUnavailable(
+                    new IllegalStateException("INTERNAL_SERVICE_SECRET is not configured")));
+        }
+
+        return webClient.post()
+                .uri("/internal/users/search")
+                .header(InternalServiceAuth.HEADER, serviceSecret)
+                .bodyValue(UserSearchRequest.builder().q(q).limit(limit).build())
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<List<UserRef>>() {
+                })
+                .timeout(TIMEOUT)
+                .defaultIfEmpty(List.of())
                 // Only the exception type is kept: the original message may echo the request
                 .onErrorMap(e -> !(e instanceof GroupException), e -> GroupException.userDirectoryUnavailable(
                         new IllegalStateException(e.getClass().getSimpleName())));

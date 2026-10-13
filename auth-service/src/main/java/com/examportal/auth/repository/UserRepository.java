@@ -48,6 +48,24 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
     Flux<User> findActiveByIdIn(Collection<UUID> ids);
 
     /**
+     * Active users whose first name, last name, full name or email matches the LIKE pattern (already
+     * lower case, with the user's own % and _ escaped by a backslash), or whose id is the given one
+     * (null = no id search); for the internal search.
+     */
+    @Query("""
+            SELECT * FROM users
+            WHERE active = true
+              AND (lower(first_name) LIKE :pattern ESCAPE '\\'
+                   OR lower(last_name) LIKE :pattern ESCAPE '\\'
+                   OR lower(first_name || ' ' || last_name) LIKE :pattern ESCAPE '\\'
+                   OR lower(email) LIKE :pattern ESCAPE '\\'
+                   OR id = :id)
+            ORDER BY lower(last_name), lower(first_name), id
+            LIMIT :limit
+            """)
+    Flux<User> searchActive(@Param("pattern") String pattern, @Param("id") UUID id, @Param("limit") int limit);
+
+    /**
      * Check if any user has the given role
      */
     Mono<Boolean> existsByRole(UserRole role);

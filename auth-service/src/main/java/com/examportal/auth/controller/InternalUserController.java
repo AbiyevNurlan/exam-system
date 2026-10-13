@@ -3,6 +3,7 @@ package com.examportal.auth.controller;
 import com.examportal.auth.repository.UserRepository;
 import com.examportal.common.domain.dto.internal.UserLookupRequest;
 import com.examportal.common.domain.dto.internal.UserLookupResponse;
+import com.examportal.common.domain.dto.internal.UserSearchRequest;
 import com.examportal.common.domain.entity.User;
 import com.examportal.common.security.InternalServiceAuth;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -36,6 +37,44 @@ public class InternalUserController {
 
     @Value("${internal.service-secret:}")
     private String serviceSecret;
+
+    /**
+     * Active users whose first name, last name, full name or email starts with q (ignoring case),
+     * or whose id is q; at most limit of them (200 when omitted)
+     */
+    @PostMapping("/search")
+    public Mono<List<UserLookupResponse.UserRef>> search(
+            @RequestHeader(name = InternalServiceAuth.HEADER, required = false) String secret,
+            @Valid @RequestBody UserSearchRequest request) {
+
+        if (!InternalServiceAuth.matches(secret, serviceSecret)) {
+            return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
+        }
+
+        String term = request.getQ().trim().toLowerCase(Locale.ROOT);
+        if (term.length() < UserSearchRequest.MIN_LENGTH) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST));
+        }
+        // % and _ typed by the user are searched for as they are, not as wildcards
+        String pattern = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        UUID id = null;
+        try {
+            id = UUID.fromString(term);
+        } catch (IllegalArgumentException notAnId) {
+            // q is a name or an email
+        }
+        int limit = request.getLimit() != null ? request.getLimit() : UserSearchRequest.MAX_LIMIT;
+
+        return userRepository.searchActive(pattern, id, limit)
+                .map(user -> UserLookupResponse.UserRef.builder()
+                        .id(user.getId())
+                        .email(user.getEmail())
+                        .firstName(user.getFirstName())
+                        .lastName(user.getLastName())
+                        .emailVerified(user.isEmailVerified())
+                        .build())
+                .collectList();
+    }
 
     @PostMapping("/lookup")
     public Mono<UserLookupResponse> lookup(
