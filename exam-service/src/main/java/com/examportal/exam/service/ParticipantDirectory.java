@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -31,6 +32,8 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 public class ParticipantDirectory {
+
+    private static final Duration NAMES_TIMEOUT = Duration.ofSeconds(2);
 
     private final UserDirectoryClient userDirectory;
 
@@ -76,6 +79,8 @@ public class ParticipantDirectory {
                 .flatMapIterable(Function.identity())
                 .collectList()
                 .map(this::byId)
+                // A list that is polled must not wait long for names it can do without
+                .timeout(NAMES_TIMEOUT)
                 .onErrorResume(e -> {
                     log.warn("Participant names could not be loaded: {}", e.getClass().getSimpleName());
                     return Mono.just(Map.of());

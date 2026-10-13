@@ -109,9 +109,13 @@ public class MonitoringService {
         boolean ascending = order != null ? order.equals("asc") : sort.equals("name");
         Integer levelRank = levelRank(query.riskLevel());
 
-        // The key says whose view it is: an INSTRUCTOR is never served what was cached for someone else
-        String key = "monitoring:exam:" + examId + ":" + (ADMIN.equals(role) ? "admin" : userId) + ":"
-                + Integer.toHexString(java.util.Objects.hash(term, levelRank, sort, ascending, pageNumber, pageSize));
+        // The key says whose view it is (an INSTRUCTOR is never served what was cached for someone
+        // else) and spells out every parameter: a hash could make two different requests share an answer
+        String key = "monitoring:exam:" + examId + ":" + (ADMIN.equals(role) ? "admin" : userId)
+                + ":level=" + (levelRank == null ? "any" : levelRank)
+                + ":sort=" + sort + (ascending ? ":asc" : ":desc")
+                + ":page=" + pageNumber + ":size=" + pageSize
+                + ":q=" + (term == null ? "" : term.toLowerCase(Locale.ROOT));
 
         return accessPolicy.findManageableExam(examId, userId, role)
                 .flatMap(exam -> cache.get(key, CACHE_TTL, new TypeReference<ExamMonitoringResponse>() {

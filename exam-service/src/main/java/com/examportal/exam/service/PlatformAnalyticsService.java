@@ -34,6 +34,8 @@ public class PlatformAnalyticsService {
 
     private static final Duration CACHE_TTL = Duration.ofSeconds(60);
     private static final int TOP_EXAMS = 5;
+    // The overview does not wait longer than this for the user figures
+    private static final Duration USERS_TIMEOUT = Duration.ofSeconds(2);
 
     private final AnalyticsRepository analyticsRepository;
     private final UserDirectoryClient userDirectory;
@@ -60,6 +62,7 @@ public class PlatformAnalyticsService {
 
         // A failing user directory only leaves the user figures out
         Mono<Optional<UserStatsResponse>> users = userDirectory.stats(days)
+                .timeout(USERS_TIMEOUT)
                 .map(Optional::of)
                 .onErrorResume(e -> {
                     log.warn("User figures could not be loaded: {}", e.getClass().getSimpleName());
