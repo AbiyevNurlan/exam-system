@@ -83,11 +83,16 @@ public interface UserAnswerRepository extends R2dbcRepository<UserAnswer, Long> 
                                String textAnswer, LocalDateTime now);
 
     /**
-     * Store the grading outcome of one answer
+     * Store the outcome of the automatic grading of one answer at completion. An open-ended answer
+     * with text gets no verdict (isCorrect null, zero points) and needsManualReview = true.
      */
     @Modifying
-    @Query("UPDATE user_answers SET is_correct = :isCorrect, points_earned = :pointsEarned WHERE id = :id")
-    Mono<Integer> saveGrade(Long id, Boolean isCorrect, BigDecimal pointsEarned);
+    @Query("""
+        UPDATE user_answers
+        SET is_correct = :isCorrect, points_earned = :pointsEarned, needs_manual_review = :needsManualReview
+        WHERE id = :id
+    """)
+    Mono<Integer> saveGrade(Long id, Boolean isCorrect, BigDecimal pointsEarned, boolean needsManualReview);
 
     /**
      * Delete all answers for a session

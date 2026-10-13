@@ -8,6 +8,7 @@ import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.SavedAnswerResponse;
 import com.examportal.common.domain.dto.SessionResultResponse;
 import com.examportal.common.domain.entity.Exam;
+import com.examportal.common.domain.entity.GradingStatus;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.domain.entity.ExamSession;
 import com.examportal.common.domain.entity.Question;
@@ -188,12 +189,14 @@ public class AnswerSubmissionService {
                 .status(session.getStatus())
                 .startTime(session.getStartTime())
                 .endTime(session.getEndTime())
-                .submittedAt(session.getSubmittedAt());
+                .submittedAt(session.getSubmittedAt())
+                .gradingStatus(gradingStatus(session));
 
         boolean completed = session.getStatus() == SessionStatus.COMPLETED;
-        if (!completed || exam == null || resultsWithheld(exam)) {
+        if (!completed || exam == null || resultsWithheld(exam, session)) {
+            // No date while a grader is awaited: nobody knows when that will be done
             return row.resultsAvailable(false)
-                    .resultsAvailableAt(completed && exam != null ? exam.getEndTime() : null)
+                    .resultsAvailableAt(completed && exam != null && !awaitsGrading(session) ? exam.getEndTime() : null)
                     .build();
         }
         // The same stored figures the result endpoint reports
@@ -206,13 +209,23 @@ public class AnswerSubmissionService {
     }
 
     /**
-     * Whether the score of a finished session of this exam must not be shown to the participant yet:
-     * the exam does not show results immediately and has not ended. The one visibility rule, used
-     * by submit, the result endpoint and the list of own sessions.
+     * Whether the score of a finished session must not be shown to the participant yet: an
+     * open-ended answer still waits for a grader (the score is not final), or the exam does not
+     * show results immediately and has not ended. The one visibility rule, used by submit, the
+     * result endpoint and the list of own sessions.
      */
-    private boolean resultsWithheld(Exam exam) {
-        return !Boolean.TRUE.equals(exam.getShowResultsImmediately())
-                && LocalDateTime.now().isBefore(exam.getEndTime());
+    private boolean resultsWithheld(Exam exam, ExamSession session) {
+        return awaitsGrading(session)
+                || (!Boolean.TRUE.equals(exam.getShowResultsImmediately())
+                && LocalDateTime.now().isBefore(exam.getEndTime()));
+    }
+
+    private boolean awaitsGrading(ExamSession session) {
+        return session.getGradingStatus() == GradingStatus.PENDING;
+    }
+
+    private GradingStatus gradingStatus(ExamSession session) {
+        return session.getGradingStatus() != null ? session.getGradingStatus() : GradingStatus.NOT_REQUIRED;
     }
 
     /**
@@ -227,12 +240,14 @@ public class AnswerSubmissionService {
                             .sessionId(session.getSessionId())
                             .examId(session.getExamId())
                             .status(session.getStatus())
-                            .submittedAt(session.getSubmittedAt());
+                            .submittedAt(session.getSubmittedAt())
+                            .gradingStatus(gradingStatus(session));
 
-                    if (resultsWithheld(exam)) {
+                    if (resultsWithheld(exam, session)) {
                         return Mono.just(summary
                                 .resultsAvailable(false)
-                                .resultsAvailableAt(exam.getEndTime())
+                                // No date while a grader is awaited: nobody knows when that will be done
+                                .resultsAvailableAt(awaitsGrading(session) ? null : exam.getEndTime())
                                 .build());
                     }
                     return storedResult(session)
@@ -352,7 +367,10 @@ public class AnswerSubmissionService {
                 && Boolean.TRUE.equals(question.getAllowMultipleAnswers());
     }
 
-    private record GradedSession(ExamResultResponse result, List<UserAnswer> answers) {
+    /**
+     * awaitsGrader: at least one open-ended answer could not be graded here and waits for a person
+     */
+    private record GradedSession(ExamResultResponse result, List<UserAnswer> answers, boolean awaitsGrader) {
     }
 
     /**
@@ -369,9 +387,12 @@ public class AnswerSubmissionService {
                     ExamResultResponse result = graded.result();
                     return Flux.fromIterable(graded.answers())
                             .concatMap(answer -> answerRepository.saveGrade(
-                                    answer.getId(), answer.getIsCorrect(), answer.getPointsEarned()))
+                                    answer.getId(), answer.getIsCorrect(), answer.getPointsEarned(),
+                                    Boolean.TRUE.equals(answer.getNeedsManualReview())))
+                            // The score is provisional while an answer waits for a grader (PENDING)
                             .then(sessionRepository.saveScore(session.getId(), result.getTotalScore(),
-                                    result.getMaxScore(), result.getPercentageScore(), result.getPassed()))
+                                    result.getMaxScore(), result.getPercentageScore(), result.getPassed(),
+                                    (graded.awaitsGrader() ? GradingStatus.PENDING : GradingStatus.NOT_REQUIRED).name()))
                             .thenReturn(result);
                 });
 
@@ -415,6 +436,8 @@ public class AnswerSubmissionService {
     /**
      * Grade a session against ALL active questions of its exam: unanswered questions earn zero
      * but still count towards the maximum score and the percentage.
+     * An open-ended answer with text is not graded here: it earns zero for now and is marked for a
+     * person (needs_manual_review); until then it counts as neither correct nor incorrect.
      */
     private Mono<GradedSession> calculateScore(ExamSession session, BigDecimal passingScore) {
         return Mono.zip(
@@ -445,6 +468,7 @@ public class AnswerSubmissionService {
         int correctCount = 0;
         int incorrectCount = 0;
         int unansweredCount = 0;
+        boolean awaitsGrader = false;
         List<UserAnswer> graded = new ArrayList<>();
 
         for (Question question : questions) {
@@ -455,6 +479,17 @@ public class AnswerSubmissionService {
                 unansweredCount++;
                 continue;
             }
+
+            if (question.getQuestionType() == QuestionType.OPEN_ENDED
+                    && answer.getTextAnswer() != null && !answer.getTextAnswer().isBlank()) {
+                answer.setPointsEarned(BigDecimal.ZERO);
+                answer.setIsCorrect(null);
+                answer.setNeedsManualReview(true);
+                awaitsGrader = true;
+                graded.add(answer);
+                continue;
+            }
+            answer.setNeedsManualReview(false);
 
             boolean isCorrect = isAnswerCorrect(question, answer,
                     correctOptions.getOrDefault(question.getId(), List.of()));
@@ -488,13 +523,13 @@ public class AnswerSubmissionService {
                 .passingScore(passingScore)
                 .startTime(session.getStartTime())
                 .completedAt(LocalDateTime.now())
-                .build(), graded);
+                .build(), graded, awaitsGrader);
     }
 
     private boolean isAnswerCorrect(Question question, UserAnswer answer,
                                     java.util.Collection<QuestionOption> correctOptions) {
         if (correctOptions.isEmpty()) {
-            // No answer key: nothing to compare against (manual grading is not implemented)
+            // No answer key: nothing to compare against
             return false;
         }
 

@@ -1,5 +1,6 @@
 package com.examportal.common.domain.dto;
 
+import com.examportal.common.domain.entity.GradingStatus;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
@@ -31,6 +32,8 @@ public class MySessionResponse {
     private LocalDateTime submittedAt;
 
     private Boolean resultsAvailable;
+    // PENDING = an open-ended answer waits for a grader: no score and no resultsAvailableAt until then
+    private GradingStatus gradingStatus;
     private LocalDateTime resultsAvailableAt; // Only while the score of a completed session is withheld
 
     private BigDecimal totalScore;

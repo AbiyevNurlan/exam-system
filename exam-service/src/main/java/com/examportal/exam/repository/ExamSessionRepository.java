@@ -118,11 +118,12 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
         SET score = :score,
             total_points = :totalPoints,
             percentage = :percentage,
-            passed = :passed
+            passed = :passed,
+            grading_status = :gradingStatus
         WHERE id = :id
     """)
     Mono<Integer> saveScore(Long id, BigDecimal score, BigDecimal totalPoints,
-                            BigDecimal percentage, Boolean passed);
+                            BigDecimal percentage, Boolean passed, String gradingStatus);
 
     /**
      * Find expired sessions (end time passed but still in progress)
