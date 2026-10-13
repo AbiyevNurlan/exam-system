@@ -114,6 +114,22 @@ public class ExamController {
         return examService.getMyExams(principal.getId(), status);
     }
 
+    @GetMapping("/manage")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Get the management list", description = "Paginated exams without their questions, newest first: "
+            + "ADMIN every exam, INSTRUCTOR only the own ones. Each row carries sessionCount and participantCount. "
+            + "Archived exams are listed only with status=ARCHIVED. search looks in the title (at least 2 characters).")
+    public Mono<ApiResponse<PageResponse<ManagedExamResponse>>> getManagedExams(
+            @RequestParam(required = false) @Parameter(description = "Text in the title, ignoring case (min 2 characters)") String search,
+            @RequestParam(required = false) @Parameter(description = "Only exams in this status") ExamStatus status,
+            @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
+            @RequestParam(defaultValue = "20") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return examService.getManagedExams(principal.getId(), principal.getRole(), search, status, page, size)
+                .map(ApiResponse::success);
+    }
+
     @GetMapping("/available")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR', 'STUDENT')")
     @Operation(summary = "Get available exams", description = "Paginated exams the user may access and can still start")

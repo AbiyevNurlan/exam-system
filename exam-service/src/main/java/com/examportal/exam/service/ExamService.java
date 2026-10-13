@@ -5,6 +5,7 @@ import com.examportal.common.domain.dto.*;
 import com.examportal.common.domain.dto.group.ExamAudienceRequest;
 import com.examportal.common.domain.dto.group.ExamAudienceResponse;
 import com.examportal.common.domain.entity.*;
+import com.examportal.common.exception.ValidationException;
 import com.examportal.exam.exception.ExamException;
 import com.examportal.exam.exception.GroupException;
 import com.examportal.exam.mapper.ExamMapper;
@@ -36,6 +37,7 @@ public class ExamService {
     private final QuestionOptionRepository optionRepository;
     private final ExamSessionRepository sessionRepository;
     private final ExamAttemptRepository attemptRepository;
+    private final ExamManageRepository manageRepository;
     private final ExamDayClock dayClock;
     private final ExamCacheService cacheService;
     private final AnswerSubmissionService answerService;
@@ -50,6 +52,8 @@ public class ExamService {
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
+    private static final int MIN_SEARCH_LENGTH = 2;
+    private static final int MAX_SEARCH_LENGTH = 100;
     // A draft is not published yet (normal update); CANCELLED is not set by any endpoint
     private static final Set<ExamStatus> RESCHEDULABLE = EnumSet.of(ExamStatus.SCHEDULED, ExamStatus.ACTIVE,
             ExamStatus.COMPLETED, ExamStatus.ARCHIVED);
@@ -211,6 +215,35 @@ public class ExamService {
 
         return exams.flatMap(exam -> loadExamWithQuestions(exam))
                 .flatMap(response -> examMedia.withMedia(response, true));
+    }
+
+    /**
+     * One page of the management list: ADMIN every exam, INSTRUCTOR only the own ones, newest first.
+     * Archived exams are listed only when status = ARCHIVED is asked for. The search looks for the
+     * text anywhere in the title, ignoring case; it needs at least 2 characters.
+     */
+    public Mono<PageResponse<ManagedExamResponse>> getManagedExams(UUID userId, String role, String search,
+                                                                   ExamStatus status, int page, int size) {
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+
+        String term = search == null ? "" : search.trim();
+        if (!term.isEmpty() && (term.length() < MIN_SEARCH_LENGTH || term.length() > MAX_SEARCH_LENGTH)) {
+            return Mono.error(new ValidationException("Search text must be between " + MIN_SEARCH_LENGTH
+                    + " and " + MAX_SEARCH_LENGTH + " characters"));
+        }
+        // % and _ typed by the user are searched for as they are, not as wildcards
+        String titlePattern = term.isEmpty()
+                ? null
+                : "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+
+        ExamManageRepository.Filter filter = new ExamManageRepository.Filter(
+                "ADMIN".equals(role) ? null : userId, status, titlePattern);
+
+        return manageRepository.count(filter)
+                .flatMap(total -> manageRepository.findPage(filter, pageSize, (long) pageNumber * pageSize)
+                        .collectList()
+                        .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
     }
 
     /**
