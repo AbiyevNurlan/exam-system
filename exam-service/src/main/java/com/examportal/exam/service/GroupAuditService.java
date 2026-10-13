@@ -27,6 +27,12 @@ public class GroupAuditService {
     public static final String INVITE_CANCELLED = "INVITE_CANCELLED";
     public static final String EXAM_AUDIENCE_CHANGED = "EXAM_AUDIENCE_CHANGED";
     public static final String CSV_IMPORT = "CSV_IMPORT";
+    // An ADMIN changed an exam that someone else created (targetUserId = the exam's creator)
+    public static final String EXAM_UPDATED_BY_ADMIN = "EXAM_UPDATED_BY_ADMIN";
+    public static final String EXAM_PUBLISHED_BY_ADMIN = "EXAM_PUBLISHED_BY_ADMIN";
+    public static final String EXAM_ARCHIVED_BY_ADMIN = "EXAM_ARCHIVED_BY_ADMIN";
+    public static final String EXAM_STATUS_CHANGED_BY_ADMIN = "EXAM_STATUS_CHANGED_BY_ADMIN";
+    public static final String EXAM_DELETED_BY_ADMIN = "EXAM_DELETED_BY_ADMIN";
     // INVITE_APPLIED is written in SQL by GroupImportRepository.applyPendingInvites
 
     private final GroupAuditLogRepository auditRepository;

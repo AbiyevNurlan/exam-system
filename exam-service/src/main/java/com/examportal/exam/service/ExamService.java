@@ -94,7 +94,8 @@ public class ExamService {
 
         Mono<ExamResponse> update = findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
-                    if (!exam.getCreatedBy().equals(userId)) {
+                    // ADMIN: every exam; INSTRUCTOR: only the own one
+                    if (!accessPolicy.canManage(userId, role, exam)) {
                         return Mono.error(ExamException.notOwner());
                     }
                     if (!exam.canModify()) {
@@ -125,6 +126,7 @@ public class ExamService {
                 .flatMap(exam -> deleteExistingQuestionsAndOptions(examId)
                         .then(saveQuestionsAndOptions(examId, request.getQuestions()))
                         .then(examRepository.updateTotalQuestions(examId, request.getQuestions().size()))
+                        .then(auditForeignExam(userId, exam, GroupAuditService.EXAM_UPDATED_BY_ADMIN))
                         .thenReturn(exam))
                 .flatMap(this::loadExamWithQuestions);
 
@@ -145,7 +147,8 @@ public class ExamService {
 
         return findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
-                    if (!exam.getCreatedBy().equals(userId)) {
+                    // ADMIN: every exam; INSTRUCTOR: only the own one
+                    if (!accessPolicy.canManage(userId, role, exam)) {
                         return Mono.error(ExamException.notOwner());
                     }
                     return sessionRepository.existsByExamId(examId)
@@ -156,7 +159,9 @@ public class ExamService {
                                 return Mono.just(exam);
                             });
                 })
-                .flatMap(exam -> examRepository.softDelete(examId)
+                // The delete and its audit entry are stored together or not at all
+                .flatMap(exam -> transactionalOperator.transactional(examRepository.softDelete(examId)
+                                .then(auditForeignExam(userId, exam, GroupAuditService.EXAM_DELETED_BY_ADMIN)))
                         .then(cacheService.invalidateExamCache(examId)))
                 .doOnSuccess(v -> log.info("Exam deleted successfully: {}", examId));
     }
@@ -315,13 +320,14 @@ public class ExamService {
 
         return findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
-                    // Publishing and archiving: the owner, or any ADMIN
-                    if (!"ADMIN".equals(role) && !exam.getCreatedBy().equals(userId)) {
+                    // Publishing and archiving: ADMIN every exam, INSTRUCTOR only the own one
+                    if (!accessPolicy.canManage(userId, role, exam)) {
                         return Mono.error(ExamException.notOwner());
                     }
                     return Mono.just(exam);
                 })
-                .flatMap(exam -> examRepository.updateStatus(examId, newStatus.name())
+                .flatMap(exam -> transactionalOperator.transactional(examRepository.updateStatus(examId, newStatus.name())
+                                .then(auditForeignExam(userId, exam, statusAuditAction(newStatus))))
                         .then(examRepository.findById(examId)))
                 .flatMap(this::loadExamWithQuestions)
                 .flatMap(response -> cacheService.invalidateExamCache(examId)
@@ -424,6 +430,27 @@ public class ExamService {
                         "examId=" + examId + " status=" + status
                                 + " accessType=" + oldAccessType + " -> " + newAccessType
                                 + " groups=" + oldGroupIds + " -> " + groupIds));
+    }
+
+    /**
+     * Audit entry for a change to an exam by someone who did not create it; only an ADMIN gets that
+     * far (canManage). The owner changing the own exam leaves no entry. Part of the caller's transaction.
+     */
+    private Mono<Void> auditForeignExam(UUID actorId, Exam exam, String action) {
+        if (actorId.equals(exam.getCreatedBy())) {
+            return Mono.empty();
+        }
+        log.info("Admin {} on exam {} of user {}: {}", actorId, exam.getId(), exam.getCreatedBy(), action);
+        return auditService.record(actorId, action, null, exam.getCreatedBy(),
+                "examId=" + exam.getId() + " status=" + exam.getStatus());
+    }
+
+    private String statusAuditAction(ExamStatus newStatus) {
+        return switch (newStatus) {
+            case ACTIVE -> GroupAuditService.EXAM_PUBLISHED_BY_ADMIN;
+            case ARCHIVED -> GroupAuditService.EXAM_ARCHIVED_BY_ADMIN;
+            default -> GroupAuditService.EXAM_STATUS_CHANGED_BY_ADMIN;
+        };
     }
 
     private int maxAttempts(Exam exam) {
