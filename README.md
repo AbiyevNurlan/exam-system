@@ -322,6 +322,67 @@ email and delivers nothing. Without `MAIL_HOST` in `.env` the development stack 
 <http://localhost:8025> to read the verification and password reset codes. Production
 (`docker-compose.production.yml`) has no Mailpit and needs the `MAIL_*` variables of a real SMTP provider.
 
+### Real email
+
+Verification and password reset codes leave the system over plain SMTP, so every provider with an SMTP
+endpoint works and none is built in. Each email has a plain-text and an HTML part with the same content, no
+links and nothing that tracks the reader. A failed send is tried 3 times (1 s and 3 s apart) in the
+background and never fails the request; `mail_sent_total` and `mail_failed_total` (auth-service,
+`/actuator/prometheus`) count emails, and the log shows the masked address, the attempt and the error type.
+
+**Provider.** Use a transactional email service (for example Amazon SES, Postmark, Mailgun, Brevo or
+SendGrid), not a personal mailbox. What to look for: SMTP access with a login per application, DKIM signing
+for your own domain, a sending quota above the largest exam cohort, and a list of bounces and complaints.
+Codes are valid for 10 minutes, so prefer a provider that delivers transactional email within seconds.
+
+**Settings** (`.env`, see `.env.example`): `MAIL_HOST`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`
+(an address of your domain, e.g. `no-reply@your-domain`), optionally `MAIL_FROM_NAME` and `MAIL_REPLY_TO`,
+and one transport:
+
+| Port | Switches | Meaning |
+|------|----------|---------|
+| `587` | `MAIL_STARTTLS=true`, `MAIL_SSL=false` | STARTTLS: the usual choice. It is required, never skipped |
+| `465` | `MAIL_SSL=true`, `MAIL_STARTTLS=false` | TLS from the first byte |
+
+`MAIL_SMTP_AUTH=true` for every real provider. auth-service checks the combination at startup and refuses
+to start with a message that names the variable (no `MAIL_FROM` for a real host, both switches true, login
+without credentials). Apply a change with `docker-compose up -d auth-service`, then send one email through
+the real registration flow:
+
+```powershell
+.\scripts\send-test-mail.ps1 -To you@your-mailbox.example                  # verification code
+.\scripts\send-test-mail.ps1 -To you@your-mailbox.example -PasswordReset   # for an already verified address
+```
+
+The script prints the HTTP status and the outcome from the auth-service log, never a code or a credential.
+
+**DNS for the sender domain.** Without these three records codes land in spam or are rejected:
+
+- **SPF**: a TXT record on the domain that lists the provider as an allowed sender
+  (`v=spf1 include:<provider> -all`). One SPF record per domain; add the provider to an existing one.
+- **DKIM**: the provider signs every email; publish the public keys it gives you (CNAME or TXT records
+  under `<selector>._domainkey`).
+- **DMARC**: a TXT record on `_dmarc.<domain>`. Start with `v=DMARC1; p=none; rua=mailto:<reports address>`,
+  read the reports, then move to `quarantine` and `reject`. DMARC passes only when the domain of
+  `MAIL_FROM` matches the SPF or DKIM domain, so send from your own domain, not from the provider's.
+
+**Warm-up and limits.** A new domain or account has no reputation: begin with a small volume and raise it
+over days, and tell the provider before the first exam with hundreds of registrations at once. New accounts
+are often in a sandbox (verified recipients only, a low daily quota) until the provider lifts it. Know the
+quota per day and per second: above it the provider rejects sends, which shows as `mail_failed_total` and
+as users without a code. The application itself sends at most 5 codes per address per hour.
+
+**Why not Gmail SMTP.** `smtp.gmail.com` with an app password is fine for a handful of test emails and
+nothing more: about 500 recipients per day, the From address is rewritten to the Gmail account, bulk-like
+automated sending can lock the account, and there is no DKIM for your domain and no bounce reporting.
+
+**Back to Mailpit.** Comment out the whole `MAIL_*` block in `.env` (all of it, also `MAIL_PORT` and the
+switches) and run `docker-compose up -d auth-service`. Nothing else changes; emails are caught at
+<http://localhost:8025> again.
+
+Still open (see `docs/BACKLOG.md`): the DNS records on the production domain, bounce and complaint
+handling, and an outbox so that a code survives a restart or a longer outage of the mail server.
+
 ### Question media storage (SeaweedFS)
 
 Images, audio and video of questions and options live in S3-compatible object storage. In development

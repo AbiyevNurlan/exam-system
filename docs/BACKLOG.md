@@ -7,14 +7,15 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 
 - [x] Email verification: registration now needs a 6-digit email code (OTP); no tokens before verification; `GroupInviteClient.applyForVerifiedUser` runs after verification and on login
 - [x] **Account pre-hijacking:** anyone can register someone else's address with a password of their own; if the real owner later enters the emailed code, the account is verified with the stranger's password. Fix options: set the password at verification, or delete unverified accounts on a new registration for the same address (now: registering an unverified address again replaces its password and name and invalidates the older codes)
-- [ ] Real email provider for production and its sending limits (today only the local Mailpit is wired; production needs `MAIL_*`)
-- [ ] SPF, DKIM and DMARC for the sender domain, otherwise codes land in spam
+- [x] Real email provider (SMTP) for production and its sending limits (today only the local Mailpit is wired; production needs `MAIL_*`) (now: `MAIL_*` switch development and production to any SMTP provider, startup check, HTML+text mail; README "Real email". Choosing the provider and its account is an operations step)
+- [ ] SPF, DKIM and DMARC on the production sender domain, otherwise codes land in spam
+- [ ] Bounce and complaint handling: nothing reads the provider's bounces or spam complaints; codes keep being sent to dead or complaining addresses, which costs sender reputation
 - [ ] CAPTCHA and real per-client IP limits against OTP abuse: the gateway limit keys on the remote address, which is the proxy or Docker bridge for every client until forwarded headers are trusted
 - [ ] OTP via SMS (later)
 - [ ] Accounts created before OTP and still unverified (30 on the development database, all test accounts) cannot log in until they verify by `resend-otp` or an admin uses `POST /auth/admin/users/{id}/verify-email`
 - [ ] `POST /auth/register` still answers 409 for a known email, so it tells whether an address is registered (resend and verify do not)
 - [x] Unverified accounts and old `email_otp` rows are never cleaned up (now: daily `AccountCleanupJob`, `auth.cleanup.*`; accounts are deactivated, never deleted)
-- [ ] Verification emails are sent once, detached, without retry or outbox; a failed send is only logged and the user must ask for a new code
+- [ ] Outbox for guaranteed delivery: emails are sent detached with 3 attempts in memory (1 s, 3 s) and counted (`mail_sent_total`, `mail_failed_total`); a restart or a longer mail outage still loses the email and the user must ask for a new code
 - [ ] `email_verification_tokens` (V1) is unused, and the gateway still permits `/auth/verify-email`, which does not exist
 - [ ] An account verified by an admin gets its pending group invites only at the next login
 - [ ] No "change email" flow; a typo in the address at registration cannot be corrected by the user [x] Submit response ignores `showResultsImmediately` (the score is returned even when the exam withholds results)
@@ -64,14 +65,15 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Access tokens issued before the UUID change are rejected (users must log in again); no token revocation list
 - [x] Email verification: registration now needs a 6-digit email code (OTP); no tokens before verification; `GroupInviteClient.applyForVerifiedUser` runs after verification and on login
 - [x] **Account pre-hijacking:** anyone can register someone else's address with a password of their own; if the real owner later enters the emailed code, the account is verified with the stranger's password. Fix options: set the password at verification, or delete unverified accounts on a new registration for the same address (now: registering an unverified address again replaces its password and name and invalidates the older codes)
-- [ ] Real email provider for production and its sending limits (today only the local Mailpit is wired; production needs `MAIL_*`)
-- [ ] SPF, DKIM and DMARC for the sender domain, otherwise codes land in spam
+- [x] Real email provider (SMTP) for production and its sending limits (today only the local Mailpit is wired; production needs `MAIL_*`) (now: `MAIL_*` switch development and production to any SMTP provider, startup check, HTML+text mail; README "Real email". Choosing the provider and its account is an operations step)
+- [ ] SPF, DKIM and DMARC on the production sender domain, otherwise codes land in spam
+- [ ] Bounce and complaint handling: nothing reads the provider's bounces or spam complaints; codes keep being sent to dead or complaining addresses, which costs sender reputation
 - [ ] CAPTCHA and real per-client IP limits against OTP abuse: the gateway limit keys on the remote address, which is the proxy or Docker bridge for every client until forwarded headers are trusted
 - [ ] OTP via SMS (later)
 - [ ] Accounts created before OTP and still unverified (30 on the development database, all test accounts) cannot log in until they verify by `resend-otp` or an admin uses `POST /auth/admin/users/{id}/verify-email`
 - [ ] `POST /auth/register` still answers 409 for a known email, so it tells whether an address is registered (resend and verify do not)
 - [x] Unverified accounts and old `email_otp` rows are never cleaned up (now: daily `AccountCleanupJob`, `auth.cleanup.*`; accounts are deactivated, never deleted)
-- [ ] Verification emails are sent once, detached, without retry or outbox; a failed send is only logged and the user must ask for a new code
+- [ ] Outbox for guaranteed delivery: emails are sent detached with 3 attempts in memory (1 s, 3 s) and counted (`mail_sent_total`, `mail_failed_total`); a restart or a longer mail outage still loses the email and the user must ask for a new code
 - [ ] `email_verification_tokens` (V1) is unused, and the gateway still permits `/auth/verify-email`, which does not exist
 - [ ] An account verified by an admin gets its pending group invites only at the next login
 - [ ] No "change email" flow; a typo in the address at registration cannot be corrected by the user
