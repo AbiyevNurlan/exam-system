@@ -60,7 +60,26 @@ Details: README, section "Database safety".
 - **User ids are UUIDs** (`users.id` in `exam_auth`): JWT subject, `UserPrincipal.id`,
   `exams.created_by`, `exam_sessions.user_id`. Never derive a numeric id from them. Exam, question
   and session row ids are `Long`.
-- **Pagination**: page is 0-based, default size 25, maximum size 50 (larger values are clamped).
+- **Pagination**: page is 0-based, default size 25 (`my-sessions`: 20), maximum size 50 (larger values are clamped).
+- **Time: UTC in the database, `Z` in the API.** Columns are `TIMESTAMP` without zone and hold UTC;
+  every container runs with `TZ=UTC` and every JVM with `-Duser.timezone=UTC` (set in all compose
+  files). exam-service writes every date-time as ISO-8601 UTC with milliseconds and `Z`
+  (`2026-10-13T07:59:31.099Z`) and reads a value with an offset (`Z`, `+04:00`) as that instant; a
+  value without an offset is taken as UTC (`UtcDateTimeModule`). Keep the fields `LocalDateTime`;
+  never format a date by hand and never convert with the machine's zone.
+- **A participant can always read back what they stored**: `GET /api/exams/session/{id}/answers` and
+  `savedAnswers` in the start response return the answers as given (own session only), never
+  correctness, points or the key. `GET /api/exams/my-sessions` lists only the caller's sessions.
+- **Whether a participant may see a score is decided by one method**
+  (`AnswerSubmissionService.resultsWithheld`), used by submit, the result endpoint and
+  `my-sessions`. Do not repeat that condition anywhere else.
+- **Fraud events are only recorded.** `POST /api/exams/session/{id}/fraud-event` stores what the
+  browser reports (own running session, at most 300 rows per session, 60 per minute); no score,
+  status or penalty ever follows from them automatically, and participants cannot read them.
+- **ADMIN manages every exam, INSTRUCTOR only the own ones** (`ExamAccessPolicy.canManage`): edit,
+  publish, archive, delete. The other limits stay for everyone (`EXAM_CANNOT_MODIFY`, no delete of
+  an exam with sessions). An ADMIN acting on someone else's exam writes `group_audit_log`
+  (`EXAM_*_BY_ADMIN`, target = the exam's creator) in the same transaction.
 - **The answer key never reaches students.** `isCorrect`, explanations and the expected answers of
   text questions go only to ADMIN and the INSTRUCTOR who owns the exam. Results never contain
   per-question correctness.
@@ -98,6 +117,11 @@ Details: README, section "Database safety".
 - **Play limits are enforced on the server**, per session, in one atomic SQL statement
   (`MediaLinkRepository.registerPlay`); every URL handed out counts as a play. Never count in the client.
 - **Alt text of media is shown to participants.** On an option image it must not reveal the answer.
+- **Unused media is removed, used media never.** Confirmed files attached to no question and no
+  option of any exam (drafts included) are deleted after `MEDIA_ORPHAN_RETENTION_DAYS` (default 14;
+  0 or less = never). The removal locks the asset row and re-checks the links in the same
+  transaction, and attaching (`MediaLinkRepository.attachTo*`) takes the conflicting row lock and
+  requires `ACTIVE`: keep both sides, they are what makes it race-free.
 - **Full email addresses are never logged** and never written to audit details; use `LogMaskUtils`.
 - **Errors**: expected client errors are 4xx with a code and a generic message; responses never
   contain SQL, stack traces or other internals. 4xx are logged once at WARN, 5xx at ERROR.
