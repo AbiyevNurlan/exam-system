@@ -73,10 +73,15 @@ public class ExamMediaService {
 
     /**
      * Check every media reference of an exam request before anything is written:
-     * the asset exists, is ACTIVE and belongs to the editor (ADMIN: any owner); a question has no
-     * media twice and a play limit only on audio or video; an option carries an image only.
+     * the asset exists, is ACTIVE and may be attached by the editor; a question has no media twice
+     * and a play limit only on audio or video; an option carries an image only.
+     *
+     * What an editor may attach: the own media, for ADMIN everybody's, and whatever the exam already
+     * carries, whoever uploaded it. So the owner can save (or drop) media an ADMIN added to the
+     * exam, but cannot bring in someone else's media that is not part of it yet.
+     * examId is null for an exam that is being created.
      */
-    public Mono<Void> validate(List<QuestionDTO> questions, UUID userId, String role) {
+    public Mono<Void> validate(List<QuestionDTO> questions, UUID userId, String role, Long examId) {
         Set<UUID> ids = new HashSet<>();
         for (QuestionDTO question : questions) {
             if (question.getMedia() != null) {
@@ -100,10 +105,16 @@ public class ExamMediaService {
             return Mono.empty();
         }
 
-        return assetRepository.findByIdIn(ids)
+        boolean admin = "ADMIN".equals(role);
+        // Media the exam already carries; not needed for ADMIN (everything) or a new exam (nothing)
+        Mono<Set<UUID>> alreadyAttached = admin || examId == null
+                ? Mono.just(Set.<UUID>of())
+                : linkRepository.findByExamId(examId).map(AttachedMedia::mediaId).collect(Collectors.toSet());
+
+        return alreadyAttached.flatMap(attached -> assetRepository.findByIdIn(ids)
                 .filter(asset -> asset.getStatus() == MediaStatus.ACTIVE)
-                .filter(asset -> "ADMIN".equals(role) || asset.getOwnerId().equals(userId))
-                .collect(Collectors.toMap(MediaAsset::getId, Function.identity()))
+                .filter(asset -> admin || asset.getOwnerId().equals(userId) || attached.contains(asset.getId()))
+                .collect(Collectors.toMap(MediaAsset::getId, Function.identity())))
                 .flatMap(usable -> {
                     // One answer for unknown, unconfirmed, deleted and someone else's media
                     if (usable.size() != ids.size()) {

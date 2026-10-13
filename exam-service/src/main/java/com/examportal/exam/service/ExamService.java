@@ -70,7 +70,7 @@ public class ExamService {
 
         Mono<ExamResponse> creation = validator.validateCreateRequest(request)
                 .then(requireValidAudience(accessType, groupIds))
-                .then(examMedia.validate(request.getQuestions(), userId, role))
+                .then(examMedia.validate(request.getQuestions(), userId, role, null))
                 .then(Mono.defer(() -> {
                     Exam exam = mapper.toEntity(request, userId);
                     exam.setAccessType(accessType);
@@ -116,7 +116,7 @@ public class ExamService {
                 })
                 .flatMap(exam -> validator.validateUpdateRequest(request)
                         .then(newAccessType == null ? Mono.<Void>empty() : requireValidAudience(newAccessType, groupIds))
-                        .then(examMedia.validate(request.getQuestions(), userId, role))
+                        .then(examMedia.validate(request.getQuestions(), userId, role, examId))
                         .thenReturn(exam))
                 .flatMap(exam -> {
                     ExamAccessType oldAccessType = exam.getAccessType();

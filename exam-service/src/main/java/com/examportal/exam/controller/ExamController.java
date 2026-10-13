@@ -63,7 +63,7 @@ public class ExamController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Update an exam", description = "Update an existing exam (DRAFT or SCHEDULED only; questions, options and their media are replaced). Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); only your own confirmed media. WARNING: the alt text of option media is shown to participants and must not reveal the answer.")
+    @Operation(summary = "Update an exam", description = "Update an existing exam (DRAFT or SCHEDULED only; questions, options and their media are replaced). Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); your own confirmed media, or media the exam already carries (ADMIN: any). WARNING: the alt text of option media is shown to participants and must not reveal the answer.")
     public Mono<ApiResponse<ExamResponse>> updateExam(
             @PathVariable Long id,
             @Valid @RequestBody UpdateExamRequest request,
