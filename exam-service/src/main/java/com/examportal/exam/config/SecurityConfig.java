@@ -67,6 +67,11 @@ public class SecurityConfig {
                         .pathMatchers("/api/exams/my").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/*/publish", "/api/exams/*/archive").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/*/results").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // Live monitoring and exam analytics - admin and instructors (the service then
+                        // limits an instructor to the own exams); platform analytics - admin only
+                        .pathMatchers("/api/exams/monitoring/**", "/api/exams/*/monitoring",
+                                "/api/exams/session/*/violations", "/api/exams/*/analytics/**").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        .pathMatchers("/api/analytics/**").hasRole("ADMIN")
                         
                         // Exam participation - all authenticated users
                         .pathMatchers("/api/exams/available").authenticated()

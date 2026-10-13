@@ -73,6 +73,22 @@ public class FraudRiskPolicy {
     }
 
     /**
+     * The level as a number that sorts by severity: 0 = LOW ... 3 = CRITICAL
+     */
+    public RiskLevel levelOfRank(int rank) {
+        return RiskLevel.values()[Math.max(0, Math.min(rank, RiskLevel.values().length - 1))];
+    }
+
+    /**
+     * The level rank (0 = LOW ... 3 = CRITICAL) of a score as an SQL expression, for statements
+     * that count or sort sessions by level. Built from the configured boundaries only.
+     */
+    public String levelRankSql(String scoreExpression) {
+        return "(CASE WHEN " + scoreExpression + " >= " + criticalFrom + " THEN 3 WHEN " + scoreExpression + " >= "
+                + highFrom + " THEN 2 WHEN " + scoreExpression + " >= " + mediumFrom + " THEN 1 ELSE 0 END)";
+    }
+
+    /**
      * The same weighted sum as an SQL aggregate over the given type column, for lists that compute
      * it per session in the database. Built from the enum and the weights only, never from input.
      */
