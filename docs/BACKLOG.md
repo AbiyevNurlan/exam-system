@@ -138,7 +138,16 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] The V8 backfill marked 8 old open-ended answers (8 sessions of test exams 1, 2, 37, 38, 43, 68, 70, 88) for manual grading: their participants see no score until someone grades them
 - [ ] Load-test data from `feat/results-grading` is still in the development database: exam `T-b3-load` with 5000 sessions (`session_id LIKE 'T-b3-load-%'`, spread over the existing test users, so their "my sessions" lists are long) and 4166 fraud events (`details = 'T-b3-load'`)
 - [ ] Results sorted by name are sorted in the service (names live in auth-service): all matching rows are read and named in batches of 500; refused above 10 000 rows
-- [ ] The internal user search uses `lower(col) LIKE 'prefix%'` without an expression index; fine for hundreds of users, needs `text_pattern_ops` indexes for many thousands
+- [ ] The internal user search has `text_pattern_ops` indexes for first and last name (auth V1), but none for the full name (`first || ' ' || last`) and none for the email prefix other than the unique `lower(email)` index; check its plan before the user table grows large
+- [ ] `FraudDetectionService` (in-memory counters, never called) should be deleted: fraud events are stored by `FraudEventService` and scored by `FraudRiskPolicy`
+- [ ] `ExamCacheService` is an in-memory map although its name and the old comments suggest Redis: with several exam-service instances the cached exam and the questions of a session differ per instance
+- [ ] The gateway's rate limiter keeps one Redis bucket per client IP for all routes, although the routes have different capacities (`/auth/verify-otp` 50 with 5 tokens per request, `/auth/**` 200): a drained verification budget also refuses `/auth/register` and `/auth/login` for that IP
+- [ ] `/internal/**` answers 404 without the shared secret (by design, like an unknown path), not 401/403
+- [ ] Monitoring is polled (3 second cache); there is no push over the websocket service, and no action (stop a session, warn a participant)
+- [ ] Analytics are up to 60 seconds old and are not invalidated by a grading or a new session (`generatedAt` says how old)
+- [ ] With auth-service down, lists with names and the platform overview wait 2 seconds for it on every uncached call
+- [ ] `feat/monitoring-analytics` was verified only against the running stack (no automated tests)
+- [ ] Test data of `feat/monitoring-analytics`: exams `T-b4-*`, accounts `be-b4-*@x.test` (ten `be-b4-p01..p10-6ace3b5f@x.test` come from a run that stopped at the registration limit and have no session)
 - [ ] Results and grading show the participant's full email to ADMIN and the owning INSTRUCTOR, while group member lists mask it: decide one rule
 - [ ] Users that are inactive in auth-service have no name or email in result lists (the internal lookup returns active users only)
 - [ ] `feat/results-grading` was verified only against the running stack (no automated tests): grading, results list, summary, review
@@ -191,6 +200,9 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Results: `GET /api/exams/{id}/results` rows now also carry `participantName`, `email`, `attemptNumber`, `startedAt`, `durationSeconds`, `maxScore`, `gradingStatus`, `violationCount`, `riskLevel`; new parameters `q`, `passed`, `gradingStatus`, `hasViolations`, `bestOnly`, `sort` (`score|name|violations|submittedAt`), `order`. `bestOnly` defaults to true as soon as one of the new parameters is sent; a call with only `page`, `size`, `status` lists every session as before
 - [ ] `GET /api/exams/{id}/results/summary` and `GET /api/exams/session/{sessionId}/review` (answer key, grading, media with `previewUrl`, fraud events)
 - [ ] `POST /api/exams/{id}/publish` can answer 400 `EXAM_WINDOW_ENDED`: offer reschedule (or editing, for a draft)
+- [ ] Live monitoring (ADMIN, INSTRUCTOR for own exams): `GET /api/exams/monitoring/active`, `GET /api/exams/{examId}/monitoring?q=&riskLevel=&sort=risk|violations|startedAt|name|progress&order=&page=&size=` (header figures + `sessions` page), `GET /api/exams/session/{sessionId}/violations?sinceId=&limit=` (poll with the last id seen). Poll no faster than every 3 seconds: answers are cached that long
+- [ ] Exam analytics: `GET /api/exams/{examId}/analytics/questions` (rates 0..1, `difficulty`, `discriminationIndex`, `options`, `topAnswers`, grading figures) and `/analytics/overview` (percentages 0..100, `scoreDistribution`, `sessionsPerDay`); show `generatedAt`
+- [ ] Platform analytics (ADMIN): `GET /api/analytics/overview?days=`; handle `usersAvailable=false` (`users` is null)
 
 ## Later
 

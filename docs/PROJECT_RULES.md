@@ -113,6 +113,22 @@ Details: README, section "Database safety".
 - **The risk level of a session's fraud events comes from one class** (`FraudRiskPolicy`: weights
   per event type, boundaries `EXAM_FRAUD_RISK_MEDIUM/HIGH/CRITICAL`, default 5/15/30). It is
   informational: nothing is decided from it.
+- **Monitoring and analytics are read only** (`MonitoringService`, `ExamAnalyticsService`,
+  `PlatformAnalyticsService`): they never stop a session, warn a participant or write a row. A
+  "running" session is IN_PROGRESS with its own end time still ahead. Every screen is a fixed
+  number of statements however many sessions there are; names come from the `ParticipantDirectory`
+  (one lookup per page, at most 2 seconds, missing names are left out). Score figures are over each
+  participant's best completed attempt; sessions waiting for a grader are counted separately and
+  never enter an average. Monitoring answers never carry an answer or the key.
+- **`ReadCache` is the only Redis cache of exam-service** (monitoring 3 s, analytics 60 s; the
+  answers carry `generatedAt`). Nothing is invalidated: a value is at most its TTL old. The access
+  check runs before the cache and is never cached; the key spells out the exam, whose view it is
+  and every parameter (never a hash of them). Redis is optional: no answer within 250 ms or any
+  error means reading from the database. Never call it on a participant's path (start, answer,
+  submit). `ExamCacheService` is a different thing: an in-memory map of exams and session questions.
+- **Platform analytics get user figures from auth-service as numbers only**
+  (`POST /internal/users/stats`); when it cannot be reached the answer says `usersAvailable=false`
+  and is not cached.
 - **Fraud events are only recorded.** `POST /api/exams/session/{id}/fraud-event` stores what the
   browser reports (own running session, at most 300 rows per session, 60 per minute); no score,
   status or penalty ever follows from them automatically, and participants cannot read them.
