@@ -3,6 +3,9 @@ package com.examportal.exam.exception;
 import com.examportal.common.exception.ApplicationException;
 import org.springframework.http.HttpStatus;
 
+import java.time.LocalDateTime;
+import java.util.Map;
+
 /**
  * Exam-specific exceptions
  */
@@ -42,6 +45,17 @@ public class ExamException extends ApplicationException {
 
     public static ExamException maxAttemptsReached() {
         return new ExamException("Maximum number of attempts reached", HttpStatus.CONFLICT, "MAX_ATTEMPTS_REACHED");
+    }
+
+    /**
+     * Today's attempts are used up while the total limit still has room. error.details.nextAvailableAt
+     * is the start of the next day (UTC).
+     */
+    public static ExamException dailyAttemptsReached(LocalDateTime nextAvailableAt) {
+        ExamException exception = new ExamException("Daily number of attempts reached", HttpStatus.CONFLICT,
+                "DAILY_ATTEMPTS_REACHED");
+        exception.withDetails(Map.of("nextAvailableAt", nextAvailableAt));
+        return exception;
     }
 
     public static ExamException sessionNotFound(String sessionId) {

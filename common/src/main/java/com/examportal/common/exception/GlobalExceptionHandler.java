@@ -47,10 +47,11 @@ public class GlobalExceptionHandler {
                 ApiResponse.ErrorDetails.builder()
                         .code(ex.getErrorCode())
                         .description(ex.getMessage())
+                        .details(ex.getDetails())
                         .build()
         );
         response.setPath(exchange.getRequest().getPath().value());
-        
+
         return Mono.just(ResponseEntity.status(ex.getStatus()).body(response));
     }
 

@@ -33,6 +33,8 @@ public class ExamService {
     private final QuestionRepository questionRepository;
     private final QuestionOptionRepository optionRepository;
     private final ExamSessionRepository sessionRepository;
+    private final ExamAttemptRepository attemptRepository;
+    private final ExamDayClock dayClock;
     private final ExamCacheService cacheService;
     private final AnswerSubmissionService answerService;
     private final ExamAccessPolicy accessPolicy;
@@ -215,20 +217,35 @@ public class ExamService {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
+        ExamDayClock.Day today = dayClock.today();
+
         return accessPolicy.countAvailableExams(userId, role)
                 .flatMap(total -> accessPolicy.findAvailableExams(userId, role, pageSize, (long) pageNumber * pageSize)
                         .concatMap(exam -> Mono.zip(
-                                        sessionRepository.countByExamIdAndUserId(exam.getId(), userId),
+                                        attemptRepository.countAttempts(exam.getId(), userId, today.start(), today.end()),
                                         sessionRepository.findActiveSession(exam.getId(), userId)
                                                 .map(active -> !active.isExpired())
                                                 .defaultIfEmpty(false))
                                 .map(tuple -> {
-                                    // Same rule as startExam: every session counts as an attempt, and an
-                                    // active session that still has time can always be resumed
-                                    int remaining = Math.max(0, maxAttempts(exam) - tuple.getT1().intValue());
+                                    // Same rule as startExam: every session counts as an attempt, in total and
+                                    // for today, and an active session that still has time can always be resumed
+                                    ExamAttemptRepository.AttemptCounts counts = tuple.getT1();
+                                    int remainingInTotal = Math.max(0, maxAttempts(exam) - counts.total());
+                                    Integer remainingToday = exam.getMaxAttemptsPerDay() == null
+                                            ? null
+                                            : Math.max(0, exam.getMaxAttemptsPerDay() - counts.today());
+                                    int remaining = remainingToday == null
+                                            ? remainingInTotal
+                                            : Math.min(remainingInTotal, remainingToday);
                                     boolean resumable = tuple.getT2();
                                     ExamResponse response = mapper.toResponse(exam);
                                     response.setRemainingAttempts(remaining);
+                                    response.setRemainingAttemptsToday(remainingToday);
+                                    // Only today's limit is in the way, and the exam is still open tomorrow
+                                    if (remainingToday != null && remainingToday == 0 && remainingInTotal > 0
+                                            && today.end().isBefore(exam.getEndTime())) {
+                                        response.setNextAttemptAt(today.end());
+                                    }
                                     response.setCanStart(exam.canStart() && (remaining > 0 || resumable));
                                     return response;
                                 }))
@@ -552,13 +569,27 @@ public class ExamService {
             endTime = exam.getEndTime();
         }
 
-        // The attempt limit and the single active session are both decided by this one statement.
+        ExamDayClock.Day today = dayClock.dayOf(now);
+
+        // The total limit, the daily limit and the single active session are all decided by this one
+        // statement; its short transaction only carries the lock that makes parallel starts take turns.
         // Whatever it did, the active session (ours, or the one a concurrent start created) is the answer;
-        // none at all means the attempt limit refused the insert.
-        return sessionRepository.insertIfAttemptsRemain(sessionId, exam.getId(), userId, now, endTime,
-                        request.getIpAddress(), request.getBrowserInfo(), maxAttempts(exam))
+        // none at all means a limit refused the insert.
+        return transactionalOperator.transactional(attemptRepository.openSessionIfAttemptsRemain(sessionId,
+                        exam.getId(), userId, now, endTime, request.getIpAddress(), request.getBrowserInfo(),
+                        today.start(), today.end()))
                 .flatMap(inserted -> sessionRepository.findActiveSession(exam.getId(), userId))
-                .switchIfEmpty(Mono.error(ExamException.maxAttemptsReached()));
+                .switchIfEmpty(Mono.defer(() -> refusedStart(exam, userId, today)));
+    }
+
+    /**
+     * Why a start was refused: the total limit when it is used up, otherwise today's limit
+     */
+    private Mono<ExamSession> refusedStart(Exam exam, UUID userId, ExamDayClock.Day today) {
+        return attemptRepository.countAttempts(exam.getId(), userId, today.start(), today.end())
+                .flatMap(counts -> Mono.error(counts.total() >= maxAttempts(exam)
+                        ? ExamException.maxAttemptsReached()
+                        : ExamException.dailyAttemptsReached(today.end())));
     }
 
     /**

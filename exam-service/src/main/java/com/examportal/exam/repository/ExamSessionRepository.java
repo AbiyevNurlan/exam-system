@@ -63,24 +63,7 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
     @Query("SELECT * FROM exam_sessions WHERE exam_id = :examId AND user_id = :userId AND status = 'IN_PROGRESS' LIMIT 1")
     Mono<ExamSession> findActiveSession(Long examId, UUID userId);
 
-    /**
-     * Open a session only while the user has attempts left (every existing session counts).
-     * Returns 0 when the limit is reached, or when an IN_PROGRESS session already exists for this
-     * user and exam (unique index uq_sessions_one_in_progress).
-     */
-    @Modifying
-    @Query("""
-        INSERT INTO exam_sessions (session_id, exam_id, user_id, start_time, end_time, status,
-                                   ip_address, browser_info, created_at, updated_at, version)
-        SELECT :sessionId, :examId, :userId, :startTime, :endTime, 'IN_PROGRESS',
-               CAST(:ipAddress AS VARCHAR), CAST(:browserInfo AS TEXT), :startTime, :startTime, 0
-        WHERE (SELECT COUNT(*) FROM exam_sessions
-               WHERE exam_id = :examId AND user_id = :userId) < :maxAttempts
-        ON CONFLICT (exam_id, user_id) WHERE status = 'IN_PROGRESS' DO NOTHING
-    """)
-    Mono<Integer> insertIfAttemptsRemain(String sessionId, Long examId, UUID userId,
-                                         LocalDateTime startTime, LocalDateTime endTime,
-                                         String ipAddress, String browserInfo, int maxAttempts);
+    // Opening a session against the attempt limits: ExamAttemptRepository.openSessionIfAttemptsRemain
 
     /**
      * One page of an exam's sessions, most recently submitted first (unsubmitted last)

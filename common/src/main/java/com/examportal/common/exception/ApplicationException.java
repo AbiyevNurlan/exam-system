@@ -13,6 +13,14 @@ public class ApplicationException extends RuntimeException {
     private final HttpStatus status;
     private final String errorCode;
 
+    // Optional machine-readable extras for the client, returned as error.details (never user data)
+    private Object details;
+
+    public ApplicationException withDetails(Object details) {
+        this.details = details;
+        return this;
+    }
+
     public ApplicationException(String message) {
         super(message);
         this.status = HttpStatus.INTERNAL_SERVER_ERROR;
