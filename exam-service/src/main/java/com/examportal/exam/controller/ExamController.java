@@ -9,6 +9,7 @@ import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.service.AnswerSubmissionService;
 import com.examportal.exam.service.ExamService;
+import com.examportal.exam.service.FraudEventService;
 import com.examportal.exam.service.SessionMediaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -42,6 +43,7 @@ public class ExamController {
     private final ExamService examService;
     private final AnswerSubmissionService answerService;
     private final SessionMediaService sessionMediaService;
+    private final FraudEventService fraudEventService;
 
     // ==================== Exam CRUD Operations ====================
 
@@ -194,6 +196,22 @@ public class ExamController {
 
         return answerService.getSavedAnswers(sessionId, principal.getId())
                 .map(ApiResponse::success);
+    }
+
+    @PostMapping("/session/{sessionId}/fraud-event")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Report a fraud event", description = "Records something the participant's browser noticed "
+            + "(TAB_SWITCH, WINDOW_BLUR, FULLSCREEN_EXIT, COPY_ATTEMPT, PASTE_ATTEMPT, DEVTOOLS, OTHER) in the caller's "
+            + "own running session. Always 202; nothing is decided from it automatically. 409 SESSION_COMPLETED after the session ended. "
+            + "Only the first 300 events of a session are stored.")
+    public Mono<ApiResponse<Void>> reportFraudEvent(
+            @PathVariable String sessionId,
+            @Valid @RequestBody FraudEventRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return fraudEventService.record(sessionId, request, principal.getId())
+                .then(Mono.fromSupplier(() -> ApiResponse.<Void>success(null, "Event received")));
     }
 
     @PostMapping("/session/{sessionId}/answer")

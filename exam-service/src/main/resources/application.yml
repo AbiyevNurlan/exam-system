@@ -72,6 +72,10 @@ exam:
     max-duration-minutes: 180
     auto-submit-buffer-seconds: 30
     result-cache-ttl-minutes: 60
+  fraud:
+    # Events a participant's browser reports during a session (POST .../session/{id}/fraud-event)
+    max-events-per-session: 300       # further events are accepted (202) but not stored
+    max-events-per-minute: 60         # per session; more answers 429
   media:
     # Allowed uploads: IMAGE jpeg/png/webp, AUDIO mp3/ogg/m4a, VIDEO mp4 (MediaTypePolicy)
     image-max-bytes: 5242880          # 5 MB

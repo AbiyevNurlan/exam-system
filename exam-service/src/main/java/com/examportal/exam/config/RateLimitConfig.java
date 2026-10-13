@@ -3,6 +3,7 @@ package com.examportal.exam.config;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -24,6 +25,14 @@ public class RateLimitConfig {
 
     private final ConcurrentHashMap<String, Bucket> cache = new ConcurrentHashMap<>();
 
+    // Fraud events: one bucket per session path, so one session cannot flood the table or the log
+    private static final String FRAUD_EVENT_SUFFIX = "/fraud-event";
+    private static final int MAX_FRAUD_BUCKETS = 50_000;
+    private final ConcurrentHashMap<String, Bucket> fraudEventBuckets = new ConcurrentHashMap<>();
+
+    @Value("${exam.fraud.max-events-per-minute:60}")
+    private int fraudEventsPerMinute;
+
     /**
      * Global rate limit: 1000 requests per minute per IP
      * For 100K users: allows burst traffic while preventing abuse
@@ -39,6 +48,13 @@ public class RateLimitConfig {
                 return chain.filter(exchange);
             }
 
+            if (path.endsWith(FRAUD_EVENT_SUFFIX) && !fraudEventBucket(path).tryConsume(1)) {
+                log.warn("Fraud event rate limit exceeded on path: {}", path);
+                exchange.getResponse().setStatusCode(HttpStatus.TOO_MANY_REQUESTS);
+                exchange.getResponse().getHeaders().add("X-Rate-Limit-Retry-After-Seconds", "60");
+                return exchange.getResponse().setComplete();
+            }
+
             Bucket bucket = resolveBucket(clientIp, path);
             
             if (bucket.tryConsume(1)) {
@@ -50,6 +66,22 @@ public class RateLimitConfig {
                 return exchange.getResponse().setComplete();
             }
         };
+    }
+
+    /**
+     * The bucket of one session's fraud-event path. The map is emptied when it grows too large
+     * (made-up session ids): the worst case is a limit that starts again.
+     */
+    private Bucket fraudEventBucket(String path) {
+        if (fraudEventBuckets.size() > MAX_FRAUD_BUCKETS) {
+            fraudEventBuckets.clear();
+        }
+        return fraudEventBuckets.computeIfAbsent(path, key -> Bucket.builder()
+                .addLimit(Bandwidth.builder()
+                        .capacity(fraudEventsPerMinute)
+                        .refillGreedy(fraudEventsPerMinute, Duration.ofMinutes(1))
+                        .build())
+                .build());
     }
 
     private Bucket resolveBucket(String clientIp, String path) {
