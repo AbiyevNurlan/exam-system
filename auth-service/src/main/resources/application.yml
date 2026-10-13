@@ -101,6 +101,7 @@ auth:
   mail:
     from: ${MAIL_FROM:}          # sender address of every email; required unless the host is Mailpit
     from-name: ${MAIL_FROM_NAME:}  # display name of the sender
+    reply-to: ${MAIL_REPLY_TO:}  # optional Reply-To address
   bootstrap:
     # First ADMIN, created on startup only when both are set and no ADMIN exists yet
     admin-email: ${ADMIN_EMAIL:}

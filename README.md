@@ -308,6 +308,7 @@ start-all-services.bat
 | `MAIL_USERNAME` / `MAIL_PASSWORD` | *(empty)* | SMTP credentials |
 | `MAIL_FROM` | *(empty)* | Sender address of every email; its domain needs SPF/DKIM at the provider. Required for every host but Mailpit: auth-service refuses to start without it |
 | `MAIL_FROM_NAME` | `Exam System` | Display name of the sender |
+| `MAIL_REPLY_TO` | *(empty)* | Optional Reply-To address of every email |
 | `MEDIA_S3_ACCESS_KEY` / `MEDIA_S3_SECRET_KEY` | *(required by `docker-compose.yml`, no default)* | Credentials of the object storage that holds question media. Letters and digits only |
 | `MEDIA_S3_PUBLIC_ENDPOINT` | `http://localhost:8333` | The storage address as the **browser** reaches it; it is the host inside every presigned URL |
 | `MEDIA_CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Frontend origins that may upload/download directly at the storage (comma separated) |

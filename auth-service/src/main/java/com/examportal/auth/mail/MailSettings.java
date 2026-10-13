@@ -1,6 +1,8 @@
 package com.examportal.auth.mail;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.mail.internet.AddressException;
+import jakarta.mail.internet.InternetAddress;
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -49,13 +51,26 @@ public class MailSettings {
     @Value("${auth.mail.from-name:}")
     private String fromName;
 
+    // Optional: where answers to an email go (the sender address is usually a no-reply one)
+    @Getter
+    @Value("${auth.mail.reply-to:}")
+    private String replyTo;
+
     @PostConstruct
     void validate() {
         host = host == null ? "" : host.trim();
         from = from == null ? "" : from.trim();
         fromName = fromName == null || fromName.isBlank() ? DEFAULT_FROM_NAME : fromName.trim();
+        replyTo = replyTo == null ? "" : replyTo.trim();
         if (host.isEmpty()) {
             return;
+        }
+        if (!replyTo.isEmpty()) {
+            try {
+                new InternetAddress(replyTo, true);
+            } catch (AddressException e) {
+                throw new IllegalStateException("MAIL_REPLY_TO is not a valid email address.");
+            }
         }
         if (isMailpit()) {
             if (from.isEmpty()) {

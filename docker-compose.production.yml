@@ -124,6 +124,7 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
+      MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
       MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
       MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
       MAIL_SSL: ${MAIL_SSL:-false}
@@ -183,6 +184,7 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:?MAIL_FROM is required}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
+      MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
       MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
       MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
       MAIL_SSL: ${MAIL_SSL:-false}
