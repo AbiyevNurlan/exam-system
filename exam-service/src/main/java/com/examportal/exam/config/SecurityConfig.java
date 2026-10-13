@@ -54,6 +54,12 @@ public class SecurityConfig {
 
                         // Group administration - admin only, enforced here by path as well as by @PreAuthorize
                         .pathMatchers("/api/admin/**").hasRole("ADMIN")
+                        // Everything below a group (bulk membership, join link, join requests) - admin only
+                        .pathMatchers("/api/groups/*/**").hasRole("ADMIN")
+                        // Joining a group with a link: what the link is for may be asked without a token
+                        // (name of the group only); joining itself needs one
+                        .pathMatchers(HttpMethod.GET, "/api/join/*").permitAll()
+                        .pathMatchers("/api/join/**").authenticated()
                         // Group names for choosing an exam audience - read only
                         .pathMatchers(HttpMethod.GET, "/api/groups").hasAnyRole("ADMIN", "INSTRUCTOR")
 

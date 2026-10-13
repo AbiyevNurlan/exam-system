@@ -61,6 +61,50 @@ public class GroupException extends ApplicationException {
                 "CSV_TOO_MANY_ROWS");
     }
 
+    /**
+     * The number of participants a bulk addition would add is no longer what the administrator saw
+     * in the dry run; nothing was written. error.details carries the current figures.
+     */
+    public static GroupException filterCountChanged(long matched, long alreadyMembers, long willAdd) {
+        GroupException exception = new GroupException("The participants matching the filter have changed; review them again",
+                HttpStatus.CONFLICT, "FILTER_COUNT_CHANGED");
+        exception.withDetails(java.util.Map.of("matched", matched, "alreadyMembers", alreadyMembers, "willAdd", willAdd));
+        return exception;
+    }
+
+    public static GroupException tooManyMatches(int cap) {
+        GroupException exception = new GroupException("More than " + cap + " participants would be added; narrow the filter",
+                HttpStatus.UNPROCESSABLE_ENTITY, "TOO_MANY_MATCHES");
+        exception.withDetails(java.util.Map.of("cap", cap));
+        return exception;
+    }
+
+    /**
+     * One answer for a join code that is unknown, switched off, expired or used up: the caller
+     * learns nothing about why
+     */
+    public static GroupException joinCodeInvalid() {
+        return new GroupException("This join link is not valid", HttpStatus.NOT_FOUND, "JOIN_CODE_INVALID");
+    }
+
+    public static GroupException joinLinkNotFound() {
+        return new GroupException("The group has no join link", HttpStatus.NOT_FOUND, "JOIN_LINK_NOT_FOUND");
+    }
+
+    public static GroupException joinRequestNotFound() {
+        return new GroupException("The group has no such open join request", HttpStatus.NOT_FOUND, "JOIN_REQUEST_NOT_FOUND");
+    }
+
+    public static GroupException emailNotVerified() {
+        return new GroupException("Verify your email address before joining a group", HttpStatus.FORBIDDEN,
+                "EMAIL_NOT_VERIFIED");
+    }
+
+    public static GroupException participantsOnly() {
+        return new GroupException("Only participants can join a group with a link", HttpStatus.FORBIDDEN,
+                "JOIN_PARTICIPANTS_ONLY");
+    }
+
     public static GroupException userDirectoryUnavailable(Throwable cause) {
         return new GroupException("User lookup is currently unavailable", HttpStatus.SERVICE_UNAVAILABLE,
                 "USER_DIRECTORY_UNAVAILABLE", cause);

@@ -41,6 +41,17 @@ public class GroupAuditService {
     // participant; details: exam, session, answer, old and new points)
     public static final String ANSWER_GRADED = "ANSWER_GRADED";
     public static final String ANSWER_REGRADED = "ANSWER_REGRADED";
+    // One row per bulk addition (details: what was asked for, matched / added / skipped)
+    public static final String MEMBERS_BULK_ADDED = "MEMBERS_BULK_ADDED";
+    // Join link of a group and what happened through it (targetUserId = the user who joined or asked)
+    public static final String LINK_CREATED = "LINK_CREATED";
+    public static final String LINK_REGENERATED = "LINK_REGENERATED";
+    public static final String LINK_DISABLED = "LINK_DISABLED";
+    public static final String LINK_ENABLED = "LINK_ENABLED";
+    public static final String LINK_UPDATED = "LINK_UPDATED";
+    public static final String JOIN_VIA_LINK = "JOIN_VIA_LINK";
+    public static final String JOIN_REQUESTED = "JOIN_REQUESTED";
+    // JOIN_APPROVED and JOIN_REJECTED are written in SQL by GroupJoinRepository.decide
     // INVITE_APPLIED is written in SQL by GroupImportRepository.applyPendingInvites
 
     private final GroupAuditLogRepository auditRepository;
