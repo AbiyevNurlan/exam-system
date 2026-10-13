@@ -559,7 +559,13 @@ public class ExamService {
                             .totalBatches(totalBatches)
                             .questions(firstBatch)
                             .build();
-                });
+                })
+                // A resumed session comes with what was already answered, so the screen can be restored
+                .flatMap(response -> answerService.savedAnswers(session)
+                        .map(saved -> {
+                            response.setSavedAnswers(saved);
+                            return response;
+                        }));
     }
 
     /**

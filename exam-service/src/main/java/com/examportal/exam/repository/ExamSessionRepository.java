@@ -40,6 +40,19 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
     Flux<ExamSession> findByExamIdAndUserId(Long examId, UUID userId);
 
     /**
+     * One page of a user's own sessions, newest first (index idx_sessions_user_start)
+     */
+    @Query("""
+        SELECT * FROM exam_sessions
+        WHERE user_id = :userId
+        ORDER BY start_time DESC, id DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    Flux<ExamSession> findPageByUserId(UUID userId, int limit, long offset);
+
+    Mono<Long> countByUserId(UUID userId);
+
+    /**
      * Count attempts by user for an exam
      */
     Mono<Long> countByExamIdAndUserId(Long examId, UUID userId);

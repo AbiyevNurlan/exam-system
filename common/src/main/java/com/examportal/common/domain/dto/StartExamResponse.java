@@ -30,4 +30,7 @@ public class StartExamResponse {
     private Integer currentBatch;
     private Integer totalBatches;
     private List<QuestionResponse> questions; // First batch of questions
+
+    // What the participant has already answered in this session (empty for a new one); no answer key
+    private List<SavedAnswerResponse> savedAnswers;
 }

@@ -3,7 +3,11 @@ package com.examportal.exam.service;
 import com.examportal.common.domain.dto.SubmitAnswerRequest;
 import com.examportal.common.domain.dto.SubmitAnswerResponse;
 import com.examportal.common.domain.dto.ExamResultResponse;
+import com.examportal.common.domain.dto.MySessionResponse;
+import com.examportal.common.domain.dto.PageResponse;
+import com.examportal.common.domain.dto.SavedAnswerResponse;
 import com.examportal.common.domain.dto.SessionResultResponse;
+import com.examportal.common.domain.entity.Exam;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.domain.entity.ExamSession;
 import com.examportal.common.domain.entity.Question;
@@ -24,6 +28,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +54,8 @@ public class AnswerSubmissionService {
     private final ExamCacheService cacheService;
     private final ExamAccessPolicy accessPolicy;
     private final TransactionalOperator transactionalOperator;
+
+    private static final int MAX_PAGE_SIZE = 50;
 
     /**
      * Submit an answer for a question
@@ -118,9 +125,100 @@ public class AnswerSubmissionService {
     }
 
     /**
-     * What the participant may see of a finished session; the one rule shared by submit and the
-     * result endpoint. When the exam does not show results immediately, only a submission summary
-     * is returned until the exam end time has passed. Never contains the answer key.
+     * The answers stored in one of the caller's own sessions, in any status, exactly as they were
+     * given. For restoring the participant's screen after a reload: no grading, no answer key.
+     */
+    public Mono<List<SavedAnswerResponse>> getSavedAnswers(String sessionId, UUID userId) {
+        return sessionRepository.findBySessionId(sessionId)
+                .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
+                // Someone else's session answers 404, same as an unknown id
+                .flatMap(session -> accessPolicy.requireOwnSession(userId, session))
+                .flatMap(this::savedAnswers);
+    }
+
+    /**
+     * The stored answers of a session whose owner the caller has already checked
+     */
+    public Mono<List<SavedAnswerResponse>> savedAnswers(ExamSession session) {
+        return answerRepository.findBySessionId(session.getId())
+                .map(answer -> SavedAnswerResponse.builder()
+                        .questionId(answer.getQuestionId())
+                        .selectedOptionIds(answer.getSelectedOptionIds() != null
+                                ? Arrays.asList(answer.getSelectedOptionIds())
+                                : List.of())
+                        .textAnswer(answer.getTextAnswer())
+                        .answeredAt(answer.getAnsweredAt())
+                        .build())
+                .sort(Comparator.comparing(SavedAnswerResponse::getQuestionId))
+                .collectList();
+    }
+
+    /**
+     * One page of the caller's own sessions, newest first. A score is shown only where the result
+     * endpoint would show it (resultsWithheld is the one rule for both).
+     */
+    public Mono<PageResponse<MySessionResponse>> getMySessions(UUID userId, int page, int size) {
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+
+        return sessionRepository.countByUserId(userId)
+                .flatMap(total -> sessionRepository.findPageByUserId(userId, pageSize, (long) pageNumber * pageSize)
+                        .collectList()
+                        .flatMap(sessions -> {
+                            if (sessions.isEmpty()) {
+                                return Mono.just(PageResponse.<MySessionResponse>of(List.of(), pageNumber, pageSize, total));
+                            }
+                            Set<Long> examIds = sessions.stream().map(ExamSession::getExamId).collect(Collectors.toSet());
+                            // Also exams that were deleted since: the session and its title stay visible to its owner
+                            return examRepository.findAllById(examIds)
+                                    .collectMap(Exam::getId)
+                                    .map(exams -> PageResponse.of(
+                                            sessions.stream()
+                                                    .map(session -> toMySession(session, exams.get(session.getExamId())))
+                                                    .toList(),
+                                            pageNumber, pageSize, total));
+                        }));
+    }
+
+    private MySessionResponse toMySession(ExamSession session, Exam exam) {
+        MySessionResponse.MySessionResponseBuilder row = MySessionResponse.builder()
+                .sessionId(session.getSessionId())
+                .examId(session.getExamId())
+                .examTitle(exam != null ? exam.getTitle() : null)
+                .status(session.getStatus())
+                .startTime(session.getStartTime())
+                .endTime(session.getEndTime())
+                .submittedAt(session.getSubmittedAt());
+
+        boolean completed = session.getStatus() == SessionStatus.COMPLETED;
+        if (!completed || exam == null || resultsWithheld(exam)) {
+            return row.resultsAvailable(false)
+                    .resultsAvailableAt(completed && exam != null ? exam.getEndTime() : null)
+                    .build();
+        }
+        // The same stored figures the result endpoint reports
+        return row.resultsAvailable(true)
+                .totalScore(session.getScore())
+                .maxScore(session.getTotalPoints())
+                .percentageScore(session.getPercentage())
+                .passed(session.getPassed())
+                .build();
+    }
+
+    /**
+     * Whether the score of a finished session of this exam must not be shown to the participant yet:
+     * the exam does not show results immediately and has not ended. The one visibility rule, used
+     * by submit, the result endpoint and the list of own sessions.
+     */
+    private boolean resultsWithheld(Exam exam) {
+        return !Boolean.TRUE.equals(exam.getShowResultsImmediately())
+                && LocalDateTime.now().isBefore(exam.getEndTime());
+    }
+
+    /**
+     * What the participant may see of a finished session; shared by submit and the result endpoint.
+     * While the result is withheld (resultsWithheld) only a submission summary is returned.
+     * Never contains the answer key.
      */
     private Mono<SessionResultResponse> visibleResult(ExamSession session) {
         return examRepository.findById(session.getExamId())
@@ -131,9 +229,7 @@ public class AnswerSubmissionService {
                             .status(session.getStatus())
                             .submittedAt(session.getSubmittedAt());
 
-                    boolean withheld = !Boolean.TRUE.equals(exam.getShowResultsImmediately())
-                            && LocalDateTime.now().isBefore(exam.getEndTime());
-                    if (withheld) {
+                    if (resultsWithheld(exam)) {
                         return Mono.just(summary
                                 .resultsAvailable(false)
                                 .resultsAvailableAt(exam.getEndTime())

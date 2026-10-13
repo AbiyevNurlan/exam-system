@@ -125,6 +125,19 @@ public class ExamController {
                 .map(ApiResponse::success);
     }
 
+    @GetMapping("/my-sessions")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get my sessions", description = "Paginated sessions of the current user, newest first. "
+            + "Score fields are present only when resultsAvailable is true (same rule as the result endpoint).")
+    public Mono<ApiResponse<PageResponse<MySessionResponse>>> getMySessions(
+            @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
+            @RequestParam(defaultValue = "20") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return answerService.getMySessions(principal.getId(), page, size)
+                .map(ApiResponse::success);
+    }
+
     // ==================== Exam Session Operations ====================
 
     @PostMapping("/{id}/start")
@@ -168,6 +181,18 @@ public class ExamController {
             @AuthenticationPrincipal UserPrincipal principal) {
 
         return sessionMediaService.getMediaUrl(sessionId, mediaId, principal.getId())
+                .map(ApiResponse::success);
+    }
+
+    @GetMapping("/session/{sessionId}/answers")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get saved answers", description = "The answers stored in the caller's own session (any status), "
+            + "as they were given: questionId, selectedOptionIds, textAnswer, answeredAt. Never the answer key or a score.")
+    public Mono<ApiResponse<List<SavedAnswerResponse>>> getSavedAnswers(
+            @PathVariable String sessionId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return answerService.getSavedAnswers(sessionId, principal.getId())
                 .map(ApiResponse::success);
     }
 
