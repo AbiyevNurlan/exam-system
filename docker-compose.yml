@@ -5,6 +5,7 @@ services:
     container_name: exam-postgres
     restart: unless-stopped
     environment:
+      TZ: UTC
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_MULTIPLE_DATABASES: exam_auth,exam_db,exam_monitoring
@@ -28,6 +29,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: exam-redis
+    environment:
+      TZ: UTC
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -47,6 +50,8 @@ services:
   mailpit:
     image: axllent/mailpit:v1.20
     container_name: exam-mailpit
+    environment:
+      TZ: UTC
     restart: unless-stopped
     ports:
       - "127.0.0.1:1025:1025"   # SMTP
@@ -64,6 +69,7 @@ services:
     restart: unless-stopped
     command: server -dir=/data -s3 -s3.port=8333
     environment:
+      TZ: UTC
       AWS_ACCESS_KEY_ID: ${MEDIA_S3_ACCESS_KEY:?MEDIA_S3_ACCESS_KEY is required - copy .env.example to .env}
       AWS_SECRET_ACCESS_KEY: ${MEDIA_S3_SECRET_KEY:?MEDIA_S3_SECRET_KEY is required - copy .env.example to .env}
     ports:
@@ -88,6 +94,8 @@ services:
     ports:
       - "8081:8081"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: docker
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env}
       # Optional: first ADMIN is created on startup when both are set (no default values)
@@ -138,6 +146,8 @@ services:
     ports:
       - "8082:8082"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: docker
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env}
       # Optional: without it, adding group members by email and the CSV import answer 503
@@ -179,6 +189,8 @@ services:
     ports:
       - "8080:8080"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: docker
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env}
       REDIS_HOST: redis
@@ -200,6 +212,8 @@ services:
     ports:
       - "8084:8084"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: docker
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env}
       REDIS_HOST: redis
@@ -220,6 +234,8 @@ services:
     ports:
       - "8083:8083"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: docker
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env}
       DB_HOST: postgres

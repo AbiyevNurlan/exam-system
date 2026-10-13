@@ -11,6 +11,7 @@ services:
     container_name: exam-postgres
     restart: unless-stopped
     environment:
+      TZ: UTC
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       POSTGRES_DB: exam_db
@@ -71,6 +72,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: exam-redis
+    environment:
+      TZ: UTC
     command:
       - "redis-server"
       - "--maxmemory"
@@ -113,6 +116,8 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: exam-prometheus
+    environment:
+      TZ: UTC
     ports:
       - "9090:9090"
     volumes:
@@ -140,6 +145,7 @@ services:
     ports:
       - "3000:3000"
     environment:
+      TZ: UTC
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
       GF_INSTALL_PLUGINS: redis-datasource
@@ -164,6 +170,8 @@ services:
     ports:
       - "8080:8080"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: prod
       AUTH_SERVICE_URL: http://auth-service:8081
       EXAM_SERVICE_URL: http://exam-service:8082
@@ -192,6 +200,8 @@ services:
     ports:
       - "8081:8081"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: prod
       DB_HOST: postgres
       DB_PORT: 5432
@@ -227,6 +237,8 @@ services:
     ports:
       - "8082:8082"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: prod
       DB_HOST: postgres
       DB_PORT: 5432
@@ -262,6 +274,8 @@ services:
     ports:
       - "8084:8084"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: prod
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     deploy:
@@ -281,6 +295,8 @@ services:
     ports:
       - "8085:8085"
     environment:
+      TZ: UTC
+      JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
       SPRING_PROFILES_ACTIVE: prod
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -301,6 +317,8 @@ services:
   nginx:
     image: nginx:alpine
     container_name: exam-nginx
+    environment:
+      TZ: UTC
     ports:
       - "80:80"
       - "443:443"
