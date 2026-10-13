@@ -121,6 +121,11 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] `restore-test.ps1` compares the media object count and the backup checksums, not the restored content
 - [ ] Media backups are full copies on every run (no incremental copy); large video libraries will make `backup.ps1` slow and big
 - [ ] No CI pipeline
+- [x] A service started without a required setting failed only at runtime: `scripts\check-env.ps1` checks `.env` against the compose file and `scripts\up.ps1` runs it before `docker-compose up -d`. A missing `OTP_HMAC_SECRET` is generated with `$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)` and written to `.env` as `OTP_HMAC_SECRET=<value>` (never committed)
+- [x] Application services did not come back after a Docker restart (`restart: unless-stopped` was set for Postgres, Mailpit and the media storage only)
+- [ ] An old copy of the project in another folder shares the compose project name `exam-system`, the container names and the volume names: `docker-compose up` there recreates this stack's containers with the old settings (2026-10-13: auth-service and the gateway failed to start). Remove or rename that copy, or give it another project name
+- [ ] `scripts\check-env.ps1` reads `.env` only; variables set in the shell override `.env` for docker-compose and are not checked
+- [ ] `exam-grafana` and `exam-prometheus` containers from an earlier compose file are left as stopped orphans
 
 ## Frontend
 

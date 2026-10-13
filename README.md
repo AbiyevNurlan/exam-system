@@ -277,6 +277,26 @@ cd monitoring-service && mvn spring-boot:run
 cd websocket-service  && mvn spring-boot:run
 ```
 
+### Starting the stack (Windows)
+
+Start the stack with the script, from any folder:
+
+```powershell
+.\scripts\up.ps1
+```
+
+It runs `scripts\check-env.ps1` first, which checks that `.env` has every setting `docker-compose.yml`
+requires (the key names are printed, never a value) and that `JWT_SECRET` and `OTP_HMAC_SECRET` are base64 of
+at least 32 bytes. Only when that passes does it run `docker-compose up -d`, always with this
+repository's compose file and `.env`. It never stops or removes anything.
+
+- **`docker-compose down -v` is always forbidden**: it deletes the database and media volumes (see
+  "Database safety").
+- Start the stack from this folder only. Another copy of the project started with `docker-compose up`
+  recreates the same containers with that copy's settings; services then fail with messages such as
+  `OTP_HMAC_SECRET is not set` although `.env` here is complete. `scripts\up.ps1` repairs that.
+- Every service has `restart: unless-stopped`, so the stack comes back after a Docker restart.
+
 ### Windows Quick Start
 
 ```bat
