@@ -60,13 +60,34 @@ Details: README, section "Database safety".
 - **User ids are UUIDs** (`users.id` in `exam_auth`): JWT subject, `UserPrincipal.id`,
   `exams.created_by`, `exam_sessions.user_id`. Never derive a numeric id from them. Exam, question
   and session row ids are `Long`.
-- **Pagination**: page is 0-based, default size 25 (`my-sessions`: 20), maximum size 50 (larger values are clamped).
+- **Pagination**: page is 0-based, default size 25 (`my-sessions`, `manage`: 20), maximum size 50 (larger values are clamped).
 - **Time: UTC in the database, `Z` in the API.** Columns are `TIMESTAMP` without zone and hold UTC;
   every container runs with `TZ=UTC` and every JVM with `-Duser.timezone=UTC` (set in all compose
-  files). exam-service writes every date-time as ISO-8601 UTC with milliseconds and `Z`
-  (`2026-10-13T07:59:31.099Z`) and reads a value with an offset (`Z`, `+04:00`) as that instant; a
-  value without an offset is taken as UTC (`UtcDateTimeModule`). Keep the fields `LocalDateTime`;
-  never format a date by hand and never convert with the machine's zone.
+  files). exam-service and auth-service write every date-time as ISO-8601 UTC with milliseconds and `Z`
+  (`2026-10-13T07:59:31.099Z`) and read a value with an offset (`Z`, `+04:00`) as that instant; a
+  value without an offset is taken as UTC (`UtcDateTimeModule`, registered by each service's
+  `UtcJsonConfig`). Keep the fields `LocalDateTime`; never format a date by hand and never convert
+  with the machine's zone.
+- **Attempt limits are decided by the statement that opens the session**
+  (`ExamAttemptRepository.openSessionIfAttemptsRemain`, under a per user-and-exam advisory lock):
+  the total (`max_attempts`, 1..100) and the daily one (`max_attempts_per_day`, 1..100, NULL = none).
+  Every session counts, whatever its status; resuming a running session does not. A day is a
+  calendar day in `EXAM_DAY_ZONE` (default `Asia/Baku`, `ExamDayClock`) and is the only place where
+  a zone other than UTC is used. 409 `MAX_ATTEMPTS_REACHED` when the total is used up, otherwise
+  409 `DAILY_ATTEMPTS_REACHED` with `error.details.nextAvailableAt`. Never check a limit in Java
+  before the insert.
+- **Exam life cycle.** DRAFT -> (publish) ACTIVE -> COMPLETED by the scheduler; ARCHIVED hides an
+  exam from participants and from the default management list and keeps every attempt and result.
+  `POST /api/exams/{id}/reschedule` opens a SCHEDULED, ACTIVE, COMPLETED or ARCHIVED exam again with
+  a new window (SCHEDULED when the start is ahead, otherwise ACTIVE), touches only the exam row and
+  always writes `group_audit_log` (`EXAM_RESCHEDULED`). The scheduler changes a status only with a
+  conditional update (`activateIfDue`, `completeIfEnded`), so it never overrules a reschedule.
+- **Delete is for exams nobody started.** `DELETE /api/exams/{id}` removes the exam for good with
+  its questions, options, media links and audience (one statement, `ON DELETE CASCADE`) and writes
+  an audit row; with a single session it answers 409 `EXAM_CANNOT_DELETE` and the exam is archived
+  instead. Media files are never deleted from here: unused ones go with the orphan cleanup.
+- **What may be attached when an exam is saved**: the editor's own media, for ADMIN everybody's, and
+  whatever the exam already carries, whoever uploaded it (`ExamMediaService.validate`).
 - **A participant can always read back what they stored**: `GET /api/exams/session/{id}/answers` and
   `savedAnswers` in the start response return the answers as given (own session only), never
   correctness, points or the key. `GET /api/exams/my-sessions` lists only the caller's sessions.
@@ -77,8 +98,9 @@ Details: README, section "Database safety".
   browser reports (own running session, at most 300 rows per session, 60 per minute); no score,
   status or penalty ever follows from them automatically, and participants cannot read them.
 - **ADMIN manages every exam, INSTRUCTOR only the own ones** (`ExamAccessPolicy.canManage`): edit,
-  publish, archive, delete. The other limits stay for everyone (`EXAM_CANNOT_MODIFY`, no delete of
-  an exam with sessions). An ADMIN acting on someone else's exam writes `group_audit_log`
+  publish, archive, reschedule, delete, and the list `GET /api/exams/manage` (one statement per
+  page, never a query per row). The other limits stay for everyone (`EXAM_CANNOT_MODIFY`, no delete
+  of an exam with sessions). An ADMIN acting on someone else's exam writes `group_audit_log`
   (`EXAM_*_BY_ADMIN`, target = the exam's creator) in the same transaction.
 - **The answer key never reaches students.** `isCorrect`, explanations and the expected answers of
   text questions go only to ADMIN and the INSTRUCTOR who owns the exam. Results never contain

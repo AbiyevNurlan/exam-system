@@ -122,13 +122,20 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Media backups are full copies on every run (no incremental copy); large video libraries will make `backup.ps1` slow and big
 - [ ] No CI pipeline
 - [ ] The backend has no automated tests at all (no `src/test` in any module); `feat/participant-api` was verified only against the running stack
-- [ ] Dates of auth-service are still written without `Z` (it does not register `UtcDateTimeModule`); they are UTC
+- [x] Dates of auth-service were written without `Z` (now: `UtcDateTimeModule` is registered there too)
 - [ ] `docker-compose.production.yml` does not pass `MEDIA_ORPHAN_RETENTION_DAYS` (and has no media storage at all)
 - [ ] Fraud events are written only: there is no endpoint for an admin to read `session_fraud_events`, and the frontend still posts the old body (`eventType`, `count`, `timestamp`), which now answers 400 instead of 404
 - [ ] The in-memory `FraudDetectionService` is not connected to anything
 - [ ] Roles can only be changed in the database: there is no admin endpoint for assigning ADMIN or INSTRUCTOR
-- [ ] An ADMIN can attach the own media to another user's exam; that owner (an INSTRUCTOR) then cannot save the exam again without removing it (`MEDIA_NOT_ATTACHABLE`: not the owner's media)
-- [ ] Media of soft-deleted exams stays attached and is therefore never cleaned up
+- [x] An ADMIN could attach the own media to another user's exam, and that owner could not save the exam again (now: media the exam already carries is accepted from every editor)
+- [ ] Exams deleted before `feat/exam-lifecycle` are still in the table as `active = false` (delete was a soft delete then); their media stays attached and is therefore never cleaned up
+- [ ] `feat/exam-lifecycle` was verified only against the running stack (no automated tests): daily limit, reschedule, delete, management list
+- [ ] The management list searches the title with `ILIKE '%text%'`, which cannot use an index; with many thousands of exams it needs a trigram index (`pg_trgm`)
+- [ ] The management list shows `createdBy` as a user id only; the creator's name needs a lookup in auth-service
+- [ ] Archiving, publishing and deleting by the owner: only delete and reschedule always write an audit row; publish and archive write one only when an ADMIN acts on someone else's exam
+- [ ] `POST /api/exams/{id}/publish` sets ACTIVE whatever the current status and window are (also for an ARCHIVED or COMPLETED exam whose end time has passed; the scheduler then completes it again within a minute)
+- [ ] Status `CANCELLED` exists but no endpoint sets it; a cancelled exam cannot be rescheduled
+- [ ] The per-IP rate limit bucket of exam-service is created from the first path that IP calls (start: 10, session: 200, other: 1000 per window) and then used for every path of that IP
 - [x] A service started without a required setting failed only at runtime: `scripts\check-env.ps1` checks `.env` against the compose file and `scripts\up.ps1` runs it before `docker-compose up -d`. A missing `OTP_HMAC_SECRET` is generated with `$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)` and written to `.env` as `OTP_HMAC_SECRET=<value>` (never committed)
 - [x] Application services did not come back after a Docker restart (`restart: unless-stopped` was set for Postgres, Mailpit and the media storage only)
 - [ ] An old copy of the project in another folder shares the compose project name `exam-system`, the container names and the volume names: `docker-compose up` there recreates this stack's containers with the old settings (2026-10-13: auth-service and the gateway failed to start). Remove or rename that copy, or give it another project name
@@ -162,6 +169,13 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Exam create/update: question `media: [{mediaId, position, maxPlays}]` (max 3), option `mediaIds: [id]` (max 1, image); 400 `MEDIA_NOT_ATTACHABLE`. Responses carry `media: [{id, kind, altText, position, maxPlays, previewUrl}]` on questions and options; `previewUrl` only for owner and ADMIN and valid 5 minutes
 - [ ] Taking an exam: questions and options list their media without URLs; fetch `GET /api/exams/session/{sessionId}/media/{mediaId}` -> `{url, kind, expiresIn, remainingPlays}` when the media is shown or played (409 `MEDIA_PLAYS_EXHAUSTED`, 409 `SESSION_COMPLETED`, 410 `SESSION_EXPIRED`, 404 otherwise). Ask for an audio/video URL only when the user presses play: every request counts
 - [ ] The alt text of option images is visible to participants: the editor must warn that it may not contain the answer
+- [ ] Exam create/update/response carry `maxAttemptsPerDay` (1..100, absent or null = no daily limit; on update omitted = unchanged, explicit null = removed); `maxAttempts` may be up to 100
+- [ ] Start can answer 409 `DAILY_ATTEMPTS_REACHED` with `error.details.nextAvailableAt` (UTC, `Z`); `MAX_ATTEMPTS_REACHED` stays for the total limit
+- [ ] `/available` rows carry `remainingAttemptsToday` (absent = no daily limit) and `nextAttemptAt` (only when today is used up); `remainingAttempts` is now what can be started right now (total and daily limit), so it can be 0 while attempts are left for another day
+- [ ] `POST /api/exams/{id}/reschedule` `{startTime?, endTime, maxAttempts?, maxAttemptsPerDay?}` -> the exam without questions; 400 `EXAM_CANNOT_RESCHEDULE` for a draft, 400 `EXAM_INVALID_TIME_RANGE`, 400 `VALIDATION_ERROR` for an end time in the past
+- [ ] `DELETE /api/exams/{id}` removes for good; an exam with sessions answers 409 `EXAM_CANNOT_DELETE` (was 400): offer "archive" instead
+- [ ] `GET /api/exams/manage?search=&status=&page=&size=` (ADMIN all, INSTRUCTOR own; archived only with `status=ARCHIVED`; search needs 2 characters): rows with `sessionCount`, `participantCount`, `totalPoints`, without questions
+- [ ] auth-service dates (`createdAt`, `lockedUntil`, `timestamp`) now end with `Z`
 
 ## Later
 
