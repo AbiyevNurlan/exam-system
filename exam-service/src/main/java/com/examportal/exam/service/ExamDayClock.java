@@ -68,6 +68,13 @@ public class ExamDayClock {
     public record Window(LocalDate firstDay, LocalDate lastDay, LocalDateTime fromUtc) {
     }
 
+    /**
+     * The UTC moment the given calendar day of the zone starts
+     */
+    public LocalDateTime startOfDay(LocalDate day) {
+        return day.atStartOfDay(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+    }
+
     public record Day(LocalDateTime start, LocalDateTime end) {
     }
 }

@@ -1,5 +1,7 @@
 package com.examportal.exam.client;
 
+import com.examportal.common.domain.dto.internal.ParticipantQuery;
+import com.examportal.common.exception.ValidationException;
 import com.examportal.common.domain.dto.internal.UserLookupRequest;
 import com.examportal.common.domain.dto.internal.UserLookupResponse;
 import com.examportal.common.domain.dto.internal.UserLookupResponse.UserRef;
@@ -30,13 +32,22 @@ public class UserDirectoryClient {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
+    private static final Duration LARGE_TIMEOUT = Duration.ofSeconds(15);
+    private static final int LARGE_BODY_BYTES = 16 * 1024 * 1024;
+
     private final WebClient webClient;
+    private final WebClient largeBodyClient;
     private final String serviceSecret;
 
     public UserDirectoryClient(WebClient.Builder webClientBuilder,
                                @Value("${services.auth.url}") String authServiceUrl,
                                @Value("${internal.service-secret:}") String serviceSecret) {
         this.webClient = webClientBuilder.baseUrl(authServiceUrl).build();
+        // Lists of user ids (group filters, bulk membership) do not fit the default 256 KB answer buffer
+        this.largeBodyClient = webClientBuilder.clone()
+                .baseUrl(authServiceUrl)
+                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(LARGE_BODY_BYTES))
+                .build();
         this.serviceSecret = serviceSecret;
     }
 
@@ -106,6 +117,47 @@ public class UserDirectoryClient {
                 .timeout(TIMEOUT)
                 .onErrorMap(e -> !(e instanceof GroupException), e -> GroupException.userDirectoryUnavailable(
                         new IllegalStateException(e.getClass().getSimpleName())));
+    }
+
+    /**
+     * One page of participants (users with the role STUDENT) matching the filter, with the total.
+     * POST /internal/users/participants; fails like lookup.
+     */
+    public Mono<ParticipantQuery.PageResponse> participants(ParticipantQuery.PageRequest request) {
+        return post("/internal/users/participants", request, ParticipantQuery.PageResponse.class);
+    }
+
+    /**
+     * How many participants match the filter, and the ids of at most request.limit of them
+     */
+    public Mono<ParticipantQuery.IdsResponse> participantIds(ParticipantQuery.IdsRequest request) {
+        return post("/internal/users/participants/ids", request, ParticipantQuery.IdsResponse.class);
+    }
+
+    public Mono<ParticipantQuery.SummaryResponse> participantSummary(ParticipantQuery.SummaryRequest request) {
+        return post("/internal/users/participants/summary", request, ParticipantQuery.SummaryResponse.class);
+    }
+
+    /**
+     * A call whose request or answer may carry many user ids: sent with the client that accepts large bodies
+     */
+    private <T> Mono<T> post(String uri, Object body, Class<T> type) {
+        if (!InternalServiceAuth.isConfigured(serviceSecret)) {
+            return Mono.error(GroupException.userDirectoryUnavailable(
+                    new IllegalStateException("INTERNAL_SERVICE_SECRET is not configured")));
+        }
+        return largeBodyClient.post()
+                .uri(uri)
+                .header(InternalServiceAuth.HEADER, serviceSecret)
+                .bodyValue(body)
+                .retrieve()
+                // A refused filter (for example a search text that is too short) is the caller's error, not an outage
+                .onStatus(status -> status.value() == 400, response -> Mono.error(
+                        new ValidationException("The participant filter was not accepted")))
+                .bodyToMono(type)
+                .timeout(LARGE_TIMEOUT)
+                .onErrorMap(e -> !(e instanceof GroupException) && !(e instanceof ValidationException),
+                        e -> GroupException.userDirectoryUnavailable(new IllegalStateException(e.getClass().getSimpleName())));
     }
 
     public Mono<UserRef> findById(UUID userId) {
