@@ -93,7 +93,26 @@ Details: README, section "Database safety".
   correctness, points or the key. `GET /api/exams/my-sessions` lists only the caller's sessions.
 - **Whether a participant may see a score is decided by one method**
   (`AnswerSubmissionService.resultsWithheld`), used by submit, the result endpoint and
-  `my-sessions`. Do not repeat that condition anywhere else.
+  `my-sessions`. Do not repeat that condition anywhere else. A session whose `grading_status` is
+  PENDING never shows a score (and no `resultsAvailableAt`); all three carry `gradingStatus`.
+- **Open-ended answers are graded by a person.** At submit an OPEN_ENDED answer with text gets zero
+  points, no verdict and `needs_manual_review = true`, and the session becomes PENDING
+  (`exam_sessions.grading_status`: NOT_REQUIRED, PENDING, COMPLETE); FILL_BLANK stays automatic.
+  Grading (`GradingService`, `PUT /api/exams/session/{id}/grades`) is all-or-nothing per request,
+  only for a COMPLETED session, guarded by the answer's `grade_version` (409 `GRADE_CONFLICT`,
+  never a silent overwrite), and writes one `group_audit_log` row per answer (`ANSWER_GRADED` /
+  `ANSWER_REGRADED`, old and new points). The session's `score`, `percentage` and `passed` are
+  recalculated by one SQL statement (`GradingRepository.recalculateSession`); `total_points` (the
+  maximum) is never changed after completion. Never write a score of a session from Java.
+- **Results for the managers of an exam** (`ExamResultsService`, ADMIN and the owning INSTRUCTOR,
+  `ExamAccessPolicy.findManageableExam`): `GET /api/exams/{id}/results`, `/results/summary`,
+  `/api/exams/session/{id}/review` and the grading endpoints. A list page is a fixed number of
+  statements however many sessions the exam has; names and emails come from auth-service with one
+  lookup per page (`ParticipantDirectory`), and a text search asks auth-service first
+  (`POST /internal/users/search`). The review carries the answer key and never goes to a participant.
+- **The risk level of a session's fraud events comes from one class** (`FraudRiskPolicy`: weights
+  per event type, boundaries `EXAM_FRAUD_RISK_MEDIUM/HIGH/CRITICAL`, default 5/15/30). It is
+  informational: nothing is decided from it.
 - **Fraud events are only recorded.** `POST /api/exams/session/{id}/fraud-event` stores what the
   browser reports (own running session, at most 300 rows per session, 60 per minute); no score,
   status or penalty ever follows from them automatically, and participants cannot read them.

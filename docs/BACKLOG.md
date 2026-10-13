@@ -133,7 +133,17 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] The management list searches the title with `ILIKE '%text%'`, which cannot use an index; with many thousands of exams it needs a trigram index (`pg_trgm`)
 - [ ] The management list shows `createdBy` as a user id only; the creator's name needs a lookup in auth-service
 - [ ] Archiving, publishing and deleting by the owner: only delete and reschedule always write an audit row; publish and archive write one only when an ADMIN acts on someone else's exam
-- [ ] `POST /api/exams/{id}/publish` sets ACTIVE whatever the current status and window are (also for an ARCHIVED or COMPLETED exam whose end time has passed; the scheduler then completes it again within a minute)
+- [x] `POST /api/exams/{id}/publish` set ACTIVE also for an exam whose end time had passed (now 400 `EXAM_WINDOW_ENDED`)
+- [ ] `POST /api/exams/{id}/publish` sets ACTIVE also when the start time is still ahead (the exam cannot be started before it, but it is no longer editable); making it SCHEDULED would delay the opening by up to a minute because the scheduler activates once a minute
+- [ ] The V8 backfill marked 8 old open-ended answers (8 sessions of test exams 1, 2, 37, 38, 43, 68, 70, 88) for manual grading: their participants see no score until someone grades them
+- [ ] Load-test data from `feat/results-grading` is still in the development database: exam `T-b3-load` with 5000 sessions (`session_id LIKE 'T-b3-load-%'`, spread over the existing test users, so their "my sessions" lists are long) and 4166 fraud events (`details = 'T-b3-load'`)
+- [ ] Results sorted by name are sorted in the service (names live in auth-service): all matching rows are read and named in batches of 500; refused above 10 000 rows
+- [ ] The internal user search uses `lower(col) LIKE 'prefix%'` without an expression index; fine for hundreds of users, needs `text_pattern_ops` indexes for many thousands
+- [ ] Results and grading show the participant's full email to ADMIN and the owning INSTRUCTOR, while group member lists mask it: decide one rule
+- [ ] Users that are inactive in auth-service have no name or email in result lists (the internal lookup returns active users only)
+- [ ] `feat/results-grading` was verified only against the running stack (no automated tests): grading, results list, summary, review
+- [ ] Grading can be changed forever, also after the participant has seen the score; there is no "final" state and no notification to the participant
+- [ ] `exam_sessions.total_points` holds the maximum score and `score` the earned points (the names suggest otherwise)
 - [ ] Status `CANCELLED` exists but no endpoint sets it; a cancelled exam cannot be rescheduled
 - [ ] The per-IP rate limit bucket of exam-service is created from the first path that IP calls (start: 10, session: 200, other: 1000 per window) and then used for every path of that IP
 - [x] A service started without a required setting failed only at runtime: `scripts\check-env.ps1` checks `.env` against the compose file and `scripts\up.ps1` runs it before `docker-compose up -d`. A missing `OTP_HMAC_SECRET` is generated with `$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)` and written to `.env` as `OTP_HMAC_SECRET=<value>` (never committed)
@@ -176,6 +186,11 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] `DELETE /api/exams/{id}` removes for good; an exam with sessions answers 409 `EXAM_CANNOT_DELETE` (was 400): offer "archive" instead
 - [ ] `GET /api/exams/manage?search=&status=&page=&size=` (ADMIN all, INSTRUCTOR own; archived only with `status=ARCHIVED`; search needs 2 characters): rows with `sessionCount`, `participantCount`, `totalPoints`, without questions
 - [ ] auth-service dates (`createdAt`, `lockedUntil`, `timestamp`) now end with `Z`
+- [ ] Submit, result and `my-sessions` carry `gradingStatus` (`NOT_REQUIRED`, `PENDING`, `COMPLETE`); with `PENDING` there is no score and no `resultsAvailableAt`: show "waiting for grading"
+- [ ] Grading UI: `GET /api/exams/{examId}/grading?status=PENDING|COMPLETE|ALL&q=&page=&size=`, `GET /api/exams/session/{sessionId}/grading`, `PUT /api/exams/session/{sessionId}/grades` with `[{answerId, points, feedback?, expectedVersion}]` (send back `gradeVersion`; 400 `GRADE_INVALID`, 409 `GRADE_CONFLICT` with `error.details.currentVersion`, 409 `SESSION_NOT_COMPLETED`)
+- [ ] Results: `GET /api/exams/{id}/results` rows now also carry `participantName`, `email`, `attemptNumber`, `startedAt`, `durationSeconds`, `maxScore`, `gradingStatus`, `violationCount`, `riskLevel`; new parameters `q`, `passed`, `gradingStatus`, `hasViolations`, `bestOnly`, `sort` (`score|name|violations|submittedAt`), `order`. `bestOnly` defaults to true as soon as one of the new parameters is sent; a call with only `page`, `size`, `status` lists every session as before
+- [ ] `GET /api/exams/{id}/results/summary` and `GET /api/exams/session/{sessionId}/review` (answer key, grading, media with `previewUrl`, fraud events)
+- [ ] `POST /api/exams/{id}/publish` can answer 400 `EXAM_WINDOW_ENDED`: offer reschedule (or editing, for a draft)
 
 ## Later
 
