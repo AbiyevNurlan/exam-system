@@ -63,6 +63,21 @@ public class ExamAccessPolicy {
     }
 
     /**
+     * The exam when the caller may manage it (results, grading, review): ADMIN every exam, an
+     * INSTRUCTOR the own ones. An exam that does not exist, was deleted or is outside the caller's
+     * audience is a 404; one the caller can see but did not create is a 403 (EXAM_NOT_OWNER).
+     */
+    public Mono<Exam> findManageableExam(Long examId, UUID userId, String role) {
+        return examRepository.findById(examId)
+                .filter(exam -> !Boolean.FALSE.equals(exam.getActive()))
+                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+                .flatMap(exam -> requireAccess(userId, role, exam))
+                .flatMap(exam -> canManage(userId, role, exam)
+                        ? Mono.just(exam)
+                        : Mono.<Exam>error(ExamException.notOwner()));
+    }
+
+    /**
      * The session itself when it belongs to the user, otherwise the same 404 as for an unknown session.
      * Deliberately not tied to the exam's current audience (see the class comment).
      */

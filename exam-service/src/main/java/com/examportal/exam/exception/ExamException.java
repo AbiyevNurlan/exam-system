@@ -92,6 +92,26 @@ public class ExamException extends ApplicationException {
         return new ExamException("Exam session is not completed yet", HttpStatus.CONFLICT, "SESSION_NOT_COMPLETED");
     }
 
+    public static ExamException gradeInvalid(String reason) {
+        return new ExamException("The grade cannot be stored: " + reason, HttpStatus.BAD_REQUEST, "GRADE_INVALID");
+    }
+
+    /**
+     * The answer was graded by someone else since the grader looked at it; nothing was written.
+     * error.details carries the answer and the version that is stored now.
+     */
+    public static ExamException gradeConflict(Long answerId, int currentVersion) {
+        ExamException exception = new ExamException("The answer was graded in the meantime; reload and grade again",
+                HttpStatus.CONFLICT, "GRADE_CONFLICT");
+        exception.withDetails(Map.of("answerId", answerId, "currentVersion", currentVersion));
+        return exception;
+    }
+
+    public static ExamException windowEnded() {
+        return new ExamException("The exam's end time has passed; give it a new end time with reschedule",
+                HttpStatus.BAD_REQUEST, "EXAM_WINDOW_ENDED");
+    }
+
     public static ExamException selectionRequired() {
         return new ExamException("At least one option must be selected", HttpStatus.BAD_REQUEST, "ANSWER_SELECTION_REQUIRED");
     }

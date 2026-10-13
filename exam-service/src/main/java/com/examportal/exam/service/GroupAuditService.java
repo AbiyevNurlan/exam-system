@@ -37,6 +37,10 @@ public class GroupAuditService {
     public static final String EXAM_DELETED = "EXAM_DELETED";
     // Written for every reschedule, also the owner's own (targetUserId = the exam's creator)
     public static final String EXAM_RESCHEDULED = "EXAM_RESCHEDULED";
+    // A person gave points to an open-ended answer, for the first time or again (targetUserId = the
+    // participant; details: exam, session, answer, old and new points)
+    public static final String ANSWER_GRADED = "ANSWER_GRADED";
+    public static final String ANSWER_REGRADED = "ANSWER_REGRADED";
     // INVITE_APPLIED is written in SQL by GroupImportRepository.applyPendingInvites
 
     private final GroupAuditLogRepository auditRepository;
