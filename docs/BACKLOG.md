@@ -34,7 +34,7 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [x] `/available` is not paginated and filters in memory (now: SQL filter, `page`/`size`, max 50)
 - [x] A new exam is PUBLIC until its audience is set (`PUT /api/exams/{id}/audience`); create/update requests cannot carry the audience (now: `accessType` and `groupIds` on create and update; default stays PUBLIC)
 - [x] Instructors cannot list groups (group endpoints are ADMIN only), so they need the group ids from an admin (now: `GET /api/groups`, id and name only)
-- [ ] No `GET /api/exams/{id}/audience`: the group ids are returned only by the PUT
+- [x] No `GET /api/exams/{id}/audience`: the group ids are returned only by the PUT (now: `GET /api/exams/{id}` and the manage list carry `accessType`, `audienceGroupCount` and `groupIds` for ADMIN and the owner)
 - [ ] Deleting a group leaves its GROUP exams accessible to nobody but owner and ADMIN, without a warning
 - [x] No endpoint to list or cancel pending group invites, and none to read `group_audit_log` (now: `GET /api/admin/groups/{id}/invites` and `DELETE .../invites/{inviteId}`; reading the audit log is still open, see below)
 - [x] Group members are returned as user ids only; names and emails need a second lookup in auth-service (now: first name, last name and masked email, one lookup per page)
@@ -47,8 +47,12 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [x] `TIMED_OUT` and `ABANDONED` session statuses are never set (removed)
 - [ ] Index for the results list ordering (`exam_id, submitted_at DESC`)
 - [ ] `FraudDetectionService` is not wired into the exam flow
-- [ ] No endpoint to read `group_audit_log`
-- [ ] Exam responses carry `accessType` but not the audience group ids (those come only from `PUT /api/exams/{id}/audience`)
+- [x] No endpoint to read `group_audit_log` (now: `GET /api/admin/audit`, together with auth-service's `admin_audit_log`)
+- [x] Exam responses carry `accessType` but not the audience group ids (those come only from `PUT /api/exams/{id}/audience`)
+- [ ] The audit list merges two databases in exam-service: each is read up to the end of the requested page, so it is paged only 10 000 rows deep; `admin_audit_log` has no details column, and its `q` matches the action only
+- [ ] The group list counts `examCount` over exams of every status (drafts and archived included, deleted ones not); there is no filter by status
+- [ ] The member search of a group (`GET /api/admin/groups/{id}/members?q=`) goes through the participant list of auth-service, so members who are not STUDENT (staff added by id) are not found by it; emails stay masked
+- [ ] The CSV export names its rows with one auth-service lookup per 500 rows (100 lookups for 50 000 rows) and has no progress or resume; an error after the first bytes cuts the file (the client sees a broken download, not a JSON error)
 - [ ] The member list shows no name or email when auth-service cannot be reached, or for an inactive account (the list itself still answers)
 - [x] Question and option media (IMAGE, AUDIO, VIDEO): direct upload with presigned URLs, magic-byte confirmation, media on questions (up to 3, optional `maxPlays`) and options (one image), session-bound download URLs with server-side play limits
 - [ ] A confirmed file can be replaced by its uploader through the same upload URL until that URL expires (10 minutes): the signature fixes size and content type, but the new content is not checked again. Fix: copy the object to a final key at confirmation
@@ -143,7 +147,7 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] The management list shows `createdBy` as a user id only; the creator's name needs a lookup in auth-service
 - [ ] Archiving, publishing and deleting by the owner: only delete and reschedule always write an audit row; publish and archive write one only when an ADMIN acts on someone else's exam
 - [x] `POST /api/exams/{id}/publish` set ACTIVE also for an exam whose end time had passed (now 400 `EXAM_WINDOW_ENDED`)
-- [ ] `POST /api/exams/{id}/publish` sets ACTIVE also when the start time is still ahead (the exam cannot be started before it, but it is no longer editable); making it SCHEDULED would delay the opening by up to a minute because the scheduler activates once a minute
+- [ ] `POST /api/exams/{id}/publish` sets ACTIVE also when the start time is still ahead (the exam cannot be started before it, but it is no longer editable); making it SCHEDULED would delay the opening by up to a minute because the scheduler activates once a minute. Checked again 2026-10-14: a start before `startTime` is 400 `EXAM_NOT_ACTIVE` and opens no session; `/available` lists the exam with `canStart=false`
 - [ ] The V8 backfill marked 8 old open-ended answers (8 sessions of test exams 1, 2, 37, 38, 43, 68, 70, 88) for manual grading: their participants see no score until someone grades them
 - [ ] Load-test data from `feat/results-grading` is still in the development database: exam `T-b3-load` with 5000 sessions (`session_id LIKE 'T-b3-load-%'`, spread over the existing test users, so their "my sessions" lists are long) and 4166 fraud events (`details = 'T-b3-load'`)
 - [ ] Results sorted by name are sorted in the service (names live in auth-service): all matching rows are read and named in batches of 500; refused above 10 000 rows
@@ -169,6 +173,12 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] An old copy of the project in another folder shares the compose project name `exam-system`, the container names and the volume names: `docker-compose up` there recreates this stack's containers with the old settings (2026-10-13: auth-service and the gateway failed to start). Remove or rename that copy, or give it another project name
 - [ ] `scripts\check-env.ps1` reads `.env` only; variables set in the shell override `.env` for docker-compose and are not checked
 - [ ] `exam-grafana` and `exam-prometheus` containers from an earlier compose file are left as stopped orphans
+- [ ] The VS Code Java extension compiles into `target/classes` without Lombok; `.\mvnw.cmd package` without `clean` can pack those classes and the service then fails at start with "Unresolved compilation problems" (2026-10-14). Always build with `clean package`
+- [ ] `api-gateway/src/main/resources/application-production.yml` does not route `/api/admin/participants/**`, `/api/join/**` and `/api/analytics/**` (the development file does); `/api/admin/audit/**` and `/api/grading/**` were added to both
+- [ ] The gateway circuit breaker of exam-service opens for 10 s when calls fail during a restart, and the per-IP rate limit is shared with every browser on the same host: live checks must wait for five good calls and repeat a 429
+- [ ] `verify-b5.ps1` adds 20 000 synthetic participants on every run (the development database has 40 000 since 2026-10-14), and `verify-b4-2.ps1` checks sessions of 2026-10-13 that are no longer running: both are one-off scripts, not repeatable regression tests
+- [ ] `feat/admin-api-gaps` was verified only against the running stack (no automated tests)
+- [ ] Test data of `feat/admin-api-gaps`: groups and exams `T-b7-*`, accounts `be-b7-*@x.test` (two of them INSTRUCTOR by SQL, one with the first name `=SUM(1+1)` for the CSV injection check), one deleted exam `T-b7-*-e4` per run
 
 ## Frontend
 
@@ -217,6 +227,13 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Join link (ADMIN): `GET/POST/PATCH /api/groups/{id}/join-link` (POST replaces the code), `GET /api/groups/{id}/join-requests?status=`, `POST .../join-requests/approve|reject` `{requestIds (max 500)}` and `POST .../join-requests/{requestId}/approve|reject`
 - [ ] Joining (participant): the invite URL carries the code; `GET /api/join/{code}` works without a token (group name only) and `POST /api/join/{code}` needs one. Keep the code across registration and verification and post it afterwards. Answers `{status: MEMBER|PENDING, groupName, changed}`; 404 `JOIN_CODE_INVALID` for every unusable code, 403 `EMAIL_NOT_VERIFIED`, 403 `JOIN_PARTICIPANTS_ONLY`
 - [ ] `GET /api/exams/{id}/audience/preview?groupIds=a,b,c` before saving an audience: members per group, `distinctEligible`, `unknownGroupIds`
+- [ ] For a new exam (no id yet): `POST /api/exams/audience/preview` `{groupIds}` (max 50) gives the same answer; `examId`/`accessType` are null there
+- [ ] Group list rows (and `GET /api/admin/groups/{id}`) carry `memberCount`, `pendingInviteCount`, `pendingJoinRequests`, `examCount` and `joinLink {exists, enabled, usable, requiresApproval, uses, maxUses}`: no call per row and no 404 for a group without a link
+- [ ] `GET /api/admin/groups/{id}/exams?page=&size=` (id, title, status, startTime, endTime, accessType); `GET /api/admin/groups/{id}/members?q=` (2..100 characters, sorted by name, source and addedAt per row)
+- [ ] `GET /api/exams/manage` rows and `GET /api/exams/{id}` (ADMIN, owner) carry `audienceGroupCount` and `groupIds`
+- [ ] Results: `riskLevel=LOW|MEDIUM|HIGH|CRITICAL`, `minPercent`, `maxPercent` (0..100), `sort=risk`; rows carry `submitKind` (`MANUAL`, `AUTO_EXPIRED`, null while running). `GET /api/exams/{id}/results/export` with the same parameters downloads a CSV (UTF-8 with BOM, comma, `X-Total-Count`); 422 `RESULTS_EXPORT_TOO_LARGE` above 50 000 rows
+- [ ] Grading overview: `GET /api/grading/pending-exams?page=&size=` and `GET /api/grading/pending-count` (`{sessions, answers}`, also for INSTRUCTOR, cached 10 s) replace the platform overview for the menu badge
+- [ ] Audit list (ADMIN): `GET /api/admin/audit?action=&actorId=&from=&to=&q=&source=EXAM_SERVICE|AUTH_SERVICE&page=&size=` (from/to ISO UTC; 10 000 rows deep)
 
 ## Later
 

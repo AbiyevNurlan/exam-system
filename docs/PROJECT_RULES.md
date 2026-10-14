@@ -23,6 +23,9 @@ Before the first Docker rebuild of a task run `scripts\backup.ps1`; at the end r
 `scripts\restore-test.ps1` (every table must PASS). Rebuild with `docker-compose up -d --build`.
 Details: README, section "Database safety".
 
+Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compiles into
+`target/classes` without Lombok leaves classes there that make a service fail at start.
+
 ## Stack
 
 - Java 21, Spring Boot 3.2 on WebFlux (reactive), Spring Security with JWT
@@ -120,8 +123,8 @@ Details: README, section "Database safety".
   (one lookup per page, at most 2 seconds, missing names are left out). Score figures are over each
   participant's best completed attempt; sessions waiting for a grader are counted separately and
   never enter an average. Monitoring answers never carry an answer or the key.
-- **`ReadCache` is the only Redis cache of exam-service** (monitoring 3 s, analytics 60 s; the
-  answers carry `generatedAt`). Nothing is invalidated: a value is at most its TTL old. The access
+- **`ReadCache` is the only Redis cache of exam-service** (monitoring 3 s, analytics 60 s, grading
+  overview 10 s; the analytics answers carry `generatedAt`). Nothing is invalidated: a value is at most its TTL old. The access
   check runs before the cache and is never cached; the key spells out the exam, whose view it is
   and every parameter (never a hash of them). Redis is optional: no answer within 250 ms or any
   error means reading from the database. Never call it on a participant's path (start, answer,
@@ -206,6 +209,24 @@ Details: README, section "Database safety".
   0 or less = never). The removal locks the asset row and re-checks the links in the same
   transaction, and attaching (`MediaLinkRepository.attachTo*`) takes the conflicting row lock and
   requires `ACTIVE`: keep both sides, they are what makes it race-free.
+- **Admin lists carry their figures in the same statement as the page.** The group list
+  (`GroupOverviewRepository`) cuts the page first and adds members, invites, open join requests,
+  exams and the join link state per row with lateral subqueries on their indexes; the grading
+  overview (`GradingOverviewRepository`) is one aggregate statement. Never a call or a query per row,
+  and never a separate 404 to learn that something does not exist (`joinLink.exists=false`).
+- **Result exports follow the result list** (`ExamResultsService.export`): the same access rule,
+  parameters and order, one statement read as a stream, names per block of 500. UTF-8 with BOM,
+  comma separated, Azerbaijani headers, times in UTC; a cell starting with `=`, `+`, `-`, `@` (or a
+  tab or carriage return) gets a leading apostrophe. More rows than `EXAM_RESULTS_EXPORT_MAX_ROWS`
+  (default 50 000) is 422 `RESULTS_EXPORT_TOO_LARGE` before anything is sent, and every export
+  writes `RESULTS_EXPORTED` to `group_audit_log` (who, exam, rows).
+- **The audit list (`GET /api/admin/audit`, ADMIN) reads both audit tables**: `group_audit_log` here
+  and auth-service's `admin_audit_log` through `POST /internal/audit/admin`, merged by time. A new
+  audit table must join this list. Details are shown as written, so nothing secret may ever be
+  written to them (join codes, OTPs, passwords, full emails); `AuditService.clean` masks
+  `code=`/`otp=`/`token=`/`password=`/`secret=` pairs as a last line of defence.
+- **A new top-level API path needs a gateway route** in both `api-gateway` application files
+  (`application.yml` and `application-production.yml`); otherwise the gateway answers 401 or 404.
 - **Full email addresses are never logged** and never written to audit details; use `LogMaskUtils`.
 - **Errors**: expected client errors are 4xx with a code and a generic message; responses never
   contain SQL, stack traces or other internals. 4xx are logged once at WARN, 5xx at ERROR.
