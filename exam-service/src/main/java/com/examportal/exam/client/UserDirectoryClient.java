@@ -1,5 +1,6 @@
 package com.examportal.exam.client;
 
+import com.examportal.common.domain.dto.internal.AdminAuditQuery;
 import com.examportal.common.domain.dto.internal.ParticipantQuery;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.common.domain.dto.internal.UserLookupRequest;
@@ -136,6 +137,13 @@ public class UserDirectoryClient {
 
     public Mono<ParticipantQuery.SummaryResponse> participantSummary(ParticipantQuery.SummaryRequest request) {
         return post("/internal/users/participants/summary", request, ParticipantQuery.SummaryResponse.class);
+    }
+
+    /**
+     * The entries of auth-service's admin_audit_log matching the request (count and the newest ones)
+     */
+    public Mono<AdminAuditQuery.Response> adminAudit(AdminAuditQuery.Request request) {
+        return post("/internal/audit/admin", request, AdminAuditQuery.Response.class);
     }
 
     /**
