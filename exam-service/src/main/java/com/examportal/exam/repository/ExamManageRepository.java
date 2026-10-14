@@ -11,6 +11,8 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -43,7 +45,8 @@ public class ExamManageRepository {
                                e.created_by, e.created_at,
                                COALESCE(p.total_points, 0) AS total_points,
                                COALESCE(s.session_count, 0) AS session_count,
-                               COALESCE(s.participant_count, 0) AS participant_count
+                               COALESCE(s.participant_count, 0) AS participant_count,
+                               aud.group_ids
                         FROM (SELECT e.* FROM exams e WHERE %s
                               ORDER BY e.created_at DESC, e.id DESC LIMIT :limit OFFSET :offset) e
                         LEFT JOIN LATERAL (SELECT SUM(q.points) AS total_points
@@ -51,13 +54,20 @@ public class ExamManageRepository {
                         LEFT JOIN LATERAL (SELECT COUNT(*) AS session_count,
                                                   COUNT(DISTINCT x.user_id) AS participant_count
                                            FROM exam_sessions x WHERE x.exam_id = e.id) s ON true
+                        LEFT JOIN LATERAL (SELECT array_agg(a.group_id ORDER BY a.group_id) AS group_ids
+                                           FROM exam_audience a
+                                           JOIN user_groups g ON g.id = a.group_id AND g.active = true
+                                           WHERE a.exam_id = e.id AND e.access_type = 'GROUP') aud ON true
                         ORDER BY e.created_at DESC, e.id DESC
                         """.formatted(condition(filter)))
                 .bind("limit", limit)
                 .bind("offset", offset);
 
         return bind(spec, filter)
-                .map(row -> ManagedExamResponse.builder()
+                .map(row -> {
+                    Long[] groupIds = row.get("group_ids", Long[].class);
+                    List<Long> audience = groupIds == null ? List.of() : Arrays.asList(groupIds);
+                    return ManagedExamResponse.builder()
                         .id(row.get("id", Long.class))
                         .title(row.get("title", String.class))
                         .status(ExamStatus.valueOf(row.get("status", String.class)))
@@ -73,7 +83,10 @@ public class ExamManageRepository {
                         .participantCount(row.get("participant_count", Long.class))
                         .createdBy(row.get("created_by", UUID.class))
                         .createdAt(row.get("created_at", LocalDateTime.class))
-                        .build())
+                        .audienceGroupCount(audience.size())
+                        .groupIds(audience)
+                        .build();
+                })
                 .all();
     }
 

@@ -195,9 +195,17 @@ public class ExamService {
                         .switchIfEmpty(Mono.defer(() -> loadExamWithQuestions(exam)
                                 .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))))
                         .flatMap(full -> {
-                            // The answer key and media preview URLs are only for ADMIN and the INSTRUCTOR who owns the exam
+                            // The answer key and media preview URLs are only for ADMIN and the INSTRUCTOR who owns the exam,
+                            // and so is the audience; the cached object itself is never changed
                             if (accessPolicy.canManage(userId, role, exam)) {
-                                return examMedia.withMedia(full, true);
+                                Mono<List<Long>> groups = exam.getAccessType() == ExamAccessType.GROUP
+                                        ? audienceRepository.findActiveGroupIdsByExamId(examId).collectList()
+                                        : Mono.just(List.of());
+                                return groups.flatMap(groupIds -> examMedia.withMedia(full.toBuilder()
+                                        .accessType(exam.getAccessType())
+                                        .audienceGroupCount(groupIds.size())
+                                        .groupIds(groupIds)
+                                        .build(), true));
                             }
                             if (exam.getStatus() == ExamStatus.DRAFT) {
                                 return Mono.error(ExamException.notFound(examId));
@@ -481,35 +489,56 @@ public class ExamService {
                 .flatMap(exam -> (requested.isEmpty()
                         ? audienceRepository.findGroupIdsByExamId(examId).collectList()
                         : Mono.just(requested))
-                        .flatMap(ids -> ids.isEmpty()
-                                ? Mono.just(ExamAudiencePreviewResponse.builder()
-                                        .examId(examId)
-                                        .accessType(exam.getAccessType())
-                                        .storedAudience(requested.isEmpty())
-                                        .perGroup(List.of())
-                                        .distinctEligible(0)
-                                        .unknownGroupIds(List.of())
-                                        .build())
-                                // Two statements however many groups: the members per group and the distinct total
-                                : Mono.zip(membershipRepository.countMembersPerGroup(ids).collectList(),
-                                                membershipRepository.countDistinctMembers(ids))
-                                        .map(loaded -> {
-                                            List<ExamAudiencePreviewResponse.GroupMembers> perGroup = loaded.getT1().stream()
-                                                    .map(group -> new ExamAudiencePreviewResponse.GroupMembers(
-                                                            group.groupId(), group.name(), group.members()))
-                                                    .toList();
-                                            Set<Long> known = perGroup.stream()
-                                                    .map(ExamAudiencePreviewResponse.GroupMembers::getGroupId)
-                                                    .collect(Collectors.toSet());
-                                            return ExamAudiencePreviewResponse.builder()
-                                                    .examId(examId)
-                                                    .accessType(exam.getAccessType())
-                                                    .storedAudience(requested.isEmpty())
-                                                    .perGroup(perGroup)
-                                                    .distinctEligible(loaded.getT2())
-                                                    .unknownGroupIds(ids.stream().filter(id -> !known.contains(id)).toList())
-                                                    .build();
-                                        })));
+                        .flatMap(this::countAudience)
+                        .map(counted -> {
+                            counted.setExamId(examId);
+                            counted.setAccessType(exam.getAccessType());
+                            counted.setStoredAudience(requested.isEmpty());
+                            return counted;
+                        }));
+    }
+
+    /**
+     * The same counts for groups that are not stored anywhere yet (an exam being created): the
+     * members of each group and how many different people that is. Nothing is written. For everyone
+     * who may set an audience (ADMIN, INSTRUCTOR); the controller checks the role.
+     */
+    public Mono<ExamAudiencePreviewResponse> previewGroups(List<Long> groupIds) {
+        List<Long> requested = groupIds == null ? List.of() : groupIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
+        if (requested.size() > MAX_AUDIENCE_GROUPS) {
+            return Mono.error(new ValidationException("At most " + MAX_AUDIENCE_GROUPS + " groups can be previewed"));
+        }
+        return countAudience(requested);
+    }
+
+    /**
+     * Members per group and the distinct total of the given groups: two statements however many
+     * groups there are. Groups that do not exist (or were deleted) are listed as unknown.
+     */
+    private Mono<ExamAudiencePreviewResponse> countAudience(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return Mono.just(ExamAudiencePreviewResponse.builder()
+                    .perGroup(List.of())
+                    .distinctEligible(0)
+                    .unknownGroupIds(List.of())
+                    .build());
+        }
+        return Mono.zip(membershipRepository.countMembersPerGroup(ids).collectList(),
+                        membershipRepository.countDistinctMembers(ids))
+                .map(loaded -> {
+                    List<ExamAudiencePreviewResponse.GroupMembers> perGroup = loaded.getT1().stream()
+                            .map(group -> new ExamAudiencePreviewResponse.GroupMembers(
+                                    group.groupId(), group.name(), group.members()))
+                            .toList();
+                    Set<Long> known = perGroup.stream()
+                            .map(ExamAudiencePreviewResponse.GroupMembers::getGroupId)
+                            .collect(Collectors.toSet());
+                    return ExamAudiencePreviewResponse.builder()
+                            .perGroup(perGroup)
+                            .distinctEligible(loaded.getT2())
+                            .unknownGroupIds(ids.stream().filter(id -> !known.contains(id)).toList())
+                            .build();
+                });
     }
 
     // ==================== Private Helper Methods ====================

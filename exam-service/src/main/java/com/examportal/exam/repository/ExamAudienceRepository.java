@@ -18,6 +18,16 @@ public interface ExamAudienceRepository extends R2dbcRepository<ExamAudience, Lo
     @Query("SELECT group_id FROM exam_audience WHERE exam_id = :examId ORDER BY group_id")
     Flux<Long> findGroupIdsByExamId(Long examId);
 
+    /**
+     * The audience groups of an exam that still exist (a deleted group gives access to nobody)
+     */
+    @Query("""
+        SELECT a.group_id FROM exam_audience a
+        JOIN user_groups g ON g.id = a.group_id AND g.active = true
+        WHERE a.exam_id = :examId ORDER BY a.group_id
+    """)
+    Flux<Long> findActiveGroupIdsByExamId(Long examId);
+
     @Modifying
     @Query("DELETE FROM exam_audience WHERE exam_id = :examId")
     Mono<Integer> deleteByExamId(Long examId);

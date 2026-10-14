@@ -44,6 +44,10 @@ public class ExamResponse {
     private UUID createdBy;
     private String creatorUsername;
     private ExamAccessType accessType;
+    // Only for ADMIN and the owner (GET /api/exams/{id}): the active groups of the audience (at most
+    // 50, sorted), absent for everybody else
+    private Integer audienceGroupCount;
+    private List<Long> groupIds;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private List<QuestionResponse> questions;

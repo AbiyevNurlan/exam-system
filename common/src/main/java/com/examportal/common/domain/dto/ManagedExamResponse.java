@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -40,4 +41,8 @@ public class ManagedExamResponse {
     private long participantCount;
     private UUID createdBy;
     private LocalDateTime createdAt;
+
+    // The active groups of the audience (at most 50, sorted); empty for a PUBLIC exam
+    private int audienceGroupCount;
+    private List<Long> groupIds;
 }
