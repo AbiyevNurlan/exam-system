@@ -35,6 +35,11 @@ public class ExamException extends ApplicationException {
         return new ExamException("Cannot modify exam after it has started", HttpStatus.BAD_REQUEST, "EXAM_CANNOT_MODIFY");
     }
 
+    public static ExamException exportTooLarge(int limit) {
+        return new ExamException("More than " + limit + " rows to export; narrow the list with q or a filter",
+                HttpStatus.UNPROCESSABLE_ENTITY, "RESULTS_EXPORT_TOO_LARGE");
+    }
+
     public static ExamException cannotDelete() {
         return new ExamException("Cannot delete an exam that has attempts; archive it instead",
                 HttpStatus.CONFLICT, "EXAM_CANNOT_DELETE");

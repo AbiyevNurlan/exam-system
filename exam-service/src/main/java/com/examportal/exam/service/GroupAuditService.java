@@ -41,6 +41,9 @@ public class GroupAuditService {
     // participant; details: exam, session, answer, old and new points)
     public static final String ANSWER_GRADED = "ANSWER_GRADED";
     public static final String ANSWER_REGRADED = "ANSWER_REGRADED";
+    // Someone downloaded the results of an exam as CSV (targetUserId = the exam's creator; details:
+    // exam, number of rows, order, whether a search was used)
+    public static final String RESULTS_EXPORTED = "RESULTS_EXPORTED";
     // One row per bulk addition (details: what was asked for, matched / added / skipped)
     public static final String MEMBERS_BULK_ADDED = "MEMBERS_BULK_ADDED";
     // Join link of a group and what happened through it (targetUserId = the user who joined or asked)

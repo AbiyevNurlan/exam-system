@@ -1,5 +1,6 @@
 package com.examportal.exam.service;
 
+import com.examportal.common.config.UtcDateTimeModule;
 import com.examportal.common.domain.dto.ExamResultsSummaryResponse;
 import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.SessionReviewResponse;
@@ -11,6 +12,7 @@ import com.examportal.common.domain.entity.FraudEventType;
 import com.examportal.common.domain.entity.GradingStatus;
 import com.examportal.common.domain.entity.Question;
 import com.examportal.common.domain.entity.QuestionOption;
+import com.examportal.common.domain.entity.RiskLevel;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.domain.entity.UserAnswer;
 import com.examportal.common.exception.ValidationException;
@@ -19,6 +21,7 @@ import com.examportal.exam.repository.ExamResultsRepository;
 import com.examportal.exam.repository.ExamResultsRepository.Filter;
 import com.examportal.exam.repository.ExamResultsRepository.RankedBest;
 import com.examportal.exam.repository.ExamResultsRepository.ResultRow;
+import com.examportal.exam.repository.ExamResultsRepository.RiskSql;
 import com.examportal.exam.repository.ExamResultsRepository.Sort;
 import com.examportal.exam.repository.ExamResultsRepository.TypeCount;
 import com.examportal.exam.repository.ExamSessionRepository;
@@ -27,9 +30,14 @@ import com.examportal.exam.repository.QuestionRepository;
 import com.examportal.exam.repository.UserAnswerRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -63,6 +71,13 @@ public class ExamResultsService {
     private static final int TOP = 3;
     // Sorting by name happens here, not in SQL (names live in auth-service): only up to this many rows
     private static final int MAX_NAME_SORT_ROWS = 10_000;
+    // An export larger than this is refused (422); rows are named in blocks of EXPORT_BLOCK
+    static final int MAX_EXPORT_ROWS = 50_000;
+    private static final int EXPORT_BLOCK = 500;
+    private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
+    private static final List<String> EXPORT_HEADERS = List.of(
+            "Sessiya ID", "Ad Soyad", "E-poçt", "Cəhd", "Status", "Başlama (UTC)", "Təhvil (UTC)", "Müddət (san)",
+            "Bal", "Maks. bal", "Faiz", "Keçdi", "Qiymətləndirmə", "Təhvil növü", "Pozuntu sayı", "Risk səviyyəsi");
 
     private final ExamResultsRepository resultsRepository;
     private final ExamSessionRepository sessionRepository;
@@ -73,12 +88,19 @@ public class ExamResultsService {
     private final ParticipantDirectory participants;
     private final FraudRiskPolicy riskPolicy;
     private final ExamMediaService examMedia;
+    private final GroupAuditService auditService;
 
     /**
      * What a list request asks for; null = not given
      */
     public record ListQuery(String q, SessionStatus status, Boolean passed, GradingStatus gradingStatus,
-                            Boolean hasViolations, Boolean bestOnly, String sort, String order) {
+                            Boolean hasViolations, Boolean bestOnly, String sort, String order,
+                            RiskLevel riskLevel, BigDecimal minPercent, BigDecimal maxPercent) {
+
+        public ListQuery(String q, SessionStatus status, Boolean passed, GradingStatus gradingStatus,
+                         Boolean hasViolations, Boolean bestOnly, String sort, String order) {
+            this(q, status, passed, gradingStatus, hasViolations, bestOnly, sort, order, null, null, null);
+        }
 
         /**
          * A request that uses none of the newer parameters is answered as the list always was:
@@ -86,52 +108,93 @@ public class ExamResultsService {
          */
         boolean legacy() {
             return q == null && passed == null && gradingStatus == null && hasViolations == null
-                    && bestOnly == null && sort == null && order == null;
+                    && bestOnly == null && sort == null && order == null
+                    && riskLevel == null && minPercent == null && maxPercent == null;
         }
     }
 
     /**
-     * One page of an exam's sessions. bestOnly (default true) keeps one row per participant: the
-     * completed attempt with the highest percentage. sort: score, name, violations or submittedAt
-     * (default, newest first).
+     * A list request checked and turned into what the repository takes (the same for the page and the export)
      */
-    public Mono<PageResponse<SessionSummaryResponse>> getResults(Long examId, ListQuery query, int page, int size,
-                                                                 UUID userId, String role) {
-        int pageNumber = Math.max(page, 0);
-        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+    private record Prepared(String term, String sort, boolean ascending, boolean bestOnly, RiskSql riskSql) {
+
+        Sort column() {
+            return switch (sort) {
+                case "score" -> Sort.SCORE;
+                case "violations" -> Sort.VIOLATIONS;
+                case "risk" -> Sort.RISK;
+                default -> Sort.SUBMITTED_AT;
+            };
+        }
+
+        Filter filter(Long examId, UUID[] userIds, ListQuery query) {
+            return new Filter(examId, userIds, query.status(), query.passed(), query.gradingStatus(),
+                    query.hasViolations(), bestOnly,
+                    query.riskLevel() != null ? query.riskLevel().ordinal() : null,
+                    query.minPercent(), query.maxPercent());
+        }
+    }
+
+    private Prepared prepare(ListQuery query) {
         String term = participants.searchTerm(query.q());
         String sort = query.sort() == null || query.sort().isBlank() ? "submittedat" : query.sort().trim().toLowerCase(Locale.ROOT);
-        if (!Set.of("score", "name", "violations", "submittedat").contains(sort)) {
-            throw new ValidationException("sort must be score, name, violations or submittedAt");
+        if (!Set.of("score", "name", "violations", "submittedat", "risk").contains(sort)) {
+            throw new ValidationException("sort must be score, name, violations, risk or submittedAt");
         }
         String order = query.order() == null || query.order().isBlank() ? null : query.order().trim().toLowerCase(Locale.ROOT);
         if (order != null && !order.equals("asc") && !order.equals("desc")) {
             throw new ValidationException("order must be asc or desc");
         }
+        BigDecimal min = query.minPercent();
+        BigDecimal max = query.maxPercent();
+        if ((min != null && (min.signum() < 0 || min.compareTo(HUNDRED) > 0))
+                || (max != null && (max.signum() < 0 || max.compareTo(HUNDRED) > 0))) {
+            throw new ValidationException("minPercent and maxPercent must be between 0 and 100");
+        }
+        if (min != null && max != null && min.compareTo(max) > 0) {
+            throw new ValidationException("minPercent cannot be greater than maxPercent");
+        }
         // Names read best from A, everything else from the highest or the newest
         boolean ascending = order != null ? order.equals("asc") : sort.equals("name");
         boolean bestOnly = query.bestOnly() != null ? query.bestOnly() : !query.legacy();
-        String riskSql = riskPolicy.scoreSql("e.type");
+        return new Prepared(term, sort, ascending, bestOnly, new RiskSql(riskPolicy.scoreSql("e.type"),
+                riskPolicy.levelRankSql(ExamResultsRepository.LISTED_RISK_SCORE)));
+    }
+
+    /**
+     * With a search text the matching users are asked for first, and name the rows too
+     */
+    private Mono<Search> search(String term) {
+        return term == null
+                ? Mono.just(new Search(null, Map.of()))
+                : participants.search(term).map(found -> new Search(found.keySet().toArray(new UUID[0]), found));
+    }
+
+    /**
+     * One page of an exam's sessions. bestOnly (default true) keeps one row per participant: the
+     * completed attempt with the highest percentage. sort: score, name, violations, risk or
+     * submittedAt (default, newest first). riskLevel, minPercent and maxPercent narrow the list.
+     */
+    public Mono<PageResponse<SessionSummaryResponse>> getResults(Long examId, ListQuery query, int page, int size,
+                                                                 UUID userId, String role) {
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        Prepared prepared = prepare(query);
+        String sort = prepared.sort();
+        boolean ascending = prepared.ascending();
+        RiskSql riskSql = prepared.riskSql();
 
         return accessPolicy.findManageableExam(examId, userId, role)
-                // With a search text the matching users are asked for first, and name the rows too
-                .flatMap(exam -> term == null
-                        ? Mono.just(new Search(null, Map.of()))
-                        : participants.search(term).map(found -> new Search(found.keySet().toArray(new UUID[0]), found)))
+                .flatMap(exam -> search(prepared.term()))
                 .flatMap(search -> {
                     if (search.userIds() != null && search.userIds().length == 0) {
                         return Mono.just(PageResponse.<SessionSummaryResponse>of(List.of(), pageNumber, pageSize, 0));
                     }
-                    Filter filter = new Filter(examId, search.userIds(), query.status(), query.passed(),
-                            query.gradingStatus(), query.hasViolations(), bestOnly);
+                    Filter filter = prepared.filter(examId, search.userIds(), query);
                     if (sort.equals("name")) {
                         return pageByName(filter, riskSql, search, ascending, pageNumber, pageSize);
                     }
-                    Sort column = switch (sort) {
-                        case "score" -> Sort.SCORE;
-                        case "violations" -> Sort.VIOLATIONS;
-                        default -> Sort.SUBMITTED_AT;
-                    };
+                    Sort column = prepared.column();
                     return resultsRepository.count(filter, riskSql)
                             .flatMap(total -> resultsRepository.findPage(filter, riskSql, column, ascending, pageSize,
                                             (long) pageNumber * pageSize)
@@ -202,7 +265,7 @@ public class ExamResultsService {
      * Sorted by name: the matching rows are read with one statement, named in batches and sorted
      * here; rows without a known name come last. Refused when the list is too long for that.
      */
-    private Mono<PageResponse<SessionSummaryResponse>> pageByName(Filter filter, String riskSql, Search search,
+    private Mono<PageResponse<SessionSummaryResponse>> pageByName(Filter filter, RiskSql riskSql, Search search,
                                                                   boolean ascending, int pageNumber, int pageSize) {
         return resultsRepository.findPage(filter, riskSql, Sort.SUBMITTED_AT, false, MAX_NAME_SORT_ROWS + 1, 0)
                 .collectList()
@@ -211,12 +274,7 @@ public class ExamResultsService {
                         return Mono.error(new ValidationException("Too many rows to sort by name; narrow the list with q or a filter"));
                     }
                     return names(search, rows).map(users -> {
-                        Comparator<String> text = ascending ? Comparator.naturalOrder() : Comparator.reverseOrder();
-                        Comparator<ResultRow> byName = Comparator.comparing(
-                                (ResultRow row) -> sortName(users.get(row.userId())),
-                                Comparator.nullsLast(text));
-                        List<SessionSummaryResponse> pageRows = rows.stream()
-                                .sorted(byName.thenComparing(ResultRow::sessionId))
+                        List<SessionSummaryResponse> pageRows = sortedByName(rows, users, ascending).stream()
                                 .skip((long) pageNumber * pageSize)
                                 .limit(pageSize)
                                 .map(row -> toSummary(row, users.get(row.userId())))
@@ -224,6 +282,14 @@ public class ExamResultsService {
                         return PageResponse.of(pageRows, pageNumber, pageSize, rows.size());
                     });
                 });
+    }
+
+    private List<ResultRow> sortedByName(List<ResultRow> rows, Map<UUID, UserRef> users, boolean ascending) {
+        Comparator<String> text = ascending ? Comparator.naturalOrder() : Comparator.reverseOrder();
+        Comparator<ResultRow> byName = Comparator.comparing(
+                (ResultRow row) -> sortName(users.get(row.userId())),
+                Comparator.nullsLast(text));
+        return rows.stream().sorted(byName.thenComparing(ResultRow::sessionId)).toList();
     }
 
     // Last name first, ignoring case
@@ -254,7 +320,130 @@ public class ExamResultsService {
                 .gradingStatus(row.gradingStatus())
                 .violationCount(row.violationCount())
                 .riskLevel(riskPolicy.level(row.riskScore()))
+                .submitKind(row.submitKind() != null ? row.submitKind().name() : null)
                 .build();
+    }
+
+    // ==================== CSV export ====================
+
+    /**
+     * The file name and the streamed body of an export
+     */
+    public record Export(String fileName, long rows, Flux<DataBuffer> body) {
+    }
+
+    /**
+     * The same list as getResults (same filters, search and order) as a CSV file: UTF-8 with a BOM,
+     * comma separated, Azerbaijani headers, every row of the list without paging. More than
+     * MAX_EXPORT_ROWS rows is refused (422) before anything is sent. The rows are read with one
+     * statement and streamed; names are looked up per block of rows. One audit row records who
+     * exported which exam and how many rows.
+     */
+    public Mono<Export> export(Long examId, ListQuery query, UUID userId, String role) {
+        Prepared prepared = prepare(query);
+        return accessPolicy.findManageableExam(examId, userId, role)
+                .flatMap(exam -> search(prepared.term()).flatMap(search -> {
+                    if (search.userIds() != null && search.userIds().length == 0) {
+                        return audit(userId, exam, 0, prepared).thenReturn(csv(examId, 0, Flux.empty(), search));
+                    }
+                    Filter filter = prepared.filter(examId, search.userIds(), query);
+                    return resultsRepository.count(filter, prepared.riskSql())
+                            .flatMap(total -> {
+                                if (total > MAX_EXPORT_ROWS) {
+                                    return Mono.error(ExamException.exportTooLarge(MAX_EXPORT_ROWS));
+                                }
+                                if (prepared.sort().equals("name") && total > MAX_NAME_SORT_ROWS) {
+                                    return Mono.error(new ValidationException("Too many rows to sort by name; narrow the list with q or a filter"));
+                                }
+                                Flux<ResultRow> rows = prepared.sort().equals("name")
+                                        // Names live in auth-service: read, named and sorted here (at most 10 000)
+                                        ? resultsRepository.findPage(filter, prepared.riskSql(), Sort.SUBMITTED_AT, false, MAX_NAME_SORT_ROWS, 0)
+                                                .collectList()
+                                                .flatMap(all -> names(search, all).map(users -> sortedByName(all, users, prepared.ascending())))
+                                                .flatMapIterable(sorted -> sorted)
+                                        : resultsRepository.findPage(filter, prepared.riskSql(), prepared.column(), prepared.ascending(),
+                                                MAX_EXPORT_ROWS, 0);
+                                return audit(userId, exam, total, prepared).thenReturn(csv(examId, total, rows, search));
+                            });
+                }));
+    }
+
+    private Mono<Void> audit(UUID userId, Exam exam, long rows, Prepared prepared) {
+        return auditService.record(userId, GroupAuditService.RESULTS_EXPORTED, null, exam.getCreatedBy(),
+                "examId=" + exam.getId() + " rows=" + rows + " sort=" + prepared.sort() + " bestOnly=" + prepared.bestOnly()
+                        + (prepared.term() != null ? " search=yes" : ""));
+    }
+
+    private Export csv(Long examId, long total, Flux<ResultRow> rows, Search search) {
+        Flux<DataBuffer> lines = rows
+                .buffer(EXPORT_BLOCK)
+                .concatMap(block -> names(search, block).map(users -> {
+                    StringBuilder text = new StringBuilder();
+                    for (ResultRow row : block) {
+                        appendRow(text, toSummary(row, users.get(row.userId())));
+                    }
+                    return buffer(text.toString());
+                }));
+        StringBuilder head = new StringBuilder("﻿");
+        appendLine(head, EXPORT_HEADERS);
+        return new Export("exam-" + examId + "-results.csv", total, Flux.concat(Flux.just(buffer(head.toString())), lines));
+    }
+
+    private void appendRow(StringBuilder text, SessionSummaryResponse row) {
+        appendLine(text, Arrays.asList(
+                row.getSessionId(),
+                row.getParticipantName(),
+                row.getEmail(),
+                String.valueOf(row.getAttemptNumber()),
+                row.getStatus() != null ? row.getStatus().name() : null,
+                UtcDateTimeModule.format(row.getStartedAt()),
+                UtcDateTimeModule.format(row.getSubmittedAt()),
+                row.getDurationSeconds() != null ? String.valueOf(row.getDurationSeconds()) : null,
+                plain(row.getScore()),
+                plain(row.getMaxScore()),
+                plain(row.getPercentage()),
+                row.getPassed() == null ? null : (row.getPassed() ? "Bəli" : "Xeyr"),
+                row.getGradingStatus() != null ? row.getGradingStatus().name() : null,
+                row.getSubmitKind(),
+                String.valueOf(row.getViolationCount()),
+                row.getRiskLevel() != null ? row.getRiskLevel().name() : null));
+    }
+
+    private static void appendLine(StringBuilder text, List<String> cells) {
+        for (int i = 0; i < cells.size(); i++) {
+            if (i > 0) {
+                text.append(',');
+            }
+            text.append(csvCell(cells.get(i)));
+        }
+        text.append("\r\n");
+    }
+
+    /**
+     * One CSV cell: quoted when it holds a comma, quote or line break, and with a leading apostrophe
+     * when it starts with =, +, -, @ (or a tab / carriage return), so a spreadsheet never reads it as
+     * a formula (CSV injection)
+     */
+    static String csvCell(String value) {
+        if (value == null) {
+            return "";
+        }
+        String cell = value;
+        if (!cell.isEmpty() && "=+-@\t\r".indexOf(cell.charAt(0)) >= 0) {
+            cell = "'" + cell;
+        }
+        if (cell.contains(",") || cell.contains("\"") || cell.contains("\n") || cell.contains("\r")) {
+            cell = "\"" + cell.replace("\"", "\"\"") + "\"";
+        }
+        return cell;
+    }
+
+    private static String plain(BigDecimal value) {
+        return value == null ? null : value.stripTrailingZeros().toPlainString();
+    }
+
+    private static DataBuffer buffer(String text) {
+        return DefaultDataBufferFactory.sharedInstance.wrap(text.getBytes(StandardCharsets.UTF_8));
     }
 
     private Long durationSeconds(LocalDateTime start, LocalDateTime end) {

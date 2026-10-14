@@ -68,11 +68,16 @@ public class SecurityConfig {
                         .pathMatchers("/api/media/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         // Exam management - only admin and instructors
                         .pathMatchers(HttpMethod.POST, "/api/exams").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // Audience preview of groups that are not stored yet - whoever may set an audience
+                        .pathMatchers(HttpMethod.POST, "/api/exams/audience/preview").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // Grading overview (pending exams, badge count) - admin and instructors; the service
+                        // limits an instructor to the own exams
+                        .pathMatchers("/api/grading/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers(HttpMethod.PUT, "/api/exams/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers(HttpMethod.DELETE, "/api/exams/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/my").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/*/publish", "/api/exams/*/archive").hasAnyRole("ADMIN", "INSTRUCTOR")
-                        .pathMatchers("/api/exams/*/results").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        .pathMatchers("/api/exams/*/results", "/api/exams/*/results/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         // Live monitoring and exam analytics - admin and instructors (the service then
                         // limits an instructor to the own exams); platform analytics - admin only
                         .pathMatchers("/api/exams/monitoring/**", "/api/exams/*/monitoring",

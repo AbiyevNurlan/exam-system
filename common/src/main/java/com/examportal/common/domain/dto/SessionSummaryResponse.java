@@ -42,4 +42,7 @@ public class SessionSummaryResponse {
     private GradingStatus gradingStatus;
     private Integer violationCount;
     private RiskLevel riskLevel;
+    // MANUAL: handed in before the session's time was up; AUTO_EXPIRED: closed at or after its end
+    // time (submittedAt >= the session's end time); null while in progress
+    private String submitKind;
 }

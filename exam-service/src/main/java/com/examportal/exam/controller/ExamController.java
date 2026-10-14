@@ -1,12 +1,14 @@
 package com.examportal.exam.controller;
 
 import com.examportal.common.domain.dto.*;
+import com.examportal.common.domain.dto.group.AudiencePreviewRequest;
 import com.examportal.common.domain.dto.group.ExamAudiencePreviewResponse;
 import com.examportal.common.domain.dto.group.ExamAudienceRequest;
 import com.examportal.common.domain.dto.group.ExamAudienceResponse;
 import com.examportal.common.domain.dto.media.MediaUrlResponse;
 import com.examportal.common.domain.entity.ExamStatus;
 import com.examportal.common.domain.entity.GradingStatus;
+import com.examportal.common.domain.entity.RiskLevel;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.service.AnswerSubmissionService;
@@ -21,13 +23,20 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
@@ -283,7 +292,10 @@ public class ExamController {
             + "participant name and email, attempt number, score, gradingStatus, violationCount and riskLevel. "
             + "q: first name, last name, email prefix or a user id (at least 2 characters). "
             + "bestOnly (default true): one row per participant, the completed attempt with the highest percentage. "
-            + "A call with only page, size and status is answered as before: every session, newest submission first.")
+            + "riskLevel (LOW, MEDIUM, HIGH, CRITICAL), minPercent / maxPercent (0..100, both inclusive) narrow the list; "
+            + "sort=risk orders by risk level and score. Every row carries riskLevel and submitKind (MANUAL or "
+            + "AUTO_EXPIRED). A call with only page, size and status is answered as before: every session, newest "
+            + "submission first.")
     public Mono<ApiResponse<PageResponse<SessionSummaryResponse>>> getExamResults(
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
@@ -294,16 +306,52 @@ public class ExamController {
             @RequestParam(required = false) @Parameter(description = "NOT_REQUIRED, PENDING or COMPLETE") GradingStatus gradingStatus,
             @RequestParam(required = false) @Parameter(description = "Only sessions with (true) or without (false) fraud events") Boolean hasViolations,
             @RequestParam(required = false) @Parameter(description = "One row per participant: the best completed attempt (default true)") Boolean bestOnly,
-            @RequestParam(required = false) @Parameter(description = "score, name, violations or submittedAt (default)") String sort,
+            @RequestParam(required = false) @Parameter(description = "score, name, violations, risk or submittedAt (default)") String sort,
             @RequestParam(required = false) @Parameter(description = "asc or desc (default: desc, for name asc)") String order,
+            @RequestParam(required = false) @Parameter(description = "LOW, MEDIUM, HIGH or CRITICAL") RiskLevel riskLevel,
+            @RequestParam(required = false) @Parameter(description = "Lowest percentage, 0..100") BigDecimal minPercent,
+            @RequestParam(required = false) @Parameter(description = "Highest percentage, 0..100") BigDecimal maxPercent,
             @AuthenticationPrincipal UserPrincipal principal) {
 
         log.debug("Getting results of exam: {} for user: {}", id, principal.getId());
 
         ExamResultsService.ListQuery query = new ExamResultsService.ListQuery(q, status, passed, gradingStatus,
-                hasViolations, bestOnly, sort, order);
+                hasViolations, bestOnly, sort, order, riskLevel, minPercent, maxPercent);
         return Mono.defer(() -> resultsService.getResults(id, query, page, size, principal.getId(), principal.getRole()))
                 .map(ApiResponse::success);
+    }
+
+    @GetMapping("/{id}/results/export")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Export exam results as CSV", description = "The same list as /{id}/results with the same "
+            + "parameters (without paging) as a CSV file: UTF-8 with BOM, comma separated, Azerbaijani headers, times in "
+            + "UTC. At most 50 000 rows (422 RESULTS_EXPORT_TOO_LARGE). Cells starting with = + - @ get a leading "
+            + "apostrophe. Same access as the results; every export leaves an audit row.")
+    public Mono<ResponseEntity<Flux<DataBuffer>>> exportExamResults(
+            @PathVariable Long id,
+            @RequestParam(required = false) SessionStatus status,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Boolean passed,
+            @RequestParam(required = false) GradingStatus gradingStatus,
+            @RequestParam(required = false) Boolean hasViolations,
+            @RequestParam(required = false) Boolean bestOnly,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String order,
+            @RequestParam(required = false) RiskLevel riskLevel,
+            @RequestParam(required = false) BigDecimal minPercent,
+            @RequestParam(required = false) BigDecimal maxPercent,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        ExamResultsService.ListQuery query = new ExamResultsService.ListQuery(q, status, passed, gradingStatus,
+                hasViolations, bestOnly, sort, order, riskLevel, minPercent, maxPercent);
+        return Mono.defer(() -> resultsService.export(id, query, principal.getId(), principal.getRole()))
+                .doOnNext(export -> log.info("Results of exam {} exported by {}: {} rows", id, principal.getId(), export.rows()))
+                .map(export -> ResponseEntity.ok()
+                        .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                        .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                                .filename(export.fileName()).build().toString())
+                        .header("X-Total-Count", String.valueOf(export.rows()))
+                        .body(export.body()));
     }
 
     @GetMapping("/{id}/results/summary")
@@ -343,6 +391,16 @@ public class ExamController {
             @AuthenticationPrincipal UserPrincipal principal) {
 
         return Mono.defer(() -> examService.previewAudience(id, groupIds, principal.getId(), principal.getRole()))
+                .map(ApiResponse::success);
+    }
+
+    @PostMapping("/audience/preview")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Preview an audience without an exam", description = "The same counts as /{id}/audience/preview "
+            + "for groups that are not stored yet (an exam being created): members per group, distinct participants "
+            + "(somebody in two groups counts once) and unknown or deleted groups. At most 50 groups; nothing is stored.")
+    public Mono<ApiResponse<ExamAudiencePreviewResponse>> previewGroups(@Valid @RequestBody AudiencePreviewRequest request) {
+        return Mono.defer(() -> examService.previewGroups(request.getGroupIds()))
                 .map(ApiResponse::success);
     }
 

@@ -20,7 +20,9 @@ import java.util.UUID;
  * summary is two, however many sessions the exam has; nothing is read per row.
  *
  * riskScoreSql is the weighted sum of a session's fraud events as an SQL aggregate over the type
- * column "e.type" (FraudRiskPolicy.scoreSql); it is fixed text, never input.
+ * column "e.type" (FraudRiskPolicy.scoreSql); it is fixed text, never input. The list also carries
+ * the risk level rank of each session (0 = LOW .. 3 = CRITICAL, FraudRiskPolicy.levelRankSql over
+ * the score), so it can be filtered and sorted by level in the database.
  */
 @Repository
 @RequiredArgsConstructor
@@ -29,7 +31,18 @@ public class ExamResultsRepository {
     private final DatabaseClient databaseClient;
 
     public enum Sort {
-        SCORE, VIOLATIONS, SUBMITTED_AT
+        SCORE, VIOLATIONS, SUBMITTED_AT, RISK
+    }
+
+    // The column the risk level rank is computed from in the CTE "listed"
+    public static final String LISTED_RISK_SCORE = "COALESCE(v.risk_score, 0)";
+
+    /**
+     * How a completed session was handed in: MANUAL (submitted before its time was up) or
+     * AUTO_EXPIRED (closed at or after the end of its time); null while in progress
+     */
+    public enum SubmitKind {
+        MANUAL, AUTO_EXPIRED
     }
 
     /**
@@ -38,13 +51,27 @@ public class ExamResultsRepository {
      * percentage (the earlier one among equals); the other filters apply to that row.
      */
     public record Filter(Long examId, UUID[] userIds, SessionStatus status, Boolean passed,
-                         GradingStatus gradingStatus, Boolean hasViolations, boolean bestOnly) {
+                         GradingStatus gradingStatus, Boolean hasViolations, boolean bestOnly,
+                         Integer riskRank, BigDecimal minPercent, BigDecimal maxPercent) {
+
+        public Filter(Long examId, UUID[] userIds, SessionStatus status, Boolean passed,
+                      GradingStatus gradingStatus, Boolean hasViolations, boolean bestOnly) {
+            this(examId, userIds, status, passed, gradingStatus, hasViolations, bestOnly, null, null, null);
+        }
+    }
+
+    /**
+     * The fixed SQL text of the risk score aggregate (over "e.type") and of the level rank (over
+     * LISTED_RISK_SCORE)
+     */
+    public record RiskSql(String score, String rank) {
     }
 
     public record ResultRow(String sessionId, UUID userId, int attemptNumber, SessionStatus status,
                             LocalDateTime startedAt, LocalDateTime submittedAt, BigDecimal score,
                             BigDecimal maxScore, BigDecimal percentage, Boolean passed,
-                            GradingStatus gradingStatus, int violationCount, int riskScore) {
+                            GradingStatus gradingStatus, int violationCount, int riskScore,
+                            SubmitKind submitKind) {
     }
 
     public record Counts(long participantCount, long sessionCount, long completedCount, long inProgressCount,
@@ -70,7 +97,7 @@ public class ExamResultsRepository {
     /**
      * One page of the list in the given order
      */
-    public Flux<ResultRow> findPage(Filter filter, String riskScoreSql, Sort sort, boolean ascending,
+    public Flux<ResultRow> findPage(Filter filter, RiskSql riskSql, Sort sort, boolean ascending,
                                     int limit, long offset) {
         String direction = ascending ? "ASC" : "DESC";
         // Sessions without the sorted value (in progress) come last in both directions
@@ -79,8 +106,11 @@ public class ExamResultsRepository {
                     + " NULLS LAST, l.submitted_at ASC NULLS LAST, l.id ASC";
             case VIOLATIONS -> "l.violation_count " + direction + ", l.risk_score " + direction + ", l.id ASC";
             case SUBMITTED_AT -> "l.submitted_at " + direction + " NULLS LAST, l.id " + direction;
+            // The level follows the score, so the score orders both, also inside a level
+            case RISK -> "l.risk_rank " + direction + ", l.risk_score " + direction + ", l.violation_count "
+                    + direction + ", l.id ASC";
         };
-        return bind(databaseClient.sql(listed(filter, riskScoreSql)
+        return bind(databaseClient.sql(listed(filter, riskSql)
                         + " SELECT l.* FROM listed l ORDER BY " + order + " LIMIT :limit OFFSET :offset"), filter)
                 .bind("limit", limit)
                 .bind("offset", offset)
@@ -97,12 +127,15 @@ public class ExamResultsRepository {
                         row.get("passed", Boolean.class),
                         GradingStatus.valueOf(row.get("grading_status", String.class)),
                         row.get("violation_count", Integer.class),
-                        row.get("risk_score", Integer.class)))
+                        row.get("risk_score", Integer.class),
+                        row.get("submit_kind", String.class) != null
+                                ? SubmitKind.valueOf(row.get("submit_kind", String.class))
+                                : null))
                 .all();
     }
 
-    public Mono<Long> count(Filter filter, String riskScoreSql) {
-        return bind(databaseClient.sql(listed(filter, riskScoreSql) + " SELECT COUNT(*) FROM listed"), filter)
+    public Mono<Long> count(Filter filter, RiskSql riskSql) {
+        return bind(databaseClient.sql(listed(filter, riskSql) + " SELECT COUNT(*) FROM listed"), filter)
                 .map(row -> row.get(0, Long.class))
                 .one();
     }
@@ -247,8 +280,18 @@ public class ExamResultsRepository {
      * participant's sessions and its fraud figures, narrowed by the filter. Only fixed text is put
      * into the statement; every value is bound.
      */
-    private String listed(Filter filter, String riskScoreSql) {
+    private String listed(Filter filter, RiskSql riskSql) {
         StringBuilder where = new StringBuilder("1 = 1");
+        if (filter.riskRank() != null) {
+            where.append(" AND ").append(riskSql.rank()).append(" = :riskRank");
+        }
+        // A session without a percentage (in progress) is outside any range
+        if (filter.minPercent() != null) {
+            where.append(" AND r.percentage >= :minPercent");
+        }
+        if (filter.maxPercent() != null) {
+            where.append(" AND r.percentage <= :maxPercent");
+        }
         if (filter.bestOnly()) {
             where.append(" AND r.best_rank = 1 AND r.status = 'COMPLETED'");
         }
@@ -268,7 +311,7 @@ public class ExamResultsRepository {
         }
         return """
                 WITH ranked AS (
-                    SELECT s.id, s.session_id, s.user_id, s.status, s.start_time, s.submitted_at, s.score,
+                    SELECT s.id, s.session_id, s.user_id, s.status, s.start_time, s.end_time, s.submitted_at, s.score,
                            s.total_points, s.percentage, s.passed, s.grading_status,
                            ROW_NUMBER() OVER (PARTITION BY s.user_id ORDER BY s.start_time ASC, s.id ASC)::int AS attempt_number,
                            ROW_NUMBER() OVER (PARTITION BY s.user_id
@@ -283,12 +326,17 @@ public class ExamResultsRepository {
                     WHERE x.exam_id = :examId
                     GROUP BY e.session_id
                 ), listed AS (
-                    SELECT r.*, COALESCE(v.violation_count, 0) AS violation_count, COALESCE(v.risk_score, 0) AS risk_score
+                    SELECT r.*, COALESCE(v.violation_count, 0) AS violation_count, COALESCE(v.risk_score, 0) AS risk_score,
+                           %s AS risk_rank,
+                           CASE WHEN r.status <> 'COMPLETED' OR r.submitted_at IS NULL THEN NULL
+                                WHEN r.end_time IS NOT NULL AND r.submitted_at >= r.end_time THEN 'AUTO_EXPIRED'
+                                ELSE 'MANUAL' END AS submit_kind
                     FROM ranked r
                     LEFT JOIN violations v ON v.session_id = r.id
                     WHERE %s
                 )
-                """.formatted(filter.userIds() != null ? " AND s.user_id = ANY(:userIds)" : "", riskScoreSql, where);
+                """.formatted(filter.userIds() != null ? " AND s.user_id = ANY(:userIds)" : "", riskSql.score(),
+                riskSql.rank(), where);
     }
 
     private DatabaseClient.GenericExecuteSpec bind(DatabaseClient.GenericExecuteSpec spec, Filter filter) {
@@ -301,6 +349,15 @@ public class ExamResultsRepository {
         }
         if (filter.gradingStatus() != null) {
             spec = spec.bind("gradingStatus", filter.gradingStatus().name());
+        }
+        if (filter.riskRank() != null) {
+            spec = spec.bind("riskRank", filter.riskRank());
+        }
+        if (filter.minPercent() != null) {
+            spec = spec.bind("minPercent", filter.minPercent());
+        }
+        if (filter.maxPercent() != null) {
+            spec = spec.bind("maxPercent", filter.maxPercent());
         }
         return spec;
     }
