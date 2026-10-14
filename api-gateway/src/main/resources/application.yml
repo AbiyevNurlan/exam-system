@@ -19,7 +19,9 @@ spring:
       globalcors:
         cors-configurations:
           '[/**]':
-            allowedOrigins: "*"
+            # Development: any port of localhost (the Vite dev server and preview); a list of
+            # origins can be given with CORS_ALLOWED_ORIGINS (comma separated, patterns allowed)
+            allowedOriginPatterns: ${CORS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*}
             allowedMethods:
               - GET
               - POST
@@ -28,12 +30,49 @@ spring:
               - PATCH
               - OPTIONS
             allowedHeaders: "*"
+            # Read by the frontend: the row count and file name of the CSV export, the wait of a 429
             exposedHeaders:
               - Authorization
+              - X-Total-Count
+              - Content-Disposition
+              - Retry-After
             maxAge: 3600
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+      # Every route has its own bucket per client address (RateLimiterConfig: route id + IP), so
+      # one route running out never refuses another. The route lists of this file and of
+      # application-production.yml must stay the same (scripts\check-gateway-routes.ps1).
       routes:
+        # Registration and sign-in: a school or exam hall registers hundreds of people through one
+        # address. Capacities per address (GATEWAY_AUTH_*), defaults as the general auth route.
+        - id: auth-register
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/auth/register
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_AUTH_REGISTER_RATE:100}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_AUTH_REGISTER_BURST:200}
+                redis-rate-limiter.requestedTokens: 1
+        - id: auth-login
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/auth/login
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_AUTH_LOGIN_RATE:100}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_AUTH_LOGIN_BURST:200}
+                redis-rate-limiter.requestedTokens: 1
         # Verification codes: a much smaller budget per client IP than the rest of /auth (10 requests
         # at once, then one every 5 seconds). Must stay before the general auth route.
         # Limits per email address are enforced in auth-service (OtpService), not here.
@@ -65,7 +104,7 @@ spring:
         - id: exam-service
           uri: http://exam-service:8082
           predicates:
-            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/admin/groups/**, /api/admin/participants/**, /api/groups/**, /api/join/**, /api/media/**, /api/analytics/**, /api/admin/audit/**, /api/grading/**
+            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/sessions/**, /api/admin/groups/**, /api/admin/participants/**, /api/groups/**, /api/join/**, /api/media/**, /api/analytics/**, /api/admin/audit/**, /api/grading/**
           filters:
             - name: CircuitBreaker
               args:
@@ -122,6 +161,12 @@ resilience4j:
 security:
   jwt:
     secret-key: ${JWT_SECRET:}
+
+gateway:
+  client-ip:
+    # Proxies whose X-Forwarded-For is believed (IPs or CIDRs, comma separated). Empty: the
+    # rate limiter counts the remote address of the connection (ClientIpResolver).
+    trusted-proxies: ${GATEWAY_TRUSTED_PROXIES:}
 
 management:
   endpoints:

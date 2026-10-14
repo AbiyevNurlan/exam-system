@@ -1,6 +1,8 @@
 package com.examportal.gateway.config;
 
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
+import org.springframework.cloud.gateway.route.Route;
+import org.springframework.cloud.gateway.support.ServerWebExchangeUtils;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -14,17 +16,22 @@ import reactor.core.publisher.Mono;
 public class RateLimiterConfig {
 
     /**
-     * Resolves the rate limiting key based on the client's IP address.
+     * The bucket of a request: its route and its client address ("auth-login:203.0.113.7").
+     *
+     * The Redis rate limiter keys its buckets by this value alone (request_rate_limiter.{key}),
+     * not by route, so a key of the IP only made every route of an address share one bucket: a
+     * few code checks (5 tokens each) emptied it for registration and sign-in too, and exam calls
+     * counted against /auth. With the route in the key each route has its own bucket with its own
+     * capacity.
      */
     @Bean
     @Primary
-    public KeyResolver ipKeyResolver() {
-        return exchange -> Mono.just(
-                exchange.getRequest()
-                        .getRemoteAddress()
-                        .getAddress()
-                        .getHostAddress()
-        );
+    public KeyResolver routeAndIpKeyResolver(ClientIpResolver clientIpResolver) {
+        return exchange -> {
+            Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
+            String routeId = route != null ? route.getId() : "no-route";
+            return Mono.just(routeId + ":" + clientIpResolver.resolve(exchange.getRequest()));
+        };
     }
 
     /**

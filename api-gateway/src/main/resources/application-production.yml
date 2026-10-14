@@ -37,7 +37,9 @@ spring:
       globalcors:
         cors-configurations:
           '[/**]':
-            allowedOriginPatterns: "*"
+            # The sites that may call the API, comma separated (https://imtahan.example.az).
+            # Required: without it the gateway does not start, there is no "*" in production.
+            allowedOrigins: ${CORS_ALLOWED_ORIGINS}
             allowedMethods:
               - GET
               - POST
@@ -46,9 +48,13 @@ spring:
               - PATCH
               - OPTIONS
             allowedHeaders: "*"
+            # Read by the frontend: the row count and file name of the CSV export, the wait of a 429
             exposedHeaders:
               - Authorization
               - X-Request-Id
+              - X-Total-Count
+              - Content-Disposition
+              - Retry-After
             allowCredentials: true
             maxAge: 3600
       
@@ -68,7 +74,40 @@ spring:
               factor: 2
       
       # ============== ROUTES ==============
+      # Every route has its own bucket per client address (RateLimiterConfig: route id + IP). The
+      # route lists of this file and of application.yml must stay the same
+      # (scripts\check-gateway-routes.ps1).
       routes:
+        # Registration and sign-in: a school or exam hall registers hundreds of people through one
+        # address. Capacities per address (GATEWAY_AUTH_*), defaults as the general auth route.
+        - id: auth-register
+          uri: lb://auth-service
+          predicates:
+            - Path=/auth/register
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_AUTH_REGISTER_RATE:500}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_AUTH_REGISTER_BURST:1000}
+                redis-rate-limiter.requestedTokens: 1
+        - id: auth-login
+          uri: lb://auth-service
+          predicates:
+            - Path=/auth/login
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_AUTH_LOGIN_RATE:500}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_AUTH_LOGIN_BURST:1000}
+                redis-rate-limiter.requestedTokens: 1
         # Verification codes: a much smaller budget per client IP than the rest of /auth (10 requests
         # at once, then one every 5 seconds). Must stay before the general auth route.
         # Limits per email address are enforced in auth-service (OtpService), not here.
@@ -102,7 +141,7 @@ spring:
         - id: exam-service
           uri: lb://exam-service
           predicates:
-            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/sessions/**, /api/admin/groups/**, /api/groups/**, /api/media/**, /api/admin/audit/**, /api/grading/**
+            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/sessions/**, /api/admin/groups/**, /api/admin/participants/**, /api/groups/**, /api/join/**, /api/media/**, /api/analytics/**, /api/admin/audit/**, /api/grading/**
           filters:
             - name: CircuitBreaker
               args:
@@ -140,6 +179,19 @@ spring:
           max-idle: 30
           min-idle: 15
           max-wait: 3000ms
+
+# ============== SERVICES AND CLIENT ADDRESS ==============
+gateway:
+  # The instances behind the lb:// routes (StaticDiscoveryClient): base URLs, comma separated
+  services:
+    auth-service: ${AUTH_SERVICE_URL:http://auth-service:8081}
+    exam-service: ${EXAM_SERVICE_URL:http://exam-service:8082}
+    websocket-service: ${WEBSOCKET_SERVICE_URL:http://websocket-service:8084}
+    monitoring-service: ${MONITORING_SERVICE_URL:http://monitoring-service:8083}
+  client-ip:
+    # Behind nginx every request comes from nginx: without its address here all users would share
+    # one rate limit bucket. IPs or CIDRs of the proxies whose X-Forwarded-For is believed.
+    trusted-proxies: ${GATEWAY_TRUSTED_PROXIES:}
 
 # ============== RESILIENCE4J CIRCUIT BREAKER ==============
 resilience4j:
