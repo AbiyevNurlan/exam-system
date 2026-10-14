@@ -5,6 +5,7 @@ import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.group.AddGroupMemberRequest;
 import com.examportal.common.domain.dto.group.AddGroupMemberResponse;
 import com.examportal.common.domain.dto.group.CsvImportResponse;
+import com.examportal.common.domain.dto.group.GroupExamResponse;
 import com.examportal.common.domain.dto.group.GroupInviteResponse;
 import com.examportal.common.domain.dto.group.GroupMemberResponse;
 import com.examportal.common.domain.dto.group.GroupRequest;
@@ -58,7 +59,9 @@ public class GroupAdminController {
     }
 
     @GetMapping
-    @Operation(summary = "Search groups", description = "Optional name filter; sorted by name, max 50 per page")
+    @Operation(summary = "Search groups", description = "Optional name filter; sorted by name, max 50 per page. Every row "
+            + "carries memberCount, pendingInviteCount, pendingJoinRequests, examCount and joinLink {exists, enabled, usable, "
+            + "requiresApproval, uses, maxUses}; a group without a link has joinLink.exists = false.")
     public Mono<ApiResponse<PageResponse<GroupResponse>>> searchGroups(
             @RequestParam(required = false) @Parameter(description = "Part of the name, case-insensitive") String name,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
@@ -69,7 +72,7 @@ public class GroupAdminController {
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Get a group", description = "Group with its member and pending invite counts")
+    @Operation(summary = "Get a group", description = "Group with the same counts and join link state as a row of the list")
     public Mono<ApiResponse<GroupResponse>> getGroup(@PathVariable Long id) {
         return groupService.getGroup(id)
                 .map(ApiResponse::success);
@@ -97,13 +100,28 @@ public class GroupAdminController {
     }
 
     @GetMapping("/{id}/members")
-    @Operation(summary = "List members", description = "Paginated members of a group, max 50 per page")
+    @Operation(summary = "List members", description = "Paginated members of a group, max 50 per page, with source and addedAt. "
+            + "q: first name, last name, email prefix or user id (2 to 100 characters); with q the rows are sorted by name. "
+            + "Emails are masked.")
     public Mono<ApiResponse<PageResponse<GroupMemberResponse>>> getMembers(
+            @PathVariable Long id,
+            @RequestParam(required = false) @Parameter(description = "Name, email prefix or user id") String q,
+            @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
+
+        return Mono.defer(() -> groupService.getMembers(id, q, page, size))
+                .map(ApiResponse::success);
+    }
+
+    @GetMapping("/{id}/exams")
+    @Operation(summary = "Exams of a group", description = "Exams (not deleted) whose audience includes the group, newest "
+            + "start first, max 50 per page")
+    public Mono<ApiResponse<PageResponse<GroupExamResponse>>> getExams(
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
             @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
 
-        return groupService.getMembers(id, page, size)
+        return groupService.getGroupExams(id, page, size)
                 .map(ApiResponse::success);
     }
 

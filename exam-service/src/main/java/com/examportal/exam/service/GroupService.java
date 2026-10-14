@@ -4,11 +4,13 @@ import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.group.AddGroupMemberRequest;
 import com.examportal.common.domain.dto.group.AddGroupMemberResponse;
 import com.examportal.common.domain.dto.group.AddGroupMemberResponse.Status;
+import com.examportal.common.domain.dto.group.GroupExamResponse;
 import com.examportal.common.domain.dto.group.GroupMemberResponse;
 import com.examportal.common.domain.dto.group.GroupRequest;
 import com.examportal.common.domain.dto.group.GroupResponse;
 import com.examportal.common.domain.dto.group.GroupInviteResponse;
 import com.examportal.common.domain.dto.group.GroupSummaryResponse;
+import com.examportal.common.domain.dto.internal.ParticipantQuery;
 import com.examportal.common.domain.dto.internal.UserLookupResponse.UserRef;
 import com.examportal.common.domain.entity.GroupMemberSource;
 import com.examportal.common.domain.entity.UserGroup;
@@ -16,11 +18,16 @@ import com.examportal.common.domain.entity.UserGroupMember;
 import com.examportal.common.utils.LogMaskUtils;
 import com.examportal.exam.client.UserDirectoryClient;
 import com.examportal.exam.exception.GroupException;
+import com.examportal.exam.repository.GroupMembershipRepository;
+import com.examportal.exam.repository.GroupOverviewRepository;
+import com.examportal.exam.repository.GroupOverviewRepository.GroupFigures;
+import com.examportal.exam.repository.GroupOverviewRepository.Membership;
 import com.examportal.exam.repository.PendingGroupInviteRepository;
 import com.examportal.exam.repository.UserGroupMemberRepository;
 import com.examportal.exam.repository.UserGroupRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.examportal.common.exception.ValidationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
@@ -53,6 +60,8 @@ public class GroupService {
     private final GroupAuditService auditService;
     private final UserDirectoryClient userDirectory;
     private final TransactionalOperator transactionalOperator;
+    private final GroupOverviewRepository overviewRepository;
+    private final GroupMembershipRepository membershipRepository;
 
     public Mono<GroupResponse> createGroup(GroupRequest request, UUID actorId) {
         LocalDateTime now = LocalDateTime.now();
@@ -109,20 +118,19 @@ public class GroupService {
                 .doOnSuccess(v -> log.info("Group {} deleted by {}", groupId, actorId));
     }
 
+    /**
+     * One group with its member, invite, open request and exam counts and the state of its join link
+     * (one statement)
+     */
     public Mono<GroupResponse> getGroup(Long groupId) {
-        return findGroup(groupId)
-                .flatMap(group -> Mono.zip(memberRepository.countByGroupId(groupId),
-                                inviteRepository.countByGroupId(groupId))
-                        .map(counts -> {
-                            GroupResponse response = toResponse(group);
-                            response.setMemberCount(counts.getT1());
-                            response.setPendingInviteCount(counts.getT2());
-                            return response;
-                        }));
+        return overviewRepository.findById(groupId)
+                .switchIfEmpty(Mono.error(GroupException.notFound(groupId)))
+                .map(this::toResponse);
     }
 
     /**
-     * One page of groups sorted by name; the optional filter matches any part of the name, ignoring case
+     * One page of groups sorted by name; the optional filter matches any part of the name, ignoring case.
+     * Every row carries its counts and the state of its join link: two statements per page.
      */
     public Mono<PageResponse<GroupResponse>> searchGroups(String name, int page, int size) {
         if (name != null && name.length() > MAX_NAME_LENGTH) {
@@ -130,13 +138,79 @@ public class GroupService {
         }
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
-        String pattern = "%" + escapeLike(name == null ? "" : name.trim().toLowerCase(Locale.ROOT)) + "%";
+        String pattern = namePattern(name);
 
         return groupRepository.countByNamePattern(pattern)
-                .flatMap(total -> groupRepository.findPageByNamePattern(pattern, pageSize, (long) pageNumber * pageSize)
+                .flatMap(total -> overviewRepository.findPage(pattern, pageSize, (long) pageNumber * pageSize)
                         .map(this::toResponse)
                         .collectList()
                         .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
+    }
+
+    /**
+     * Exams (not deleted) whose audience includes the group, newest start first
+     */
+    public Mono<PageResponse<GroupExamResponse>> getGroupExams(Long groupId, int page, int size) {
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+
+        return findGroup(groupId)
+                .flatMap(group -> overviewRepository.countExamsOfGroup(groupId))
+                .flatMap(total -> overviewRepository.findExamsOfGroup(groupId, pageSize, (long) pageNumber * pageSize)
+                        .collectList()
+                        .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
+    }
+
+    /**
+     * One page of members. With q (first name, last name, email prefix or a user id; 2 to 100
+     * characters) the members are searched the way the participant list searches: the member ids are
+     * handed to auth-service, which filters, sorts by name and pages; how and when each row was added
+     * comes from one more statement here. Emails stay masked, as in the list without q.
+     */
+    public Mono<PageResponse<GroupMemberResponse>> getMembers(Long groupId, String q, int page, int size) {
+        String term = q == null || q.isBlank() ? null : q.trim();
+        if (term == null) {
+            return getMembers(groupId, page, size);
+        }
+        if (term.length() < ParticipantQuery.MIN_SEARCH_LENGTH || term.length() > ParticipantQuery.MAX_SEARCH_LENGTH) {
+            return Mono.error(new ValidationException("Search text must be between " + ParticipantQuery.MIN_SEARCH_LENGTH
+                    + " and " + ParticipantQuery.MAX_SEARCH_LENGTH + " characters"));
+        }
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), Math.min(MAX_PAGE_SIZE, ParticipantQuery.MAX_PAGE_SIZE));
+
+        return findGroup(groupId)
+                .flatMap(group -> membershipRepository.findMemberIds(groupId))
+                .flatMap(memberIds -> memberIds.isEmpty()
+                        ? Mono.just(PageResponse.<GroupMemberResponse>of(List.of(), pageNumber, pageSize, 0))
+                        : userDirectory.participants(ParticipantQuery.PageRequest.builder()
+                                        .filter(ParticipantQuery.Filter.builder().q(term).includeIds(memberIds).build())
+                                        .page(pageNumber)
+                                        .size(pageSize)
+                                        .sort("name")
+                                        .ascending(true)
+                                        .build())
+                                .flatMap(found -> {
+                                    UUID[] ids = found.getUsers().stream().map(ParticipantQuery.Participant::getId).toArray(UUID[]::new);
+                                    Mono<Map<UUID, Membership>> memberships = ids.length == 0
+                                            ? Mono.just(Map.of())
+                                            : overviewRepository.findMemberships(groupId, ids)
+                                                    .collectMap(Membership::userId, Function.identity());
+                                    return memberships.map(byUser -> PageResponse.of(
+                                            found.getUsers().stream().map(user -> {
+                                                Membership membership = byUser.get(user.getId());
+                                                return GroupMemberResponse.builder()
+                                                        .userId(user.getId())
+                                                        .firstName(user.getFirstName())
+                                                        .lastName(user.getLastName())
+                                                        .email(LogMaskUtils.maskEmail(user.getEmail()))
+                                                        .source(membership != null ? GroupMemberSource.valueOf(membership.source()) : null)
+                                                        .addedBy(membership != null ? membership.addedBy() : null)
+                                                        .addedAt(membership != null ? membership.addedAt() : null)
+                                                        .build();
+                                            }).toList(),
+                                            pageNumber, pageSize, found.getTotal()));
+                                }));
     }
 
     public Mono<PageResponse<GroupMemberResponse>> getMembers(Long groupId, int page, int size) {
@@ -170,12 +244,19 @@ public class GroupService {
      * Id and name of the active groups, for choosing an exam audience (ADMIN and INSTRUCTOR)
      */
     public Mono<PageResponse<GroupSummaryResponse>> listGroupNames(String name, int page, int size) {
-        return searchGroups(name, page, size)
-                .map(found -> PageResponse.of(
-                        found.getContent().stream()
-                                .map(group -> GroupSummaryResponse.builder().id(group.getId()).name(group.getName()).build())
-                                .toList(),
-                        found.getPage(), found.getSize(), found.getTotalElements()));
+        if (name != null && name.length() > MAX_NAME_LENGTH) {
+            return Mono.error(GroupException.invalidSearch());
+        }
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        String pattern = namePattern(name);
+
+        // Names only: no figures are computed for this list
+        return groupRepository.countByNamePattern(pattern)
+                .flatMap(total -> groupRepository.findPageByNamePattern(pattern, pageSize, (long) pageNumber * pageSize)
+                        .map(group -> GroupSummaryResponse.builder().id(group.getId()).name(group.getName()).build())
+                        .collectList()
+                        .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
     }
 
     /**
@@ -303,6 +384,38 @@ public class GroupService {
 
     private String escapeLike(String value) {
         return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    private String namePattern(String name) {
+        return "%" + escapeLike(name == null ? "" : name.trim().toLowerCase(Locale.ROOT)) + "%";
+    }
+
+    private GroupResponse toResponse(GroupFigures group) {
+        GroupResponse.JoinLinkState link = group.linkExists()
+                ? GroupResponse.JoinLinkState.builder()
+                        .exists(true)
+                        .enabled(group.linkEnabled())
+                        .usable(Boolean.TRUE.equals(group.linkEnabled())
+                                && (group.linkExpiresAt() == null || group.linkExpiresAt().isAfter(LocalDateTime.now()))
+                                && (group.linkMaxUses() == null || group.linkUses() < group.linkMaxUses()))
+                        .requiresApproval(group.linkRequiresApproval())
+                        .uses(group.linkUses())
+                        .maxUses(group.linkMaxUses())
+                        .build()
+                : GroupResponse.JoinLinkState.builder().exists(false).build();
+        return GroupResponse.builder()
+                .id(group.id())
+                .name(group.name())
+                .description(group.description())
+                .createdBy(group.createdBy())
+                .createdAt(group.createdAt())
+                .updatedAt(group.updatedAt())
+                .memberCount(group.memberCount())
+                .pendingInviteCount(group.pendingInviteCount())
+                .pendingJoinRequests(group.pendingJoinRequests())
+                .examCount(group.examCount())
+                .joinLink(link)
+                .build();
     }
 
     private GroupResponse toResponse(UserGroup group) {
