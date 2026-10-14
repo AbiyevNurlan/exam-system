@@ -85,6 +85,9 @@ exam:
       medium-from: ${EXAM_FRAUD_RISK_MEDIUM:5}
       high-from: ${EXAM_FRAUD_RISK_HIGH:15}
       critical-from: ${EXAM_FRAUD_RISK_CRITICAL:30}
+  results:
+    # Most rows a CSV export of an exam's results may have; more is refused with 422 RESULTS_EXPORT_TOO_LARGE
+    export-max-rows: ${EXAM_RESULTS_EXPORT_MAX_ROWS:50000}
   media:
     # Allowed uploads: IMAGE jpeg/png/webp, AUDIO mp3/ogg/m4a, VIDEO mp4 (MediaTypePolicy)
     image-max-bytes: 5242880          # 5 MB

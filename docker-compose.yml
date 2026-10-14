@@ -172,6 +172,8 @@ services:
       EXAM_FRAUD_RISK_MEDIUM: ${EXAM_FRAUD_RISK_MEDIUM:-5}
       EXAM_FRAUD_RISK_HIGH: ${EXAM_FRAUD_RISK_HIGH:-15}
       EXAM_FRAUD_RISK_CRITICAL: ${EXAM_FRAUD_RISK_CRITICAL:-30}
+      # Most rows a CSV export of an exam's results may have (more answers 422)
+      EXAM_RESULTS_EXPORT_MAX_ROWS: ${EXAM_RESULTS_EXPORT_MAX_ROWS:-50000}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_db

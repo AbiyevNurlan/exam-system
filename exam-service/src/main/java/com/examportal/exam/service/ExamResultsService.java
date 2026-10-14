@@ -30,6 +30,7 @@ import com.examportal.exam.repository.QuestionRepository;
 import com.examportal.exam.repository.UserAnswerRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.stereotype.Service;
@@ -71,8 +72,7 @@ public class ExamResultsService {
     private static final int TOP = 3;
     // Sorting by name happens here, not in SQL (names live in auth-service): only up to this many rows
     private static final int MAX_NAME_SORT_ROWS = 10_000;
-    // An export larger than this is refused (422); rows are named in blocks of EXPORT_BLOCK
-    static final int MAX_EXPORT_ROWS = 50_000;
+    // Rows are named in blocks of EXPORT_BLOCK
     private static final int EXPORT_BLOCK = 500;
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private static final List<String> EXPORT_HEADERS = List.of(
@@ -89,6 +89,10 @@ public class ExamResultsService {
     private final FraudRiskPolicy riskPolicy;
     private final ExamMediaService examMedia;
     private final GroupAuditService auditService;
+
+    // An export larger than this is refused (422 RESULTS_EXPORT_TOO_LARGE); EXAM_RESULTS_EXPORT_MAX_ROWS
+    @Value("${exam.results.export-max-rows:50000}")
+    private int maxExportRows = 50_000;
 
     /**
      * What a list request asks for; null = not given
@@ -335,7 +339,7 @@ public class ExamResultsService {
     /**
      * The same list as getResults (same filters, search and order) as a CSV file: UTF-8 with a BOM,
      * comma separated, Azerbaijani headers, every row of the list without paging. More than
-     * MAX_EXPORT_ROWS rows is refused (422) before anything is sent. The rows are read with one
+     * maxExportRows (default 50 000) rows is refused (422) before anything is sent. The rows are read with one
      * statement and streamed; names are looked up per block of rows. One audit row records who
      * exported which exam and how many rows.
      */
@@ -349,8 +353,8 @@ public class ExamResultsService {
                     Filter filter = prepared.filter(examId, search.userIds(), query);
                     return resultsRepository.count(filter, prepared.riskSql())
                             .flatMap(total -> {
-                                if (total > MAX_EXPORT_ROWS) {
-                                    return Mono.error(ExamException.exportTooLarge(MAX_EXPORT_ROWS));
+                                if (total > maxExportRows) {
+                                    return Mono.error(ExamException.exportTooLarge(maxExportRows));
                                 }
                                 if (prepared.sort().equals("name") && total > MAX_NAME_SORT_ROWS) {
                                     return Mono.error(new ValidationException("Too many rows to sort by name; narrow the list with q or a filter"));
@@ -362,7 +366,7 @@ public class ExamResultsService {
                                                 .flatMap(all -> names(search, all).map(users -> sortedByName(all, users, prepared.ascending())))
                                                 .flatMapIterable(sorted -> sorted)
                                         : resultsRepository.findPage(filter, prepared.riskSql(), prepared.column(), prepared.ascending(),
-                                                MAX_EXPORT_ROWS, 0);
+                                                maxExportRows, 0);
                                 return audit(userId, exam, total, prepared).thenReturn(csv(examId, total, rows, search));
                             });
                 }));
