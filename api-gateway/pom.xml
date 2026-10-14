@@ -27,6 +27,12 @@
             <artifactId>spring-cloud-starter-gateway</artifactId>
         </dependency>
 
+        <!-- lb:// routes of the production profile: instances from gateway.services (StaticDiscoveryClient) -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+
         <!-- Spring Cloud Circuit Breaker -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

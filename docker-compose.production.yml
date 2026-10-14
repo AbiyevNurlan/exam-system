@@ -397,6 +397,14 @@ services:
       AUTH_SERVICE_URL: http://auth-service-1:8081,http://auth-service-2:8081
       EXAM_SERVICE_URL: http://exam-service-1:8082,http://exam-service-2:8082,http://exam-service-3:8082
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
+      # The sites that may call the API (no "*" in production) and the proxies whose X-Forwarded-For
+      # is believed by the rate limiter (nginx; without it all users share nginx's bucket)
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required (https://your-site, comma separated)}
+      GATEWAY_TRUSTED_PROXIES: ${GATEWAY_TRUSTED_PROXIES:?GATEWAY_TRUSTED_PROXIES is required (the address or subnet of nginx)}
+      GATEWAY_AUTH_REGISTER_RATE: ${GATEWAY_AUTH_REGISTER_RATE:-500}
+      GATEWAY_AUTH_REGISTER_BURST: ${GATEWAY_AUTH_REGISTER_BURST:-1000}
+      GATEWAY_AUTH_LOGIN_RATE: ${GATEWAY_AUTH_LOGIN_RATE:-500}
+      GATEWAY_AUTH_LOGIN_BURST: ${GATEWAY_AUTH_LOGIN_BURST:-1000}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -440,6 +448,14 @@ services:
       AUTH_SERVICE_URL: http://auth-service-1:8081,http://auth-service-2:8081
       EXAM_SERVICE_URL: http://exam-service-1:8082,http://exam-service-2:8082,http://exam-service-3:8082
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
+      # The sites that may call the API (no "*" in production) and the proxies whose X-Forwarded-For
+      # is believed by the rate limiter (nginx; without it all users share nginx's bucket)
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required (https://your-site, comma separated)}
+      GATEWAY_TRUSTED_PROXIES: ${GATEWAY_TRUSTED_PROXIES:?GATEWAY_TRUSTED_PROXIES is required (the address or subnet of nginx)}
+      GATEWAY_AUTH_REGISTER_RATE: ${GATEWAY_AUTH_REGISTER_RATE:-500}
+      GATEWAY_AUTH_REGISTER_BURST: ${GATEWAY_AUTH_REGISTER_BURST:-1000}
+      GATEWAY_AUTH_LOGIN_RATE: ${GATEWAY_AUTH_LOGIN_RATE:-500}
+      GATEWAY_AUTH_LOGIN_BURST: ${GATEWAY_AUTH_LOGIN_BURST:-1000}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
