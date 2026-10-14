@@ -400,8 +400,9 @@ public class ExamResultsService {
                 row.getEmail(),
                 String.valueOf(row.getAttemptNumber()),
                 row.getStatus() != null ? row.getStatus().name() : null,
-                UtcDateTimeModule.format(row.getStartedAt()),
-                UtcDateTimeModule.format(row.getSubmittedAt()),
+                utc(row.getStartedAt()),
+                // Empty while the session is in progress
+                utc(row.getSubmittedAt()),
                 row.getDurationSeconds() != null ? String.valueOf(row.getDurationSeconds()) : null,
                 plain(row.getScore()),
                 plain(row.getMaxScore()),
@@ -440,6 +441,10 @@ public class ExamResultsService {
             cell = "\"" + cell.replace("\"", "\"\"") + "\"";
         }
         return cell;
+    }
+
+    private static String utc(LocalDateTime value) {
+        return value == null ? null : UtcDateTimeModule.format(value);
     }
 
     private static String plain(BigDecimal value) {
