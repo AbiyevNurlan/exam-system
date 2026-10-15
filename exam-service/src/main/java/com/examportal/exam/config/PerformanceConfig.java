@@ -6,6 +6,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisPassword;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettucePoolingClientConfiguration;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
@@ -30,6 +32,10 @@ public class PerformanceConfig {
 
     @Value("${spring.data.redis.port:6379}")
     private int redisPort;
+
+    // REDIS_PASSWORD; empty = Redis without a password (development)
+    @Value("${spring.data.redis.password:}")
+    private String redisPassword;
 
     // Note: R2DBC Connection Pool is now configured via application.yml
     // spring.r2dbc.pool.initial-size, max-size, etc.
@@ -56,10 +62,11 @@ public class PerformanceConfig {
                 .poolConfig(poolConfig)
                 .build();
 
-        LettuceConnectionFactory factory = new LettuceConnectionFactory(
-                new org.springframework.data.redis.connection.RedisStandaloneConfiguration(redisHost, redisPort),
-                clientConfig
-        );
+        RedisStandaloneConfiguration server = new RedisStandaloneConfiguration(redisHost, redisPort);
+        if (redisPassword != null && !redisPassword.isBlank()) {
+            server.setPassword(RedisPassword.of(redisPassword));
+        }
+        LettuceConnectionFactory factory = new LettuceConnectionFactory(server, clientConfig);
         
         factory.afterPropertiesSet();
         
