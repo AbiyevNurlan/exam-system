@@ -172,6 +172,8 @@ $pC = Register 'c' "Nb7${stamp}c" "Cc$stamp"
 $pD = Register 'd' "Nb7${stamp}d" "Dd$stamp"
 $insZ = Register 'z' "Zz$stamp" "Owner$stamp"
 $insY = Register 'y' "Yy$stamp" "Other$stamp"
+# Every role given below is taken back in the finally block before the summary
+try {
 Sql 'exam_auth' "update users set role='INSTRUCTOR' where email in ('$($insZ.email)','$($insY.email)')" | Out-Null
 # A name that a spreadsheet would read as a formula (own test account only)
 Sql 'exam_auth' "update users set first_name='=SUM(1+1)' where email='$($pD.email)'" | Out-Null
@@ -185,11 +187,15 @@ $g2 = (Api 'POST' '/api/admin/groups' $adm.token @{ name = "$T-g2" }).data.id
 $g3 = (Api 'POST' '/api/admin/groups' $adm.token @{ name = "$T-g3" }).data.id
 foreach ($p in $pA, $pB, $pD) { $null = Api 'POST' "/api/admin/groups/$g1/members" $adm.token @{ userId = $p.id } }
 foreach ($p in $pB, $pC) { $null = Api 'POST' "/api/admin/groups/$g2/members" $adm.token @{ userId = $p.id } }
+# B8: an INSTRUCTOR picks only the own groups for an audience, so z owns the group of E5 (same members as g2).
+# Its name is outside "$T-" on purpose: the group list and audit checks below count the admin's three groups.
+$gz = (Api 'POST' '/api/admin/groups' $insZ.token @{ name = "T-b7z-$stamp-own" }).data.id
+foreach ($p in $pB, $pC) { $null = Api 'POST' "/api/admin/groups/$gz/members" $insZ.token @{ userId = $p.id } }
 $invite = Api 'POST' "/api/admin/groups/$g1/members" $adm.token @{ email = "be-b7-inv-$stamp@x.test" }
 $link = Api 'POST' "/api/groups/$g1/join-link" $adm.token @{ requiresApproval = $true; maxUses = 10 }
 $joinCode = $link.data.code
 $joinC = Api 'POST' "/api/join/$joinCode" $pC.token $null
-Check 'setup: 3 groups, members, an invite, an approval link and a request' ($g1 -and $g2 -and $g3 -and $invite.data.status -eq 'INVITED' -and $joinC.data.status -eq 'PENDING') "g1 $g1, g2 $g2, g3 $g3"
+Check 'setup: 3 groups, members, an invite, an approval link and a request; instructor z owns a group of 2' ($g1 -and $g2 -and $g3 -and $gz -and (Sql 'exam_db' "select count(*) from user_group_members where group_id=$gz") -eq '2' -and $invite.data.status -eq 'INVITED' -and $joinC.data.status -eq 'PENDING') "g1 $g1, g2 $g2, g3 $g3, gz $gz"
 
 # Exams: E1 (admin, GROUP g1+g2, results), E2 (admin, PUBLIC), E3 (admin, GROUP g1, draft), E4 (GROUP g1, deleted)
 $start = [DateTime]::UtcNow.AddSeconds(20); $start = $start.AddTicks(-($start.Ticks % [TimeSpan]::TicksPerSecond))
@@ -199,8 +205,8 @@ $e2 = (Api 'POST' '/api/exams' $adm.token (ExamBody "$T-e2" $start $start.AddHou
 $e3 = (Api 'POST' '/api/exams' $adm.token (ExamBody "$T-e3" $start.AddDays(1) $start.AddDays(2) 30 @((Mc "$T d1" 1 0)) @($g1) $null)).data.id
 $e4 = (Api 'POST' '/api/exams' $adm.token (ExamBody "$T-e4" $start.AddDays(1) $start.AddDays(2) 30 @((Mc "$T x1" 1 0)) @($g1) $null)).data.id
 $e4Deleted = (Api 'DELETE' "/api/exams/$e4" $adm.token $null).status
-# E5 (instructor z, GROUP g2, one minute: runs out), E6 (admin, GROUP g1, starts in 2 hours, daily limit 1)
-$e5 = (Api 'POST' '/api/exams' $insZ.token (ExamBody "$T-e5" $start $start.AddHours(6) 1 @((Open "$T o1" 2 0), (Mc "$T m1" 1 1)) @($g2) $null)).data.id
+# E5 (instructor z, GROUP gz = z's own group, one minute: runs out), E6 (admin, GROUP g1, starts in 2 hours, daily limit 1)
+$e5 = (Api 'POST' '/api/exams' $insZ.token (ExamBody "$T-e5" $start $start.AddHours(6) 1 @((Open "$T o1" 2 0), (Mc "$T m1" 1 1)) @($gz) $null)).data.id
 $e6 = (Api 'POST' '/api/exams' $adm.token (ExamBody "$T-e6" ([DateTime]::UtcNow.AddHours(2)) ([DateTime]::UtcNow.AddHours(4)) 30 @((Mc "$T s1" 1 0)) @($g1) 1)).data.id
 # E1, E2 and E5 are published now; E3 stays a draft; E6 is published in part 7
 $published = @($e1, $e2) | ForEach-Object { (Api 'POST' "/api/exams/$_/publish" $adm.token $null).status }
@@ -437,7 +443,12 @@ $null = Finish $again.data.sessionId $pA.token
 
 # ---------- 8. permissions ----------
 Check 'permissions: participant 403 on group list, group exams, member search' ((Api 'GET' '/api/admin/groups' $pA.token $null).status -eq 403 -and (Api 'GET' "/api/admin/groups/$g1/exams" $pA.token $null).status -eq 403 -and (Api 'GET' "/api/admin/groups/$g1/members?q=Nb7" $pA.token $null).status -eq 403)
-Check 'permissions: instructor 403 on /api/admin/groups' ((Api 'GET' '/api/admin/groups' $insZ.token $null).status -eq 403)
+# B8: an INSTRUCTOR manages the own groups; a group of someone else answers like a missing one (404)
+$zGroups = Api 'GET' '/api/admin/groups?size=50' $insZ.token $null
+$zIds = @(@($zGroups.data.content) | ForEach-Object { $_.id })
+$yGroups = Api 'GET' '/api/admin/groups?size=50' $insY.token $null
+Check 'permissions: instructor z lists only the own group on /api/admin/groups, none of the admin' ($zGroups.status -eq 200 -and $zGroups.data.totalElements -eq 1 -and ($zIds -join ',') -eq "$gz" -and $yGroups.status -eq 200 -and $yGroups.data.totalElements -eq 0) "z: status $($zGroups.status), ids $($zIds -join ','); y: status $($yGroups.status), total $($yGroups.data.totalElements)"
+Check 'permissions: a group of someone else is 404 for an instructor (admin g1 for z, gz for y), the own one 200' ((Api 'GET' "/api/admin/groups/$g1" $insZ.token $null).status -eq 404 -and (Api 'GET' "/api/admin/groups/$g1/members" $insZ.token $null).status -eq 404 -and (Api 'GET' "/api/admin/groups/$gz" $insY.token $null).status -eq 404 -and (Api 'GET' "/api/admin/groups/$gz" $insZ.token $null).status -eq 200)
 Check 'permissions: instructor results of an exam outside the audience 404, of a PUBLIC exam of someone else 403 EXAM_NOT_OWNER' ((Api 'GET' "/api/exams/$e1/results" $insY.token $null).status -eq 404 -and (Api 'GET' "/api/exams/$e2/results" $insY.token $null).code -eq 'EXAM_NOT_OWNER')
 
 # ---------- 9. export limit (422) ----------
@@ -455,9 +466,17 @@ if (-not $SkipExportLimit) {
     RestartExamService
     Check 'CSV: back at the default limit of 50 000' ((docker exec exam-exam-service printenv EXAM_RESULTS_EXPORT_MAX_ROWS) -eq '50000')
 }
+} finally {
+    # The test accounts get the participant role back, whatever happened above: no test account stays INSTRUCTOR
+    $given = @($insZ.email, $insY.email) | Where-Object { $_ -like '*@x.test' }
+    if ($given) {
+        $back = Sql 'exam_auth' "update users set role='STUDENT' where role <> 'STUDENT' and email in ('$($given -join "','")')"
+        Write-Output "roles given back: $back"
+    }
+}
 
 $failed = @($script:results | Where-Object { -not $_.ok })
 Write-Output ''
 Write-Output "$($script:results.Count - $failed.Count) / $($script:results.Count) passed"
 Write-Output "requests repeated after a 429 of the gateway: $($script:throttled)"
-Write-Output "data: groups $g1, $g2, $g3; exams e1 $e1, e2 $e2, e3 $e3, e5 $e5, e6 $e6 (e4 $e4 deleted); stamp $stamp"
+Write-Output "data: groups $g1, $g2, $g3, $gz (z); exams e1 $e1, e2 $e2, e3 $e3, e5 $e5, e6 $e6 (e4 $e4 deleted); stamp $stamp"
