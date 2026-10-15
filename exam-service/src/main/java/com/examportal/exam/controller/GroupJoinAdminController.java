@@ -25,14 +25,15 @@ import reactor.core.publisher.Mono;
 
 /**
  * Group Join Admin Controller
- * The join link of a group and the requests made through it. ADMIN only, enforced by path in
- * SecurityConfig (/api/groups/{id}/**) and by @PreAuthorize.
+ * The join link of a group and the requests made through it. ADMIN for every group, INSTRUCTOR for
+ * the own ones (GroupAccessPolicy; another owner's group is a 404). Roles by path in SecurityConfig
+ * (/api/groups/{id}/**) and by @PreAuthorize.
  */
 @RestController
 @RequestMapping("/api/groups/{id}")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
-@Tag(name = "Group Administration", description = "Admin-only user groups and membership")
+@PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+@Tag(name = "Group Administration", description = "User groups and membership: ADMIN all, INSTRUCTOR the own ones")
 @SecurityRequirement(name = "bearerAuth")
 public class GroupJoinAdminController {
 
@@ -40,8 +41,10 @@ public class GroupJoinAdminController {
 
     @GetMapping("/join-link")
     @Operation(summary = "Get the join link", description = "Code, settings, uses and open requests; 404 JOIN_LINK_NOT_FOUND when the group has none")
-    public Mono<ApiResponse<JoinDtos.LinkResponse>> getLink(@PathVariable Long id) {
-        return joinService.getLink(id)
+    public Mono<ApiResponse<JoinDtos.LinkResponse>> getLink(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return joinService.getLink(id, principal)
                 .map(ApiResponse::success);
     }
 
@@ -53,7 +56,7 @@ public class GroupJoinAdminController {
             @Valid @RequestBody(required = false) JoinDtos.LinkRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return Mono.defer(() -> joinService.createLink(id, request, principal.getId()))
+        return Mono.defer(() -> joinService.createLink(id, request, principal))
                 .map(link -> ApiResponse.success(link, "Join link created successfully"));
     }
 
@@ -65,7 +68,7 @@ public class GroupJoinAdminController {
             @Valid @RequestBody JoinDtos.LinkRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return Mono.defer(() -> joinService.updateLink(id, request, principal.getId()))
+        return Mono.defer(() -> joinService.updateLink(id, request, principal))
                 .map(link -> ApiResponse.success(link, "Join link updated successfully"));
     }
 
@@ -75,9 +78,10 @@ public class GroupJoinAdminController {
             @PathVariable Long id,
             @RequestParam(required = false) @Parameter(description = "PENDING (default), APPROVED or REJECTED") String status,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
-            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
 
-        return Mono.defer(() -> joinService.getRequests(id, status, page, size))
+        return Mono.defer(() -> joinService.getRequests(id, status, page, size, principal))
                 .map(ApiResponse::success);
     }
 
@@ -88,7 +92,7 @@ public class GroupJoinAdminController {
             @Valid @RequestBody JoinDtos.Decision request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return joinService.decide(id, request.getRequestIds(), true, principal.getId())
+        return joinService.decide(id, request.getRequestIds(), true, principal)
                 .map(ApiResponse::success);
     }
 
@@ -99,7 +103,7 @@ public class GroupJoinAdminController {
             @Valid @RequestBody JoinDtos.Decision request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return joinService.decide(id, request.getRequestIds(), false, principal.getId())
+        return joinService.decide(id, request.getRequestIds(), false, principal)
                 .map(ApiResponse::success);
     }
 
@@ -110,7 +114,7 @@ public class GroupJoinAdminController {
             @PathVariable Long requestId,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return joinService.decideOne(id, requestId, true, principal.getId())
+        return joinService.decideOne(id, requestId, true, principal)
                 .map(ApiResponse::success);
     }
 
@@ -121,7 +125,7 @@ public class GroupJoinAdminController {
             @PathVariable Long requestId,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return joinService.decideOne(id, requestId, false, principal.getId())
+        return joinService.decideOne(id, requestId, false, principal)
                 .map(ApiResponse::success);
     }
 }

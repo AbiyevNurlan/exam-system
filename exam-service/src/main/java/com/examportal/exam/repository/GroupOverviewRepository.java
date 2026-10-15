@@ -25,7 +25,7 @@ public class GroupOverviewRepository {
 
     private final DatabaseClient databaseClient;
 
-    public record GroupFigures(Long id, String name, String description, UUID createdBy, LocalDateTime createdAt,
+    public record GroupFigures(Long id, String name, String description, UUID createdBy, UUID ownerId, LocalDateTime createdAt,
                                LocalDateTime updatedAt, long memberCount, long pendingInviteCount,
                                long pendingJoinRequests, long examCount, boolean linkExists, Boolean linkEnabled,
                                Boolean linkRequiresApproval, LocalDateTime linkExpiresAt, Integer linkMaxUses,
@@ -34,7 +34,7 @@ public class GroupOverviewRepository {
 
     // Figures of the groups in "g" (an inline view of user_groups rows); fixed text only
     private static final String FIGURES = """
-            SELECT g.id, g.name, g.description, g.created_by, g.created_at, g.updated_at,
+            SELECT g.id, g.name, g.description, g.created_by, g.owner_id, g.created_at, g.updated_at,
                    m.member_count, i.invite_count, r.request_count, x.exam_count,
                    l.id IS NOT NULL AS link_exists, l.enabled AS link_enabled,
                    l.requires_approval AS link_requires_approval, l.expires_at AS link_expires_at,
@@ -51,19 +51,21 @@ public class GroupOverviewRepository {
             """;
 
     /**
-     * One page of active groups whose lower-case name matches the LIKE pattern, by name, with figures
+     * One page of active groups whose lower-case name matches the LIKE pattern, by name, with figures.
+     * ownerId limits the page to the groups of that owner (GroupAccessPolicy.ownerFilter); null = all.
      */
-    public Flux<GroupFigures> findPage(String pattern, int limit, long offset) {
-        return databaseClient.sql(FIGURES.formatted("""
+    public Flux<GroupFigures> findPage(String pattern, UUID ownerId, int limit, long offset) {
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(FIGURES.formatted("""
                         SELECT * FROM user_groups
                         WHERE active = true AND lower(name) LIKE :pattern ESCAPE '\\'
+                          AND (CAST(:ownerId AS uuid) IS NULL OR owner_id = CAST(:ownerId AS uuid))
                         ORDER BY lower(name), id
                         LIMIT :limit OFFSET :offset""") + " ORDER BY lower(g.name), g.id")
                 .bind("pattern", pattern)
                 .bind("limit", limit)
-                .bind("offset", offset)
-                .map(GroupOverviewRepository::figures)
-                .all();
+                .bind("offset", offset);
+        spec = ownerId != null ? spec.bind("ownerId", ownerId) : spec.bindNull("ownerId", UUID.class);
+        return spec.map(GroupOverviewRepository::figures).all();
     }
 
     /**
@@ -140,6 +142,7 @@ public class GroupOverviewRepository {
                 row.get("name", String.class),
                 row.get("description", String.class),
                 row.get("created_by", UUID.class),
+                row.get("owner_id", UUID.class),
                 row.get("created_at", LocalDateTime.class),
                 row.get("updated_at", LocalDateTime.class),
                 row.get("member_count", Long.class),

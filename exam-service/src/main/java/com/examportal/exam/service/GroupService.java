@@ -15,6 +15,7 @@ import com.examportal.common.domain.dto.internal.UserLookupResponse.UserRef;
 import com.examportal.common.domain.entity.GroupMemberSource;
 import com.examportal.common.domain.entity.UserGroup;
 import com.examportal.common.domain.entity.UserGroupMember;
+import com.examportal.common.security.UserPrincipal;
 import com.examportal.common.utils.LogMaskUtils;
 import com.examportal.exam.client.UserDirectoryClient;
 import com.examportal.exam.exception.GroupException;
@@ -43,7 +44,8 @@ import java.util.stream.Collectors;
 
 /**
  * Group Service
- * Groups and their members (ADMIN only; the controller enforces the role).
+ * Groups and their members. ADMIN manages every group, INSTRUCTOR only the own ones
+ * (GroupAccessPolicy: another owner's group is a 404, the same as one that does not exist).
  * Every change and its group_audit_log row are written in one transaction.
  */
 @Slf4j
@@ -62,13 +64,19 @@ public class GroupService {
     private final TransactionalOperator transactionalOperator;
     private final GroupOverviewRepository overviewRepository;
     private final GroupMembershipRepository membershipRepository;
+    private final GroupAccessPolicy accessPolicy;
 
-    public Mono<GroupResponse> createGroup(GroupRequest request, UUID actorId) {
+    /**
+     * The creator owns the new group
+     */
+    public Mono<GroupResponse> createGroup(GroupRequest request, UserPrincipal actor) {
+        UUID actorId = actor.getId();
         LocalDateTime now = LocalDateTime.now();
         UserGroup group = UserGroup.builder()
                 .name(request.getName().trim())
                 .description(request.getDescription())
                 .createdBy(actorId)
+                .ownerId(actorId)
                 .createdAt(now)
                 .updatedAt(now)
                 .active(true)
@@ -85,8 +93,9 @@ public class GroupService {
                 .doOnSuccess(created -> log.info("Group {} created by {}", created.getId(), actorId));
     }
 
-    public Mono<GroupResponse> updateGroup(Long groupId, GroupRequest request, UUID actorId) {
-        Mono<UserGroup> update = findGroup(groupId)
+    public Mono<GroupResponse> updateGroup(Long groupId, GroupRequest request, UserPrincipal actor) {
+        UUID actorId = actor.getId();
+        Mono<UserGroup> update = findGroup(groupId, actor)
                 .flatMap(group -> {
                     String oldName = group.getName();
                     group.setName(request.getName().trim());
@@ -108,8 +117,9 @@ public class GroupService {
      * Soft delete: the group, its members and its audit trail stay in the database. Exams that
      * had only this group as audience are from now on accessible to nobody but their owner and ADMIN.
      */
-    public Mono<Void> deleteGroup(Long groupId, UUID actorId) {
-        Mono<Void> deletion = findGroup(groupId)
+    public Mono<Void> deleteGroup(Long groupId, UserPrincipal actor) {
+        UUID actorId = actor.getId();
+        Mono<Void> deletion = findGroup(groupId, actor)
                 .flatMap(group -> groupRepository.softDelete(groupId)
                         .then(auditService.record(actorId, GroupAuditService.GROUP_DELETED, groupId, null,
                                 "name=" + group.getName())));
@@ -120,10 +130,11 @@ public class GroupService {
 
     /**
      * One group with its member, invite, open request and exam counts and the state of its join link
-     * (one statement)
+     * (one statement after the access check)
      */
-    public Mono<GroupResponse> getGroup(Long groupId) {
-        return overviewRepository.findById(groupId)
+    public Mono<GroupResponse> getGroup(Long groupId, UserPrincipal actor) {
+        return findGroup(groupId, actor)
+                .then(Mono.defer(() -> overviewRepository.findById(groupId)))
                 .switchIfEmpty(Mono.error(GroupException.notFound(groupId)))
                 .map(this::toResponse);
     }
@@ -131,17 +142,19 @@ public class GroupService {
     /**
      * One page of groups sorted by name; the optional filter matches any part of the name, ignoring case.
      * Every row carries its counts and the state of its join link: two statements per page.
+     * An INSTRUCTOR gets only the own groups.
      */
-    public Mono<PageResponse<GroupResponse>> searchGroups(String name, int page, int size) {
+    public Mono<PageResponse<GroupResponse>> searchGroups(String name, int page, int size, UserPrincipal actor) {
         if (name != null && name.length() > MAX_NAME_LENGTH) {
             return Mono.error(GroupException.invalidSearch());
         }
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         String pattern = namePattern(name);
+        UUID owner = GroupAccessPolicy.ownerFilter(actor.getId(), actor.getRole());
 
-        return groupRepository.countByNamePattern(pattern)
-                .flatMap(total -> overviewRepository.findPage(pattern, pageSize, (long) pageNumber * pageSize)
+        return groupRepository.countByNamePattern(pattern, owner)
+                .flatMap(total -> overviewRepository.findPage(pattern, owner, pageSize, (long) pageNumber * pageSize)
                         .map(this::toResponse)
                         .collectList()
                         .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
@@ -150,11 +163,11 @@ public class GroupService {
     /**
      * Exams (not deleted) whose audience includes the group, newest start first
      */
-    public Mono<PageResponse<GroupExamResponse>> getGroupExams(Long groupId, int page, int size) {
+    public Mono<PageResponse<GroupExamResponse>> getGroupExams(Long groupId, int page, int size, UserPrincipal actor) {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
-        return findGroup(groupId)
+        return findGroup(groupId, actor)
                 .flatMap(group -> overviewRepository.countExamsOfGroup(groupId))
                 .flatMap(total -> overviewRepository.findExamsOfGroup(groupId, pageSize, (long) pageNumber * pageSize)
                         .collectList()
@@ -167,10 +180,10 @@ public class GroupService {
      * handed to auth-service, which filters, sorts by name and pages; how and when each row was added
      * comes from one more statement here. Emails stay masked, as in the list without q.
      */
-    public Mono<PageResponse<GroupMemberResponse>> getMembers(Long groupId, String q, int page, int size) {
+    public Mono<PageResponse<GroupMemberResponse>> getMembers(Long groupId, String q, int page, int size, UserPrincipal actor) {
         String term = q == null || q.isBlank() ? null : q.trim();
         if (term == null) {
-            return getMembers(groupId, page, size);
+            return getMembers(groupId, page, size, actor);
         }
         if (term.length() < ParticipantQuery.MIN_SEARCH_LENGTH || term.length() > ParticipantQuery.MAX_SEARCH_LENGTH) {
             return Mono.error(new ValidationException("Search text must be between " + ParticipantQuery.MIN_SEARCH_LENGTH
@@ -179,7 +192,7 @@ public class GroupService {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), Math.min(MAX_PAGE_SIZE, ParticipantQuery.MAX_PAGE_SIZE));
 
-        return findGroup(groupId)
+        return findGroup(groupId, actor)
                 .flatMap(group -> membershipRepository.findMemberIds(groupId))
                 .flatMap(memberIds -> memberIds.isEmpty()
                         ? Mono.just(PageResponse.<GroupMemberResponse>of(List.of(), pageNumber, pageSize, 0))
@@ -213,11 +226,11 @@ public class GroupService {
                                 }));
     }
 
-    public Mono<PageResponse<GroupMemberResponse>> getMembers(Long groupId, int page, int size) {
+    public Mono<PageResponse<GroupMemberResponse>> getMembers(Long groupId, int page, int size, UserPrincipal actor) {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
-        return findGroup(groupId)
+        return findGroup(groupId, actor)
                 .flatMap(group -> memberRepository.countByGroupId(groupId))
                 .flatMap(total -> memberRepository.findPageByGroupId(groupId, pageSize, (long) pageNumber * pageSize)
                         .collectList()
@@ -241,19 +254,21 @@ public class GroupService {
     }
 
     /**
-     * Id and name of the active groups, for choosing an exam audience (ADMIN and INSTRUCTOR)
+     * Id and name of the active groups, for choosing an exam audience: every group for ADMIN, the
+     * own ones for INSTRUCTOR
      */
-    public Mono<PageResponse<GroupSummaryResponse>> listGroupNames(String name, int page, int size) {
+    public Mono<PageResponse<GroupSummaryResponse>> listGroupNames(String name, int page, int size, UserPrincipal actor) {
         if (name != null && name.length() > MAX_NAME_LENGTH) {
             return Mono.error(GroupException.invalidSearch());
         }
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         String pattern = namePattern(name);
+        UUID owner = GroupAccessPolicy.ownerFilter(actor.getId(), actor.getRole());
 
         // Names only: no figures are computed for this list
-        return groupRepository.countByNamePattern(pattern)
-                .flatMap(total -> groupRepository.findPageByNamePattern(pattern, pageSize, (long) pageNumber * pageSize)
+        return groupRepository.countByNamePattern(pattern, owner)
+                .flatMap(total -> groupRepository.findPageByNamePattern(pattern, owner, pageSize, (long) pageNumber * pageSize)
                         .map(group -> GroupSummaryResponse.builder().id(group.getId()).name(group.getName()).build())
                         .collectList()
                         .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
@@ -263,11 +278,11 @@ public class GroupService {
      * Pending invites of a group, newest first. The email is masked: the list is for seeing how many
      * invites are open and cancelling one, not for reading addresses.
      */
-    public Mono<PageResponse<GroupInviteResponse>> getInvites(Long groupId, int page, int size) {
+    public Mono<PageResponse<GroupInviteResponse>> getInvites(Long groupId, int page, int size, UserPrincipal actor) {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
-        return findGroup(groupId)
+        return findGroup(groupId, actor)
                 .flatMap(group -> inviteRepository.countByGroupId(groupId))
                 .flatMap(total -> inviteRepository.findPageByGroupId(groupId, pageSize, (long) pageNumber * pageSize)
                         .map(invite -> GroupInviteResponse.builder()
@@ -280,8 +295,9 @@ public class GroupService {
                         .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
     }
 
-    public Mono<Void> cancelInvite(Long groupId, Long inviteId, UUID actorId) {
-        Mono<Void> cancellation = findGroup(groupId)
+    public Mono<Void> cancelInvite(Long groupId, Long inviteId, UserPrincipal actor) {
+        UUID actorId = actor.getId();
+        Mono<Void> cancellation = findGroup(groupId, actor)
                 .flatMap(group -> inviteRepository.deleteInvite(inviteId, groupId))
                 .switchIfEmpty(Mono.error(GroupException.inviteNotFound()))
                 .flatMap(email -> auditService.record(actorId, GroupAuditService.INVITE_CANCELLED, groupId, null,
@@ -297,14 +313,15 @@ public class GroupService {
      * otherwise the email is stored as a pending invite and applied once such an account exists
      * (an unverified account must not gain access through an address it has not proven to own).
      */
-    public Mono<AddGroupMemberResponse> addMember(Long groupId, AddGroupMemberRequest request, UUID actorId) {
+    public Mono<AddGroupMemberResponse> addMember(Long groupId, AddGroupMemberRequest request, UserPrincipal actor) {
+        UUID actorId = actor.getId();
         boolean hasId = request.getUserId() != null;
         boolean hasEmail = request.getEmail() != null && !request.getEmail().isBlank();
         if (hasId == hasEmail) {
             return Mono.error(GroupException.memberReferenceRequired());
         }
 
-        return findGroup(groupId).flatMap(group -> {
+        return findGroup(groupId, actor).flatMap(group -> {
             if (hasId) {
                 return userDirectory.findById(request.getUserId())
                         .switchIfEmpty(Mono.error(GroupException.userNotFound()))
@@ -318,8 +335,9 @@ public class GroupService {
         });
     }
 
-    public Mono<Void> removeMember(Long groupId, UUID userId, UUID actorId) {
-        Mono<Void> removal = findGroup(groupId)
+    public Mono<Void> removeMember(Long groupId, UUID userId, UserPrincipal actor) {
+        UUID actorId = actor.getId();
+        Mono<Void> removal = findGroup(groupId, actor)
                 .flatMap(group -> memberRepository.removeMember(groupId, userId))
                 .flatMap(removed -> removed == 0
                         ? Mono.<Void>error(GroupException.memberNotFound())
@@ -331,9 +349,11 @@ public class GroupService {
 
     // ==================== Private Helper Methods ====================
 
-    private Mono<UserGroup> findGroup(Long groupId) {
-        return groupRepository.findActiveById(groupId)
-                .switchIfEmpty(Mono.error(GroupException.notFound(groupId)));
+    /**
+     * The group, if the actor may manage it; 404 otherwise (GroupAccessPolicy)
+     */
+    private Mono<UserGroup> findGroup(Long groupId, UserPrincipal actor) {
+        return accessPolicy.findManageableGroup(groupId, actor.getId(), actor.getRole());
     }
 
     private Mono<AddGroupMemberResponse> addExistingUser(Long groupId, UUID userId, String email, UUID actorId) {
@@ -408,6 +428,7 @@ public class GroupService {
                 .name(group.name())
                 .description(group.description())
                 .createdBy(group.createdBy())
+                .ownerId(group.ownerId())
                 .createdAt(group.createdAt())
                 .updatedAt(group.updatedAt())
                 .memberCount(group.memberCount())
@@ -424,6 +445,7 @@ public class GroupService {
                 .name(group.getName())
                 .description(group.getDescription())
                 .createdBy(group.getCreatedBy())
+                .ownerId(group.getOwnerId())
                 .createdAt(group.getCreatedAt())
                 .updatedAt(group.getUpdatedAt())
                 .build();

@@ -159,8 +159,14 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
 - **Groups and memberships live in exam-service** (`exam_db`) and reference users by UUID. Every
   change writes `group_audit_log` in the same transaction. A membership says where it came from
   (`user_group_members.source`): ADMIN (one at a time), CSV (import or pending invite), BULK (a
-  filter or a page selection), LINK (the group's join link). Changing a group, its members, its
-  join link or its join requests is ADMIN only (`/api/admin/**` and `/api/groups/{id}/**`).
+  filter or a page selection), LINK (the group's join link).
+- **Who manages a group is decided in one place: `GroupAccessPolicy`.** ADMIN every group, INSTRUCTOR
+  only the groups they own (`user_groups.owner_id`, the creator; V12): the group, its members,
+  invites, CSV import, additions by ids, join link and join requests (`/api/admin/groups/**`,
+  `/api/groups/{id}/**`). Another owner's group is a 404 `GROUP_NOT_FOUND`, never a 403. Lists filter
+  in SQL (`GroupAccessPolicy.ownerFilter`). Adding by filter is ADMIN only: a filter reaches every
+  participant of the platform. An exam audience may use, for an INSTRUCTOR, the own groups and
+  those already stored on the exam; the audience preview lists other groups as unknown.
 - **No service ever holds the whole user table.** The admin's participant list
   (`GET /api/admin/participants`, `ParticipantService`) is filtered, sorted and paged in
   auth-service's database (`POST /internal/users/participants`), a group filter is handed over as

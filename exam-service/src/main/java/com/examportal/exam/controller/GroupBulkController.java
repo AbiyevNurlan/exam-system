@@ -21,22 +21,23 @@ import reactor.core.publisher.Mono;
 
 /**
  * Group Bulk Controller
- * Adding many participants to a group at once. Groups have no owner: like everything else that
- * changes a group this is for ADMIN only, enforced by path in SecurityConfig (/api/groups/{id}/**)
- * and by @PreAuthorize.
+ * Adding many participants to a group at once. By ids: ADMIN for every group, INSTRUCTOR for the own
+ * ones (GroupAccessPolicy). By filter: ADMIN only, because a filter reaches every participant of the
+ * platform. Roles by path in SecurityConfig (/api/groups/{id}/**) and by @PreAuthorize.
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/groups/{id}/members")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
-@Tag(name = "Group Administration", description = "Admin-only user groups and membership")
+@PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+@Tag(name = "Group Administration", description = "User groups and membership: ADMIN all, INSTRUCTOR the own ones")
 @SecurityRequirement(name = "bearerAuth")
 public class GroupBulkController {
 
     private final GroupBulkService bulkService;
 
     @PostMapping("/bulk-by-filter")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Add everybody matching a filter", description = "The filter is the one of the participant list. "
             + "dryRun=true writes nothing and answers {matched, alreadyMembers, willAdd, cap}. A real run needs expectedCount "
             + "(willAdd of the dry run): 409 FILTER_COUNT_CHANGED when it no longer holds, 422 TOO_MANY_MATCHES above 20 000; "
@@ -48,7 +49,7 @@ public class GroupBulkController {
 
         log.info("Bulk addition by filter to group: {} by user: {} (dryRun: {})", id, principal.getId(), request.isDryRun());
 
-        return Mono.defer(() -> bulkService.addByFilter(id, request, principal.getId()))
+        return Mono.defer(() -> bulkService.addByFilter(id, request, principal))
                 .map(ApiResponse::success);
     }
 
@@ -62,7 +63,7 @@ public class GroupBulkController {
 
         log.info("Bulk addition by ids to group: {} by user: {} (dryRun: {})", id, principal.getId(), request.isDryRun());
 
-        return Mono.defer(() -> bulkService.addByIds(id, request, principal.getId()))
+        return Mono.defer(() -> bulkService.addByIds(id, request, principal))
                 .map(ApiResponse::success);
     }
 }

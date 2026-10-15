@@ -23,6 +23,8 @@ public class GroupResponse {
     private String name;
     private String description;
     private UUID createdBy;
+    // Who manages the group (an INSTRUCTOR sees only the own ones)
+    private UUID ownerId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

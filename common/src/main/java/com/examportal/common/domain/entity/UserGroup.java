@@ -33,6 +33,10 @@ public class UserGroup {
     @Column("created_by")
     private UUID createdBy;
 
+    // Who manages the group: an INSTRUCTOR only the own groups, an ADMIN every group (V12)
+    @Column("owner_id")
+    private UUID ownerId;
+
     @Column("created_at")
     private LocalDateTime createdAt;
 

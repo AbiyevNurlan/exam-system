@@ -73,7 +73,7 @@ public class ExamService {
         List<Long> groupIds = audienceGroupIds(accessType, request.getGroupIds());
 
         Mono<ExamResponse> creation = validator.validateCreateRequest(request)
-                .then(requireValidAudience(accessType, groupIds))
+                .then(requireValidAudience(accessType, groupIds, userId, role, List.of()))
                 .then(examMedia.validate(request.getQuestions(), userId, role, null))
                 .then(Mono.defer(() -> {
                     Exam exam = mapper.toEntity(request, userId);
@@ -119,7 +119,8 @@ public class ExamService {
                     return Mono.just(exam);
                 })
                 .flatMap(exam -> validator.validateUpdateRequest(request)
-                        .then(newAccessType == null ? Mono.<Void>empty() : requireValidAudience(newAccessType, groupIds))
+                        .then(newAccessType == null ? Mono.<Void>empty() : audienceRepository.findGroupIdsByExamId(examId).collectList()
+                                .flatMap(stored -> requireValidAudience(newAccessType, groupIds, userId, role, stored)))
                         .then(examMedia.validate(request.getQuestions(), userId, role, examId))
                         .thenReturn(exam))
                 .flatMap(exam -> {
@@ -455,7 +456,9 @@ public class ExamService {
                     if (!"ADMIN".equals(role) && !exam.getCreatedBy().equals(userId)) {
                         return Mono.error(ExamException.notOwner());
                     }
-                    return requireValidAudience(accessType, groupIds).thenReturn(exam);
+                    return audienceRepository.findGroupIdsByExamId(examId).collectList()
+                            .flatMap(stored -> requireValidAudience(accessType, groupIds, userId, role, stored))
+                            .thenReturn(exam);
                 })
                 .flatMap(exam -> audienceRepository.findGroupIdsByExamId(examId).collectList()
                         .flatMap(oldGroupIds -> examRepository.updateAccessType(examId, accessType.name())
@@ -485,11 +488,13 @@ public class ExamService {
             return Mono.error(new ValidationException("At most " + MAX_AUDIENCE_GROUPS + " groups can be previewed"));
         }
 
+        // The stored audience is always shown; other groups only when the caller may use them
         return accessPolicy.findManageableExam(examId, userId, role)
-                .flatMap(exam -> (requested.isEmpty()
-                        ? audienceRepository.findGroupIdsByExamId(examId).collectList()
-                        : Mono.just(requested))
-                        .flatMap(this::countAudience)
+                .flatMap(exam -> audienceRepository.findGroupIdsByExamId(examId).collectList()
+                        .flatMap(stored -> requested.isEmpty()
+                                ? countAudience(stored, Set.copyOf(stored))
+                                : usableGroupIds(requested, userId, role, stored)
+                                        .flatMap(usable -> countAudience(requested, usable)))
                         .map(counted -> {
                             counted.setExamId(examId);
                             counted.setAccessType(exam.getAccessType());
@@ -501,26 +506,30 @@ public class ExamService {
     /**
      * The same counts for groups that are not stored anywhere yet (an exam being created): the
      * members of each group and how many different people that is. Nothing is written. For everyone
-     * who may set an audience (ADMIN, INSTRUCTOR); the controller checks the role.
+     * who may set an audience (ADMIN, INSTRUCTOR); the controller checks the role. For an INSTRUCTOR
+     * the groups of other owners are listed as unknown (GroupAccessPolicy).
      */
-    public Mono<ExamAudiencePreviewResponse> previewGroups(List<Long> groupIds) {
+    public Mono<ExamAudiencePreviewResponse> previewGroups(List<Long> groupIds, UUID userId, String role) {
         List<Long> requested = groupIds == null ? List.of() : groupIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
         if (requested.size() > MAX_AUDIENCE_GROUPS) {
             return Mono.error(new ValidationException("At most " + MAX_AUDIENCE_GROUPS + " groups can be previewed"));
         }
-        return countAudience(requested);
+        return usableGroupIds(requested, userId, role, List.of())
+                .flatMap(usable -> countAudience(requested, usable));
     }
 
     /**
      * Members per group and the distinct total of the given groups: two statements however many
-     * groups there are. Groups that do not exist (or were deleted) are listed as unknown.
+     * groups there are. Only the usable ones are counted; the others (unknown, deleted, or another
+     * owner's group for an INSTRUCTOR) are listed as unknown, so they are not told apart.
      */
-    private Mono<ExamAudiencePreviewResponse> countAudience(List<Long> ids) {
+    private Mono<ExamAudiencePreviewResponse> countAudience(List<Long> requested, Set<Long> usable) {
+        List<Long> ids = requested.stream().filter(usable::contains).toList();
         if (ids.isEmpty()) {
             return Mono.just(ExamAudiencePreviewResponse.builder()
                     .perGroup(List.of())
                     .distinctEligible(0)
-                    .unknownGroupIds(List.of())
+                    .unknownGroupIds(requested)
                     .build());
         }
         return Mono.zip(membershipRepository.countMembersPerGroup(ids).collectList(),
@@ -536,7 +545,7 @@ public class ExamService {
                     return ExamAudiencePreviewResponse.builder()
                             .perGroup(perGroup)
                             .distinctEligible(loaded.getT2())
-                            .unknownGroupIds(ids.stream().filter(id -> !known.contains(id)).toList())
+                            .unknownGroupIds(requested.stream().filter(id -> !known.contains(id)).toList())
                             .build();
                 });
     }
@@ -571,19 +580,44 @@ public class ExamService {
     }
 
     /**
-     * A GROUP audience needs at least one group, and every group must exist and be active
+     * A GROUP audience needs at least one group, and every group must be usable by the caller:
+     * active, and for an INSTRUCTOR an own group or one the exam already has (an audience an ADMIN
+     * set stays editable). Anything else is AUDIENCE_GROUP_NOT_FOUND, whatever the reason.
      */
-    private Mono<Void> requireValidAudience(ExamAccessType accessType, List<Long> groupIds) {
+    private Mono<Void> requireValidAudience(ExamAccessType accessType, List<Long> groupIds, UUID userId, String role,
+                                            List<Long> storedGroupIds) {
         if (accessType == ExamAccessType.GROUP && groupIds.isEmpty()) {
             return Mono.error(GroupException.audienceGroupsRequired());
         }
         if (groupIds.isEmpty()) {
             return Mono.empty();
         }
-        return groupRepository.countActiveByIdIn(groupIds)
-                .flatMap(found -> found == groupIds.size()
+        return usableGroupIds(groupIds, userId, role, storedGroupIds)
+                .flatMap(usable -> usable.containsAll(groupIds)
                         ? Mono.<Void>empty()
                         : Mono.<Void>error(GroupException.audienceGroupNotFound()));
+    }
+
+    /**
+     * Those of the ids the caller may put into an audience: active groups, for an INSTRUCTOR only the
+     * own ones plus those already stored on the exam (GroupAccessPolicy). One or two statements.
+     */
+    private Mono<Set<Long>> usableGroupIds(List<Long> ids, UUID userId, String role, List<Long> storedGroupIds) {
+        if (ids.isEmpty()) {
+            return Mono.just(Set.of());
+        }
+        UUID owner = GroupAccessPolicy.ownerFilter(userId, role);
+        Mono<Set<Long>> manageable = groupRepository.findManageableIds(ids, owner).collect(Collectors.toSet());
+        List<Long> stored = ids.stream().filter(storedGroupIds::contains).toList();
+        if (owner == null || stored.isEmpty()) {
+            return manageable;
+        }
+        Mono<Set<Long>> storedActive = groupRepository.findManageableIds(stored, null).collect(Collectors.toSet());
+        return Mono.zip(manageable, storedActive).map(both -> {
+            Set<Long> usable = new HashSet<>(both.getT1());
+            usable.addAll(both.getT2());
+            return usable;
+        });
     }
 
     /**

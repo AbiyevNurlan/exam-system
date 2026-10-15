@@ -5,13 +5,13 @@ import com.examportal.common.domain.dto.group.JoinDtos;
 import com.examportal.common.domain.dto.internal.UserLookupResponse.UserRef;
 import com.examportal.common.domain.entity.GroupMemberSource;
 import com.examportal.common.exception.ValidationException;
+import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.client.UserDirectoryClient;
 import com.examportal.exam.exception.GroupException;
 import com.examportal.exam.repository.GroupJoinRepository;
 import com.examportal.exam.repository.GroupJoinRepository.JoinRequest;
 import com.examportal.exam.repository.GroupJoinRepository.Link;
 import com.examportal.exam.repository.UserGroupMemberRepository;
-import com.examportal.exam.repository.UserGroupRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -31,7 +31,8 @@ import java.util.UUID;
 
 /**
  * Group Join Service
- * Joining a group with a link. An administrator creates one link per group (creating it again
+ * Joining a group with a link. Whoever manages the group (ADMIN, or the INSTRUCTOR who owns it:
+ * GroupAccessPolicy) creates one link per group (creating it again
  * replaces the code), can switch it off, give it an end time and a maximum number of uses, and can
  * make every join a request that needs approval. A participant with a verified email opens the
  * link and joins.
@@ -57,18 +58,18 @@ public class GroupJoinService {
 
     private final SecureRandom random = new SecureRandom();
 
-    private final UserGroupRepository groupRepository;
     private final UserGroupMemberRepository memberRepository;
     private final GroupJoinRepository joinRepository;
     private final GroupAuditService auditService;
     private final UserDirectoryClient userDirectory;
     private final ParticipantDirectory participants;
     private final TransactionalOperator transactionalOperator;
+    private final GroupAccessPolicy accessPolicy;
 
     // ==================== Administrator ====================
 
-    public Mono<JoinDtos.LinkResponse> getLink(Long groupId) {
-        return findGroup(groupId)
+    public Mono<JoinDtos.LinkResponse> getLink(Long groupId, UserPrincipal actor) {
+        return findGroup(groupId, actor)
                 .then(Mono.defer(() -> joinRepository.findByGroupId(groupId)))
                 .switchIfEmpty(Mono.error(GroupException.joinLinkNotFound()))
                 .flatMap(this::toResponse);
@@ -78,12 +79,13 @@ public class GroupJoinService {
      * Create the link of a group, or create it again: a new code (the old one stops working), the
      * uses counted from zero, switched on. Settings that are not given keep their value.
      */
-    public Mono<JoinDtos.LinkResponse> createLink(Long groupId, JoinDtos.LinkRequest request, UUID actorId) {
+    public Mono<JoinDtos.LinkResponse> createLink(Long groupId, JoinDtos.LinkRequest request, UserPrincipal actor) {
+        UUID actorId = actor.getId();
         JoinDtos.LinkRequest settings = request != null ? request : new JoinDtos.LinkRequest();
         LocalDateTime now = LocalDateTime.now();
         validate(settings, now);
 
-        Mono<Link> creation = findGroup(groupId)
+        Mono<Link> creation = findGroup(groupId, actor)
                 .then(Mono.defer(() -> joinRepository.lockByGroupId(groupId)
                         .map(Optional::of)
                         .defaultIfEmpty(Optional.empty())))
@@ -113,11 +115,12 @@ public class GroupJoinService {
     /**
      * Change the settings of the link; the code stays. Switching it off is LINK_DISABLED in the audit.
      */
-    public Mono<JoinDtos.LinkResponse> updateLink(Long groupId, JoinDtos.LinkRequest request, UUID actorId) {
+    public Mono<JoinDtos.LinkResponse> updateLink(Long groupId, JoinDtos.LinkRequest request, UserPrincipal actor) {
+        UUID actorId = actor.getId();
         LocalDateTime now = LocalDateTime.now();
         validate(request, now);
 
-        Mono<Long> update = findGroup(groupId)
+        Mono<Long> update = findGroup(groupId, actor)
                 .then(Mono.defer(() -> joinRepository.lockByGroupId(groupId)))
                 .switchIfEmpty(Mono.error(GroupException.joinLinkNotFound()))
                 .flatMap(existing -> {
@@ -146,14 +149,14 @@ public class GroupJoinService {
     /**
      * One page of the join requests of a group in one status (PENDING by default), oldest first
      */
-    public Mono<PageResponse<JoinDtos.Request>> getRequests(Long groupId, String status, int page, int size) {
+    public Mono<PageResponse<JoinDtos.Request>> getRequests(Long groupId, String status, int page, int size, UserPrincipal actor) {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         String wanted = status == null || status.isBlank() ? STATUS_PENDING : status.trim().toUpperCase(Locale.ROOT);
         if (!REQUEST_STATUSES.contains(wanted)) {
             throw new ValidationException("status must be PENDING, APPROVED or REJECTED");
         }
-        return findGroup(groupId)
+        return findGroup(groupId, actor)
                 .then(Mono.defer(() -> joinRepository.countRequests(groupId, wanted)))
                 .flatMap(total -> joinRepository.findRequests(groupId, wanted, pageSize, (long) pageNumber * pageSize)
                         .collectList()
@@ -179,13 +182,14 @@ public class GroupJoinService {
     /**
      * Approve or reject requests (up to 500 at once). Requests that are not open are skipped.
      */
-    public Mono<JoinDtos.DecisionResult> decide(Long groupId, List<Long> requestIds, boolean approve, UUID actorId) {
+    public Mono<JoinDtos.DecisionResult> decide(Long groupId, List<Long> requestIds, boolean approve, UserPrincipal actor) {
+        UUID actorId = actor.getId();
         List<Long> ids = List.copyOf(new LinkedHashSet<>(requestIds));
         if (ids.isEmpty() || ids.size() > JoinDtos.MAX_DECISIONS) {
             return Mono.error(new ValidationException("Between 1 and " + JoinDtos.MAX_DECISIONS + " request ids"));
         }
         // One statement decides, adds the members and writes the audit rows; the operator makes it a transaction
-        return findGroup(groupId)
+        return findGroup(groupId, actor)
                 .then(Mono.defer(() -> transactionalOperator.transactional(
                         joinRepository.decide(groupId, ids, approve, actorId, LocalDateTime.now()))))
                 .map(decided -> JoinDtos.DecisionResult.builder()
@@ -200,8 +204,8 @@ public class GroupJoinService {
     /**
      * Decide one request; unlike the bulk form, a request that is not open is a 404
      */
-    public Mono<JoinDtos.DecisionResult> decideOne(Long groupId, Long requestId, boolean approve, UUID actorId) {
-        return decide(groupId, List.of(requestId), approve, actorId)
+    public Mono<JoinDtos.DecisionResult> decideOne(Long groupId, Long requestId, boolean approve, UserPrincipal actor) {
+        return decide(groupId, List.of(requestId), approve, actor)
                 .flatMap(result -> result.getDecided() == 1
                         ? Mono.just(result)
                         : Mono.<JoinDtos.DecisionResult>error(GroupException.joinRequestNotFound()));
@@ -286,10 +290,11 @@ public class GroupJoinService {
         return JoinDtos.JoinResult.builder().status(status).groupName(link.groupName()).changed(changed).build();
     }
 
-    private Mono<Void> findGroup(Long groupId) {
-        return groupRepository.findActiveById(groupId)
-                .switchIfEmpty(Mono.error(GroupException.notFound(groupId)))
-                .then();
+    /**
+     * The group, if the actor may manage it (ADMIN every group, INSTRUCTOR the own ones); 404 otherwise
+     */
+    private Mono<Void> findGroup(Long groupId, UserPrincipal actor) {
+        return accessPolicy.findManageableGroup(groupId, actor.getId(), actor.getRole()).then();
     }
 
     private void validate(JoinDtos.LinkRequest request, LocalDateTime now) {

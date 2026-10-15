@@ -398,9 +398,12 @@ public class ExamController {
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
     @Operation(summary = "Preview an audience without an exam", description = "The same counts as /{id}/audience/preview "
             + "for groups that are not stored yet (an exam being created): members per group, distinct participants "
-            + "(somebody in two groups counts once) and unknown or deleted groups. At most 50 groups; nothing is stored.")
-    public Mono<ApiResponse<ExamAudiencePreviewResponse>> previewGroups(@Valid @RequestBody AudiencePreviewRequest request) {
-        return Mono.defer(() -> examService.previewGroups(request.getGroupIds()))
+            + "(somebody in two groups counts once) and unknown or deleted groups. At most 50 groups; nothing is stored. "
+            + "For an INSTRUCTOR the groups of other owners are listed as unknown.")
+    public Mono<ApiResponse<ExamAudiencePreviewResponse>> previewGroups(
+            @Valid @RequestBody AudiencePreviewRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return Mono.defer(() -> examService.previewGroups(request.getGroupIds(), principal.getId(), principal.getRole()))
                 .map(ApiResponse::success);
     }
 

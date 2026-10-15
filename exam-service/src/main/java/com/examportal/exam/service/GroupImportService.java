@@ -4,10 +4,10 @@ import com.examportal.common.domain.dto.group.CsvImportResponse;
 import com.examportal.common.domain.dto.group.CsvImportResponse.InvalidRow;
 import com.examportal.common.domain.dto.internal.UserLookupRequest;
 import com.examportal.common.domain.dto.internal.UserLookupResponse.UserRef;
+import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.client.UserDirectoryClient;
 import com.examportal.exam.exception.GroupException;
 import com.examportal.exam.repository.GroupImportRepository;
-import com.examportal.exam.repository.UserGroupRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -61,11 +61,11 @@ public class GroupImportService {
     private static final Pattern LINE_BREAK = Pattern.compile("\\r\\n|\\r|\\n");
     private static final Pattern FIELD_SEPARATOR = Pattern.compile("[,;\\t]");
 
-    private final UserGroupRepository groupRepository;
     private final GroupImportRepository importRepository;
     private final GroupAuditService auditService;
     private final UserDirectoryClient userDirectory;
     private final TransactionalOperator transactionalOperator;
+    private final GroupAccessPolicy accessPolicy;
 
     private record ParsedCsv(List<String> emails, int totalRows, int invalid, int duplicates,
                              List<InvalidRow> invalidRows) {
@@ -76,9 +76,12 @@ public class GroupImportService {
                                   int alreadyMember, int alreadyInvited) {
     }
 
-    public Mono<CsvImportResponse> importMembers(Long groupId, FilePart file, boolean dryRun, UUID actorId) {
-        return groupRepository.findActiveById(groupId)
-                .switchIfEmpty(Mono.error(GroupException.notFound(groupId)))
+    /**
+     * Only into a group the actor may manage (GroupAccessPolicy; another owner's group is a 404)
+     */
+    public Mono<CsvImportResponse> importMembers(Long groupId, FilePart file, boolean dryRun, UserPrincipal actor) {
+        UUID actorId = actor.getId();
+        return accessPolicy.findManageableGroup(groupId, actorId, actor.getRole())
                 // Fails with DataBufferLimitException (413) as soon as the file exceeds the limit
                 .flatMap(group -> DataBufferUtils.join(file.content(), MAX_FILE_BYTES))
                 .map(this::readAndRelease)

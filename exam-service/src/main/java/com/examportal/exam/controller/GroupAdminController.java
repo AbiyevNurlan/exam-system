@@ -32,15 +32,16 @@ import java.util.UUID;
 
 /**
  * Group Admin Controller
- * User groups and their members. ADMIN is enforced by path in SecurityConfig (/api/admin/**);
- * @PreAuthorize is a second layer.
+ * User groups and their members. ADMIN manages every group, INSTRUCTOR only the own ones
+ * (GroupAccessPolicy; another owner's group is a 404). The roles are enforced by path in SecurityConfig
+ * (/api/admin/groups/**); @PreAuthorize is a second layer.
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/admin/groups")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
-@Tag(name = "Group Administration", description = "Admin-only user groups and membership")
+@PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+@Tag(name = "Group Administration", description = "User groups and membership: ADMIN all, INSTRUCTOR the own ones")
 @SecurityRequirement(name = "bearerAuth")
 public class GroupAdminController {
 
@@ -54,7 +55,7 @@ public class GroupAdminController {
             @Valid @RequestBody GroupRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.createGroup(request, principal.getId())
+        return groupService.createGroup(request, principal)
                 .map(group -> ApiResponse.success(group, "Group created successfully"));
     }
 
@@ -65,16 +66,19 @@ public class GroupAdminController {
     public Mono<ApiResponse<PageResponse<GroupResponse>>> searchGroups(
             @RequestParam(required = false) @Parameter(description = "Part of the name, case-insensitive") String name,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
-            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.searchGroups(name, page, size)
+        return groupService.searchGroups(name, page, size, principal)
                 .map(ApiResponse::success);
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "Get a group", description = "Group with the same counts and join link state as a row of the list")
-    public Mono<ApiResponse<GroupResponse>> getGroup(@PathVariable Long id) {
-        return groupService.getGroup(id)
+    public Mono<ApiResponse<GroupResponse>> getGroup(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return groupService.getGroup(id, principal)
                 .map(ApiResponse::success);
     }
 
@@ -85,7 +89,7 @@ public class GroupAdminController {
             @Valid @RequestBody GroupRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.updateGroup(id, request, principal.getId())
+        return groupService.updateGroup(id, request, principal)
                 .map(group -> ApiResponse.success(group, "Group updated successfully"));
     }
 
@@ -96,7 +100,7 @@ public class GroupAdminController {
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.deleteGroup(id, principal.getId());
+        return groupService.deleteGroup(id, principal);
     }
 
     @GetMapping("/{id}/members")
@@ -107,9 +111,10 @@ public class GroupAdminController {
             @PathVariable Long id,
             @RequestParam(required = false) @Parameter(description = "Name, email prefix or user id") String q,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
-            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
 
-        return Mono.defer(() -> groupService.getMembers(id, q, page, size))
+        return Mono.defer(() -> groupService.getMembers(id, q, page, size, principal))
                 .map(ApiResponse::success);
     }
 
@@ -119,9 +124,10 @@ public class GroupAdminController {
     public Mono<ApiResponse<PageResponse<GroupExamResponse>>> getExams(
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
-            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.getGroupExams(id, page, size)
+        return groupService.getGroupExams(id, page, size, principal)
                 .map(ApiResponse::success);
     }
 
@@ -132,7 +138,7 @@ public class GroupAdminController {
             @Valid @RequestBody AddGroupMemberRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.addMember(id, request, principal.getId())
+        return groupService.addMember(id, request, principal)
                 .map(ApiResponse::success);
     }
 
@@ -144,7 +150,7 @@ public class GroupAdminController {
             @RequestParam(defaultValue = "false") @Parameter(description = "Report only, store nothing") boolean dryRun,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return importService.importMembers(id, file, dryRun, principal.getId())
+        return importService.importMembers(id, file, dryRun, principal)
                 .map(ApiResponse::success);
     }
 
@@ -153,9 +159,10 @@ public class GroupAdminController {
     public Mono<ApiResponse<PageResponse<GroupInviteResponse>>> getInvites(
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
-            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.getInvites(id, page, size)
+        return groupService.getInvites(id, page, size, principal)
                 .map(ApiResponse::success);
     }
 
@@ -167,7 +174,7 @@ public class GroupAdminController {
             @PathVariable Long inviteId,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.cancelInvite(id, inviteId, principal.getId());
+        return groupService.cancelInvite(id, inviteId, principal);
     }
 
     @DeleteMapping("/{id}/members/{userId}")
@@ -178,6 +185,6 @@ public class GroupAdminController {
             @PathVariable UUID userId,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.removeMember(id, userId, principal.getId());
+        return groupService.removeMember(id, userId, principal);
     }
 }

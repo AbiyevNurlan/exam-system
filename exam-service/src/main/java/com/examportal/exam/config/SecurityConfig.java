@@ -52,10 +52,14 @@ public class SecurityConfig {
                         // (InternalServiceAuth). The gateway does not route /internal/**.
                         .pathMatchers("/internal/**").permitAll()
 
-                        // Group administration - admin only, enforced here by path as well as by @PreAuthorize
+                        // Group administration - ADMIN for every group, INSTRUCTOR for the own ones; which
+                        // group is decided by GroupAccessPolicy (another owner's group is a 404)
+                        .pathMatchers("/api/admin/groups", "/api/admin/groups/**").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // Every other administration path - admin only, here by path as well as by @PreAuthorize
                         .pathMatchers("/api/admin/**").hasRole("ADMIN")
-                        // Everything below a group (bulk membership, join link, join requests) - admin only
-                        .pathMatchers("/api/groups/*/**").hasRole("ADMIN")
+                        // Everything below a group (bulk membership, join link, join requests) - as above;
+                        // adding by filter is ADMIN only (@PreAuthorize on the method)
+                        .pathMatchers("/api/groups/*/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         // Joining a group with a link: what the link is for may be asked without a token
                         // (name of the group only); joining itself needs one
                         .pathMatchers(HttpMethod.GET, "/api/join/*").permitAll()

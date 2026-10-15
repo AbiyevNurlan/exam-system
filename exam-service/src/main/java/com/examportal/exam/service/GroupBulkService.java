@@ -8,7 +8,7 @@ import com.examportal.common.utils.LogMaskUtils;
 import com.examportal.exam.client.UserDirectoryClient;
 import com.examportal.exam.exception.GroupException;
 import com.examportal.exam.repository.GroupMembershipRepository;
-import com.examportal.exam.repository.UserGroupRepository;
+import com.examportal.common.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,7 +23,7 @@ import java.util.UUID;
 
 /**
  * Group Bulk Service
- * Adds many participants to a group at once (ADMIN only; the controller enforces the role):
+ * Adds many participants to a group at once (a filter: ADMIN only; ids: also an INSTRUCTOR to an own group):
  * everybody a filter of the participant list matches, or a list of ids (a page selection).
  *
  * A dry run reports what would happen and writes nothing. A real run by filter must say how many
@@ -39,38 +39,43 @@ public class GroupBulkService {
 
     private static final int BATCH_SIZE = 1000;
 
-    private final UserGroupRepository groupRepository;
+    private final GroupAccessPolicy accessPolicy;
     private final GroupMembershipRepository membershipRepository;
     private final ParticipantService participantService;
     private final UserDirectoryClient userDirectory;
     private final GroupAuditService auditService;
     private final TransactionalOperator transactionalOperator;
 
-    public Mono<ParticipantDtos.BulkResult> addByFilter(Long groupId, ParticipantDtos.BulkByFilterRequest request, UUID actorId) {
+    /**
+     * ADMIN only (the controller enforces it): a filter reaches every participant of the platform,
+     * which only the participant list (ADMIN) may show
+     */
+    public Mono<ParticipantDtos.BulkResult> addByFilter(Long groupId, ParticipantDtos.BulkByFilterRequest request, UserPrincipal actor) {
         ParticipantDtos.Filter filter = request.getFilter() != null ? request.getFilter() : new ParticipantDtos.Filter();
         if (!request.isDryRun() && request.getExpectedCount() == null) {
             return Mono.error(new ValidationException("expectedCount is required for a real run (take it from the dry run)"));
         }
-        return findGroup(groupId)
+        return findGroup(groupId, actor)
                 .then(Mono.defer(() -> participantService.resolveFilter(filter)))
                 .flatMap(resolved -> run(groupId, resolved, request.isDryRun(), request.getExpectedCount(),
-                        "filter " + describe(filter), actorId));
+                        "filter " + describe(filter), actor.getId()));
     }
 
-    public Mono<ParticipantDtos.BulkResult> addByIds(Long groupId, ParticipantDtos.BulkByIdsRequest request, UUID actorId) {
+    /**
+     * ADMIN for every group, INSTRUCTOR for the own ones (GroupAccessPolicy)
+     */
+    public Mono<ParticipantDtos.BulkResult> addByIds(Long groupId, ParticipantDtos.BulkByIdsRequest request, UserPrincipal actor) {
         List<UUID> ids = new ArrayList<>(new LinkedHashSet<>(request.getUserIds()));
         // Only participants among the given ids count: an unknown id or a user with another role is left out
         ParticipantQuery.Filter filter = ParticipantQuery.Filter.builder().includeIds(ids).build();
-        return findGroup(groupId)
-                .then(Mono.defer(() -> run(groupId, filter, request.isDryRun(), null, "ids " + ids.size(), actorId)));
+        return findGroup(groupId, actor)
+                .then(Mono.defer(() -> run(groupId, filter, request.isDryRun(), null, "ids " + ids.size(), actor.getId())));
     }
 
     // ==================== Private Helper Methods ====================
 
-    private Mono<Void> findGroup(Long groupId) {
-        return groupRepository.findActiveById(groupId)
-                .switchIfEmpty(Mono.error(GroupException.notFound(groupId)))
-                .then();
+    private Mono<Void> findGroup(Long groupId, UserPrincipal actor) {
+        return accessPolicy.findManageableGroup(groupId, actor.getId(), actor.getRole()).then();
     }
 
     private Mono<ParticipantDtos.BulkResult> run(Long groupId, ParticipantQuery.Filter filter, boolean dryRun,
