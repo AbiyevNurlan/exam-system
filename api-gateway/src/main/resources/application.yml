@@ -74,7 +74,8 @@ spring:
                 redis-rate-limiter.burstCapacity: ${GATEWAY_AUTH_LOGIN_BURST:200}
                 redis-rate-limiter.requestedTokens: 1
         # Verification codes: a much smaller budget per client IP than the rest of /auth (10 requests
-        # at once, then one every 5 seconds). Must stay before the general auth route.
+        # at once, then one every 5 seconds). Must stay before the general auth route. Only .env may
+        # loosen it (GATEWAY_OTP_REPLENISH tokens per second, GATEWAY_OTP_BURST; each request takes 5).
         # Limits per email address are enforced in auth-service (OtpService), not here.
         - id: auth-otp
           uri: http://auth-service:8081
@@ -83,8 +84,8 @@ spring:
           filters:
             - name: RequestRateLimiter
               args:
-                redis-rate-limiter.replenishRate: 1
-                redis-rate-limiter.burstCapacity: 50
+                redis-rate-limiter.replenishRate: ${GATEWAY_OTP_REPLENISH:1}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_OTP_BURST:50}
                 redis-rate-limiter.requestedTokens: 5
         - id: auth-service
           uri: http://auth-service:8081
