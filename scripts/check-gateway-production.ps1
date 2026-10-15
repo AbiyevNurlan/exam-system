@@ -132,6 +132,7 @@ try {
         @('GET', '/api/admin/audit?page=0&size=1', 'audit list'),
         @('GET', '/api/grading/pending-count', 'grading badge'),
         @('GET', '/api/grading/pending-exams?page=0&size=1', 'grading overview'),
+        @('GET', '/api/me/stats', 'own statistics'),
         @('GET', '/api/media/00000000-0000-0000-0000-000000000000/preview-url', 'media (404 of the service)')
     )
     $rows = foreach ($check in $checks) {

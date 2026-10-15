@@ -88,6 +88,9 @@ public class SecurityConfig {
                                 "/api/exams/session/*/violations", "/api/exams/*/analytics/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/analytics/**").hasRole("ADMIN")
                         
+                        // The signed-in user's own figures (always the user of the token)
+                        .pathMatchers("/api/me/**").authenticated()
+
                         // Exam participation - all authenticated users
                         .pathMatchers("/api/exams/available").authenticated()
                         .pathMatchers("/api/exams/*/start").authenticated()
