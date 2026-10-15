@@ -104,6 +104,8 @@ foreach ($n in 1..12) { $people += (Register ("p{0:00}" -f $n) ("Mb${stamp}x{0:0
 $admTwo = Register 'y' "Yy$stamp" "Admin$stamp"
 $ins = Register 'z' "Zz$stamp" "Owner$stamp"
 $insTwo = Register 'w' "Ww$stamp" "Other$stamp"
+# Every role given below is taken back in the finally block before the summary
+try {
 Sql 'exam_auth' "update users set role='ADMIN' where email='$($admTwo.email)'" | Out-Null
 Sql 'exam_auth' "update users set role='INSTRUCTOR' where email in ('$($ins.email)','$($insTwo.email)')" | Out-Null
 $admTwo.token = (Login $admTwo.email $password).data.accessToken
@@ -410,6 +412,16 @@ $authBack = Api 'GET' '/api/analytics/overview?days=29' $admTwo.token $null
 Check 'auth-service started again: the user figures are back at once (the incomplete answer was not cached)' ($authUp -and $authBack.status -eq 200 -and $authBack.data.usersAvailable -eq $true -and $authBack.data.users.totalUsers -eq $pd.users.totalUsers) "auth up $authUp; usersAvailable $($authBack.data.usersAvailable)"
 $loginAgain = Login $people[6].email $password
 Check 'regress: login works again after the restart of auth-service' ($loginAgain.status -eq 200) "status $($loginAgain.status)"
+
+} finally {
+    # The test accounts get the participant role back, whatever happened above: no test account stays
+    # ADMIN or INSTRUCTOR (cleanup-test-data.ps1 keeps every ADMIN, so a leftover one would never go)
+    $given = @($admTwo.email, $ins.email, $insTwo.email) | Where-Object { $_ -like '*@x.test' }
+    if ($given) {
+        $back = Sql 'exam_auth' "update users set role='STUDENT' where role <> 'STUDENT' and email in ('$($given -join "','")')"
+        Write-Output "roles given back: $back"
+    }
+}
 
 # ---------- summary ----------
 $failed = @($script:results | Where-Object { -not $_.ok })

@@ -104,6 +104,8 @@ $pC = Register 'c' "Nb${stamp}c" "Cc$stamp"
 $admTwo = Register 'y' "Yy${stamp}" "Dd$stamp"
 $ins = Register 'z' "Zz${stamp}" "Owner$stamp"
 $insTwo = Register 'w' "Ww${stamp}" "Other$stamp"
+# Every role given below is taken back in the finally block before the summary
+try {
 # Roles cannot be assigned through the API: set them on these test accounts only, then log in again
 Sql 'exam_auth' "update users set role='ADMIN' where email='$($admTwo.email)'" | Out-Null
 Sql 'exam_auth' "update users set role='INSTRUCTOR' where email in ('$($ins.email)','$($insTwo.email)')" | Out-Null
@@ -412,6 +414,16 @@ $nSummary = Statements { Api 'GET' "/api/exams/$idRes/results/summary" $ins.toke
 Check 'summary: 3 statements in exam-service (exam, counts, rankings), 1 in auth-service' ($nSummary.exam -eq 3 -and $nSummary.auth -eq 1) "exam-service $($nSummary.exam), auth-service $($nSummary.auth)"
 $nSearch = Statements { Results "?q=nb$stamp&sort=score" $ins.token }
 Check 'results with q: 3 statements in exam-service, 1 in auth-service (the search also names the rows)' ($nSearch.exam -eq 3 -and $nSearch.auth -eq 1) "exam-service $($nSearch.exam), auth-service $($nSearch.auth)"
+
+} finally {
+    # The test accounts get the participant role back, whatever happened above: no test account stays
+    # ADMIN or INSTRUCTOR (cleanup-test-data.ps1 keeps every ADMIN, so a leftover one would never go)
+    $given = @($admTwo.email, $ins.email, $insTwo.email) | Where-Object { $_ -like '*@x.test' }
+    if ($given) {
+        $back = Sql 'exam_auth' "update users set role='STUDENT' where role <> 'STUDENT' and email in ('$($given -join "','")')"
+        Write-Output "roles given back: $back"
+    }
+}
 
 # ---------- summary ----------
 $failed = @($script:results | Where-Object { -not $_.ok })

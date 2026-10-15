@@ -106,6 +106,8 @@ if ($mainLogin.status -ne 200) { throw "admin login answered $($mainLogin.status
 $adm = @{ id = $mainLogin.data.user.id; token = $mainLogin.data.accessToken }
 
 $stuA = Register 'a'; $stuB = Register 'b'; $admTwo = Register 'y'; $ins = Register 'z'; $insTwo = Register 'w'
+# Every role given below is taken back in the finally block before the summary
+try {
 # Roles cannot be assigned through the API: set them on these test accounts only, then log in again
 Sql 'exam_auth' "update users set role='ADMIN' where email='$($admTwo.email)'" | Out-Null
 Sql 'exam_auth' "update users set role='INSTRUCTOR' where email in ('$($ins.email)','$($insTwo.email)')" | Out-Null
@@ -436,6 +438,16 @@ Check "more than 70 s after the reschedule the scheduler has not completed the e
 $future = [DateTime]::UtcNow.AddHours(1); $future = $future.AddTicks(-($future.Ticks % [TimeSpan]::TicksPerSecond))
 $rsFuture = Api 'POST' "/api/exams/$idResch/reschedule" $ins.token @{ startTime = (UtcText $future); endTime = (UtcText $future.AddHours(2)) }
 Check 'reschedule with a start in the future: SCHEDULED, canStart false' ($rsFuture.status -eq 200 -and $rsFuture.data.status -eq 'SCHEDULED' -and $rsFuture.data.canStart -eq $false -and $rsFuture.data.startTime -eq ($future.ToString('yyyy-MM-ddTHH:mm:ss') + '.000Z')) "status $($rsFuture.status), exam $($rsFuture.data.status)"
+
+} finally {
+    # The test accounts get the participant role back, whatever happened above: no test account stays
+    # ADMIN or INSTRUCTOR (cleanup-test-data.ps1 keeps every ADMIN, so a leftover one would never go)
+    $given = @($admTwo.email, $ins.email, $insTwo.email) | Where-Object { $_ -like '*@x.test' }
+    if ($given) {
+        $back = Sql 'exam_auth' "update users set role='STUDENT' where role <> 'STUDENT' and email in ('$($given -join "','")')"
+        Write-Output "roles given back: $back"
+    }
+}
 
 # ---------- summary ----------
 $failed = @($script:results | Where-Object { -not $_.ok })
