@@ -33,7 +33,9 @@ public class ExamAttemptRepository {
      * user and exam (unique index uq_sessions_one_in_progress).
      *
      * Run it inside a transaction: the advisory lock makes the starts of one user for one exam take
-     * turns until commit, so the count each one sees already includes the others.
+     * turns until commit, so the count each one sees already includes the others. The exam row is
+     * read FOR SHARE: a start waits for an edit of the exam that holds it FOR UPDATE (ExamEditLock),
+     * and an edit that comes later waits for this start and then sees its session.
      */
     public Mono<Long> openSessionIfAttemptsRemain(String sessionId, Long examId, UUID userId,
                                                   LocalDateTime startTime, LocalDateTime endTime,
@@ -52,6 +54,7 @@ public class ExamAttemptRepository {
                                OR (SELECT COUNT(*) FROM exam_sessions s
                                    WHERE s.exam_id = e.id AND s.user_id = :userId
                                      AND s.created_at >= :dayStart AND s.created_at < :dayEnd) < e.max_attempts_per_day)
+                        FOR SHARE OF e
                         ON CONFLICT (exam_id, user_id) WHERE status = 'IN_PROGRESS' DO NOTHING
                         """)
                 .bind("sessionId", sessionId)

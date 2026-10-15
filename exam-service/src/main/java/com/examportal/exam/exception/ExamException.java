@@ -40,6 +40,25 @@ public class ExamException extends ApplicationException {
                 HttpStatus.UNPROCESSABLE_ENTITY, "RESULTS_EXPORT_TOO_LARGE");
     }
 
+    /**
+     * The exam has sessions (attempts): what decides their results (questions, options, points, the
+     * answer key, the order and the duration) must stay as it was. Reschedule, audience, publish and
+     * archive remain possible.
+     */
+    public static ExamException hasSessions() {
+        return new ExamException("The exam has attempts: its questions, answers, points and duration can no longer be changed",
+                HttpStatus.CONFLICT, "EXAM_HAS_SESSIONS");
+    }
+
+    /**
+     * Reschedule of a finished or archived exam with attempts to a later start (SCHEDULED): that
+     * status would open it for editing again
+     */
+    public static ExamException rescheduleHasSessions() {
+        return new ExamException("A finished or archived exam with attempts cannot get a start time in the future; "
+                + "reopen it with a start time now or in the past", HttpStatus.CONFLICT, "EXAM_HAS_SESSIONS");
+    }
+
     public static ExamException cannotDelete() {
         return new ExamException("Cannot delete an exam that has attempts; archive it instead",
                 HttpStatus.CONFLICT, "EXAM_CANNOT_DELETE");

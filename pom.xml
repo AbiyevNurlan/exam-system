@@ -56,7 +56,7 @@
         <bucket4j.version>8.7.0</bucket4j.version>
 
         <!-- Testing -->
-        <testcontainers.version>1.19.3</testcontainers.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
 
         <!-- Plugin Versions -->
         <maven-compiler-plugin.version>3.12.1</maven-compiler-plugin.version>

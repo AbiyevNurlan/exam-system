@@ -38,6 +38,7 @@ public class ExamService {
     private final QuestionOptionRepository optionRepository;
     private final ExamSessionRepository sessionRepository;
     private final ExamAttemptRepository attemptRepository;
+    private final ExamEditLock editLock;
     private final ExamManageRepository manageRepository;
     private final GroupMembershipRepository membershipRepository;
     private final ExamDayClock dayClock;
@@ -113,11 +114,16 @@ public class ExamService {
                     if (!accessPolicy.canManage(userId, role, exam)) {
                         return Mono.error(ExamException.notOwner());
                     }
-                    if (!exam.canModify()) {
-                        return Mono.error(ExamException.cannotModify());
-                    }
                     return Mono.just(exam);
                 })
+                // The exam row stays locked until commit, so no session can be opened while the questions are
+                // replaced. Whether one exists is asked only after the lock (a new snapshot): a session whose
+                // start committed meanwhile is seen. An exam with attempts keeps what decided their results.
+                .flatMap(checked -> editLock.lockForEdit(examId))
+                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+                .flatMap(locked -> editLock.hasSessions(examId))
+                .flatMap(taken -> taken ? Mono.<Exam>error(ExamException.hasSessions()) : findExistingExam(examId))
+                .flatMap(exam -> exam.canModify() ? Mono.just(exam) : Mono.<Exam>error(ExamException.cannotModify()))
                 .flatMap(exam -> validator.validateUpdateRequest(request)
                         .then(newAccessType == null ? Mono.<Void>empty() : audienceRepository.findGroupIdsByExamId(examId).collectList()
                                 .flatMap(stored -> requireValidAudience(newAccessType, groupIds, userId, role, stored)))
@@ -715,7 +721,8 @@ public class ExamService {
     }
 
     /**
-     * Delete existing questions and options for an exam
+     * Delete existing questions and options for an exam. Only ever called by updateExam for an exam
+     * without sessions (checked under the row lock), so no answer and no result refers to them.
      */
     private Mono<Void> deleteExistingQuestionsAndOptions(Long examId) {
         return questionRepository.findByExamIdOrderByOrderIndex(examId)
