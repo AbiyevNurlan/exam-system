@@ -14,6 +14,7 @@ against a stack that serves real users: they create test data.
 | `verify-b6-buckets.ps1` | rate limit buckets per route (301 registrations) | `t-b6-*@x.test` |
 | `verify-b6-parallel.ps1` | parallel admin actions (on 6 participants it registers) | `T-b6-*` groups, `t-b6-*@x.test` |
 | `verify-b7.ps1` | admin API gaps, CSV export, audit list | `T-b7-*`, `be-b7-*@x.test` |
+| `verify-b9.ps1` | an exam with attempts keeps questions, answer key, points and duration (409 EXAM_HAS_SESSIONS), reschedule of finished exams with attempts, `GET /auth/me`, `PUT /auth/profile`, `POST /auth/change-password` (token revocation, rate limit) | `T-b9-*` exams, `be-b9-*@x.test` |
 | `verify-b8.ps1` | group ownership of an INSTRUCTOR (another owner's group is 404 like a missing one), admin paths 403 for an INSTRUCTOR, `GET /api/join/requests/mine`, rejection cooldown | `T-b8-*` groups and exams, `be-b8-*@x.test` |
 
 Run one with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\regression\verify-b2.ps1`.
