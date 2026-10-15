@@ -3,6 +3,10 @@
 # Optimized for 100,000 concurrent users
 # =====================================================
 
+# Its own project: started from this folder it must not take over the development/public stack
+# (project exam-system; websocket-service and monitoring-service have the same names there).
+name: exam-system-prod
+
 services:
   # ============== LOAD BALANCER ==============
   nginx:
@@ -29,6 +33,11 @@ services:
     restart: always
 
   # ============== POSTGRESQL CLUSTER ==============
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 5 -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
   postgres-primary:
     image: postgres:16-alpine
     container_name: exam-postgres-primary
@@ -71,24 +80,17 @@ services:
     container_name: exam-redis-master
     environment:
       TZ: UTC
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     ports:
       - "6379:6379"
-    command: >
-      redis-server 
-      --appendonly yes 
-      --maxmemory 2gb
-      --maxmemory-policy allkeys-lru
-      --tcp-keepalive 300
-      --timeout 0
-      --tcp-backlog 511
-      --maxclients 10000
-      --save ""
+    # The password goes into a config file inside the container, not onto the command line
+    command: ["sh", "-c", "umask 077 && printf 'requirepass %s\\n' \"$$REDIS_PASSWORD\" > /tmp/auth.conf && exec redis-server /tmp/auth.conf --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru --tcp-keepalive 300 --timeout 0 --tcp-backlog 511 --maxclients 10000 --save \"\""]
     volumes:
       - redis_data:/data
     networks:
       - exam-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -100,6 +102,30 @@ services:
         reservations:
           cpus: '1'
           memory: 2G
+    restart: always
+
+  # ============== MEDIA STORAGE ==============
+  # S3-compatible storage for question media (SeaweedFS, as in development). Private bucket; exam-service
+  # creates it and signs every URL. Not published: browsers reach it only through the public endpoint
+  # (MEDIA_S3_PUBLIC_ENDPOINT), which a reverse proxy must pass on unchanged (host and path are signed;
+  # deploy/public/nginx.conf, location /exam-media/, shows how).
+  media-storage:
+    image: chrislusf/seaweedfs:4.48
+    container_name: exam-media-storage-prod
+    command: server -dir=/data -s3 -s3.port=8333 -ip.bind=0.0.0.0
+    environment:
+      TZ: UTC
+      AWS_ACCESS_KEY_ID: ${MEDIA_S3_ACCESS_KEY:?MEDIA_S3_ACCESS_KEY is required}
+      AWS_SECRET_ACCESS_KEY: ${MEDIA_S3_SECRET_KEY:?MEDIA_S3_SECRET_KEY is required}
+    volumes:
+      - media_data:/data
+    networks:
+      - exam-network
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://127.0.0.1:8333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     restart: always
 
   # ============== AUTH SERVICE (2 instances) ==============
@@ -119,6 +145,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
@@ -162,10 +189,12 @@ services:
           memory: 1G
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
-      interval: 10s
-      timeout: 5s
+      # wget is in the alpine base image (curl is not)
+      test: ["CMD-SHELL", "wget -q -T 5 -O - http://127.0.0.1:8081/actuator/health | grep -q '\"UP\"'"]
+      interval: 15s
+      timeout: 6s
       retries: 5
+      start_period: 90s
 
   auth-service-2:
     build:
@@ -183,6 +212,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
@@ -227,6 +257,13 @@ services:
     restart: always
 
   # ============== EXAM SERVICE (3 instances) ==============
+    healthcheck:
+      # wget is in the alpine base image (curl is not)
+      test: ["CMD-SHELL", "wget -q -T 5 -O - http://127.0.0.1:8081/actuator/health | grep -q '\"UP\"'"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 90s
   exam-service-1:
     build:
       context: .
@@ -243,6 +280,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
@@ -253,6 +291,13 @@ services:
       EXAM_FRAUD_RISK_MEDIUM: ${EXAM_FRAUD_RISK_MEDIUM:-5}
       EXAM_FRAUD_RISK_HIGH: ${EXAM_FRAUD_RISK_HIGH:-15}
       EXAM_FRAUD_RISK_CRITICAL: ${EXAM_FRAUD_RISK_CRITICAL:-30}
+      # Question media: how this service reaches the storage, and the address inside presigned URLs
+      MEDIA_S3_ENDPOINT: http://media-storage:8333
+      MEDIA_S3_PUBLIC_ENDPOINT: ${MEDIA_S3_PUBLIC_ENDPOINT:?MEDIA_S3_PUBLIC_ENDPOINT is required (https://your-site, where /exam-media/ reaches the storage)}
+      MEDIA_S3_BUCKET: exam-media
+      MEDIA_S3_ACCESS_KEY: ${MEDIA_S3_ACCESS_KEY:?MEDIA_S3_ACCESS_KEY is required}
+      MEDIA_S3_SECRET_KEY: ${MEDIA_S3_SECRET_KEY:?MEDIA_S3_SECRET_KEY is required}
+      MEDIA_CORS_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -264,6 +309,8 @@ services:
     networks:
       - exam-network
     depends_on:
+      media-storage:
+        condition: service_healthy
       postgres-primary:
         condition: service_healthy
       redis-master:
@@ -277,6 +324,13 @@ services:
           cpus: '1'
           memory: 2G
     restart: always
+    healthcheck:
+      # wget is in the alpine base image (curl is not)
+      test: ["CMD-SHELL", "wget -q -T 5 -O - http://127.0.0.1:8082/actuator/health | grep -q '\"UP\"'"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 90s
 
   exam-service-2:
     build:
@@ -294,6 +348,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
@@ -304,6 +359,13 @@ services:
       EXAM_FRAUD_RISK_MEDIUM: ${EXAM_FRAUD_RISK_MEDIUM:-5}
       EXAM_FRAUD_RISK_HIGH: ${EXAM_FRAUD_RISK_HIGH:-15}
       EXAM_FRAUD_RISK_CRITICAL: ${EXAM_FRAUD_RISK_CRITICAL:-30}
+      # Question media: how this service reaches the storage, and the address inside presigned URLs
+      MEDIA_S3_ENDPOINT: http://media-storage:8333
+      MEDIA_S3_PUBLIC_ENDPOINT: ${MEDIA_S3_PUBLIC_ENDPOINT:?MEDIA_S3_PUBLIC_ENDPOINT is required (https://your-site, where /exam-media/ reaches the storage)}
+      MEDIA_S3_BUCKET: exam-media
+      MEDIA_S3_ACCESS_KEY: ${MEDIA_S3_ACCESS_KEY:?MEDIA_S3_ACCESS_KEY is required}
+      MEDIA_S3_SECRET_KEY: ${MEDIA_S3_SECRET_KEY:?MEDIA_S3_SECRET_KEY is required}
+      MEDIA_CORS_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -315,6 +377,8 @@ services:
     networks:
       - exam-network
     depends_on:
+      media-storage:
+        condition: service_healthy
       postgres-primary:
         condition: service_healthy
       redis-master:
@@ -328,6 +392,13 @@ services:
           cpus: '1'
           memory: 2G
     restart: always
+    healthcheck:
+      # wget is in the alpine base image (curl is not)
+      test: ["CMD-SHELL", "wget -q -T 5 -O - http://127.0.0.1:8082/actuator/health | grep -q '\"UP\"'"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 90s
 
   exam-service-3:
     build:
@@ -345,6 +416,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       # Shared secret for /internal/** between auth-service and exam-service (min 32 characters)
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
@@ -355,6 +427,13 @@ services:
       EXAM_FRAUD_RISK_MEDIUM: ${EXAM_FRAUD_RISK_MEDIUM:-5}
       EXAM_FRAUD_RISK_HIGH: ${EXAM_FRAUD_RISK_HIGH:-15}
       EXAM_FRAUD_RISK_CRITICAL: ${EXAM_FRAUD_RISK_CRITICAL:-30}
+      # Question media: how this service reaches the storage, and the address inside presigned URLs
+      MEDIA_S3_ENDPOINT: http://media-storage:8333
+      MEDIA_S3_PUBLIC_ENDPOINT: ${MEDIA_S3_PUBLIC_ENDPOINT:?MEDIA_S3_PUBLIC_ENDPOINT is required (https://your-site, where /exam-media/ reaches the storage)}
+      MEDIA_S3_BUCKET: exam-media
+      MEDIA_S3_ACCESS_KEY: ${MEDIA_S3_ACCESS_KEY:?MEDIA_S3_ACCESS_KEY is required}
+      MEDIA_S3_SECRET_KEY: ${MEDIA_S3_SECRET_KEY:?MEDIA_S3_SECRET_KEY is required}
+      MEDIA_CORS_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS is required}
       JAVA_OPTS: >-
         -XX:+UseZGC
         -XX:+ZGenerational
@@ -366,6 +445,8 @@ services:
     networks:
       - exam-network
     depends_on:
+      media-storage:
+        condition: service_healthy
       postgres-primary:
         condition: service_healthy
       redis-master:
@@ -381,6 +462,13 @@ services:
     restart: always
 
   # ============== API GATEWAY (2 instances) ==============
+    healthcheck:
+      # wget is in the alpine base image (curl is not)
+      test: ["CMD-SHELL", "wget -q -T 5 -O - http://127.0.0.1:8082/actuator/health | grep -q '\"UP\"'"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 90s
   api-gateway-1:
     build:
       context: .
@@ -394,6 +482,7 @@ services:
       SPRING_PROFILES_ACTIVE: production
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       AUTH_SERVICE_URL: http://auth-service-1:8081,http://auth-service-2:8081
       EXAM_SERVICE_URL: http://exam-service-1:8082,http://exam-service-2:8082,http://exam-service-3:8082
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
@@ -433,6 +522,13 @@ services:
           cpus: '1'
           memory: 1G
     restart: always
+    healthcheck:
+      # wget is in the alpine base image (curl is not)
+      test: ["CMD-SHELL", "wget -q -T 5 -O - http://127.0.0.1:8080/actuator/health | grep -q '\"UP\"'"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 90s
 
   api-gateway-2:
     build:
@@ -447,6 +543,7 @@ services:
       SPRING_PROFILES_ACTIVE: production
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       AUTH_SERVICE_URL: http://auth-service-1:8081,http://auth-service-2:8081
       EXAM_SERVICE_URL: http://exam-service-1:8082,http://exam-service-2:8082,http://exam-service-3:8082
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
@@ -488,6 +585,13 @@ services:
     restart: always
 
   # ============== WEBSOCKET SERVICE ==============
+    healthcheck:
+      # wget is in the alpine base image (curl is not)
+      test: ["CMD-SHELL", "wget -q -T 5 -O - http://127.0.0.1:8080/actuator/health | grep -q '\"UP\"'"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 90s
   websocket-service:
     build:
       context: .
@@ -501,6 +605,7 @@ services:
       SPRING_PROFILES_ACTIVE: production
       REDIS_HOST: redis-master
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
@@ -522,6 +627,13 @@ services:
     restart: always
 
   # ============== MONITORING ==============
+    healthcheck:
+      # wget is in the alpine base image (curl is not)
+      test: ["CMD-SHELL", "wget -q -T 5 -O - http://127.0.0.1:8084/actuator/health | grep -q '\"UP\"'"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 90s
   monitoring-service:
     build:
       context: .
@@ -538,6 +650,9 @@ services:
       DB_NAME: exam_monitoring
       DB_USERNAME: postgres
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (base64, at least 32 bytes)}
       JAVA_OPTS: >-
         -XX:+UseZGC
@@ -556,6 +671,13 @@ services:
     restart: always
 
   # ============== PROMETHEUS ==============
+    healthcheck:
+      # wget is in the alpine base image (curl is not)
+      test: ["CMD-SHELL", "wget -q -T 5 -O - http://127.0.0.1:8083/actuator/health | grep -q '\"UP\"'"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 90s
   prometheus:
     image: prom/prometheus:latest
     container_name: exam-prometheus
@@ -601,6 +723,9 @@ volumes:
   # NEVER remove it (no "down -v", no "docker volume rm") - see "Database safety" in README.md
   postgres_data:
     name: exam-system-prod_postgres_data
+  # Question media files. Same rule as the database volume: explicit name, NEVER remove it.
+  media_data:
+    name: exam-system-prod_media_data
   redis_data:
   prometheus_data:
   grafana_data:

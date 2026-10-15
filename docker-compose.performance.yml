@@ -1,14 +1,26 @@
-version: '3.8'
-
-# Performance-Optimized Configuration
-# Designed for 100,000 concurrent users
-# Production-ready setup with monitoring
+# Performance configuration: one instance of every service with tuned Postgres and Redis and
+# Prometheus/Grafana, for load tests on one machine. Its own database volume
+# (exam-system-perf_postgres_data); never the development or production data.
+#
+# Scaling out (several gateways and services behind nginx) is docker-compose.production.yml; this
+# file runs one instance per service: a fixed container_name cannot be replicated, and the
+# nginx/nginx.conf upstreams (api-gateway-1/-2) belong to the production file.
+# Every port is bound to 127.0.0.1 only. The gateway uses 127.0.0.1:8080 like the development and
+# public stacks: stop those first (never with "down -v").
+#
+#   docker compose -f docker-compose.performance.yml config --quiet    (check)
+#   docker compose -f docker-compose.performance.yml up -d --build
+#
+# Its own project name and container names (exam-perf-*): started from this folder it must never
+# take over the containers of the development/public stack (project exam-system), whose services
+# have the same names (postgres, redis, ...).
+name: exam-system-perf
 
 services:
   # PostgreSQL - Optimized for High Load
   postgres:
     image: postgres:16-alpine
-    container_name: exam-postgres
+    container_name: exam-perf-postgres
     restart: unless-stopped
     environment:
       TZ: UTC
@@ -19,14 +31,14 @@ services:
       POSTGRES_MULTIPLE_DATABASES: exam_auth,exam_monitoring
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Only creates the empty databases; tables and indexes come from each service's Flyway migrations
       - ./init-scripts:/docker-entrypoint-initdb.d
     command:
       - "postgres"
-      - "-c" 
+      - "-c"
       - "max_connections=300"
       - "-c"
       - "shared_buffers=2GB"
@@ -71,7 +83,7 @@ services:
   # Redis - High-Performance Caching
   redis:
     image: redis:7-alpine
-    container_name: exam-redis
+    container_name: exam-perf-redis
     environment:
       TZ: UTC
     command:
@@ -93,7 +105,7 @@ services:
       - "--maxclients"
       - "10000"
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
     deploy:
@@ -115,11 +127,11 @@ services:
   # Prometheus - Monitoring
   prometheus:
     image: prom/prometheus:latest
-    container_name: exam-prometheus
+    container_name: exam-perf-prometheus
     environment:
       TZ: UTC
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -141,9 +153,9 @@ services:
   # Grafana - Visualization
   grafana:
     image: grafana/grafana:latest
-    container_name: exam-grafana
+    container_name: exam-perf-grafana
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       TZ: UTC
       GF_SECURITY_ADMIN_USER: admin
@@ -161,26 +173,35 @@ services:
     networks:
       - exam-network
 
-  # API Gateway
+  # API Gateway (production profile: lb:// routes to the single instances below)
   api-gateway:
     build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
-    container_name: exam-api-gateway
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: exam-perf-api-gateway
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       TZ: UTC
       JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: production
       AUTH_SERVICE_URL: http://auth-service:8081
       EXAM_SERVICE_URL: http://exam-service:8082
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      # A load generator on this machine is one address: without a trusted proxy it shares one bucket
+      GATEWAY_TRUSTED_PROXIES: ${GATEWAY_TRUSTED_PROXIES:-}
+      GATEWAY_AUTH_REGISTER_RATE: ${GATEWAY_AUTH_REGISTER_RATE:-500}
+      GATEWAY_AUTH_REGISTER_BURST: ${GATEWAY_AUTH_REGISTER_BURST:-1000}
+      GATEWAY_AUTH_LOGIN_RATE: ${GATEWAY_AUTH_LOGIN_RATE:-500}
+      GATEWAY_AUTH_LOGIN_BURST: ${GATEWAY_AUTH_LOGIN_BURST:-1000}
     depends_on:
       - auth-service
       - exam-service
+      - redis
     deploy:
-      replicas: 3  # Load balanced
       resources:
         limits:
           cpus: '2'
@@ -194,15 +215,13 @@ services:
   # Auth Service
   auth-service:
     build:
-      context: ./auth-service
-      dockerfile: Dockerfile
-    container_name: exam-auth-service
-    ports:
-      - "8081:8081"
+      context: .
+      dockerfile: Dockerfile.auth
+    container_name: exam-perf-auth-service
     environment:
       TZ: UTC
       JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: production
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_auth
@@ -211,13 +230,18 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # auth-service refuses to start without it
+      OTP_HMAC_SECRET: ${OTP_HMAC_SECRET:?OTP_HMAC_SECRET is required}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      EXAM_INTERNAL_URL: http://exam-service:8082
+      # No mail server here: every send fails cleanly (load tests verify accounts by SQL)
+      MAIL_HOST: ${MAIL_HOST:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     deploy:
-      replicas: 2
       resources:
         limits:
           cpus: '2'
@@ -231,15 +255,13 @@ services:
   # Exam Service
   exam-service:
     build:
-      context: ./exam-service
-      dockerfile: Dockerfile
-    container_name: exam-exam-service
-    ports:
-      - "8082:8082"
+      context: .
+      dockerfile: Dockerfile.exam
+    container_name: exam-perf-exam-service
     environment:
       TZ: UTC
       JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: production
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_db
@@ -248,19 +270,21 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-}
+      AUTH_INTERNAL_URL: http://auth-service:8081
       # Zone whose midnight starts a new day for the daily attempt limit of an exam
       EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
       # Where the risk level of a session's fraud events turns MEDIUM, HIGH and CRITICAL (weighted sum)
       EXAM_FRAUD_RISK_MEDIUM: ${EXAM_FRAUD_RISK_MEDIUM:-5}
       EXAM_FRAUD_RISK_HIGH: ${EXAM_FRAUD_RISK_HIGH:-15}
       EXAM_FRAUD_RISK_CRITICAL: ${EXAM_FRAUD_RISK_CRITICAL:-30}
+      # No media storage here: media endpoints answer 503
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     deploy:
-      replicas: 4  # Primary load-bearing service
       resources:
         limits:
           cpus: '4'
@@ -271,19 +295,27 @@ services:
     networks:
       - exam-network
 
-  # Monitoring Service
+  # Monitoring Service (port 8083)
   monitoring-service:
     build:
-      context: ./monitoring-service
-      dockerfile: Dockerfile
-    container_name: exam-monitoring-service
-    ports:
-      - "8084:8084"
+      context: .
+      dockerfile: Dockerfile.monitoring
+    container_name: exam-perf-monitoring-service
     environment:
       TZ: UTC
       JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: exam_monitoring
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -292,18 +324,16 @@ services:
     networks:
       - exam-network
 
-  # WebSocket Service
+  # WebSocket Service (port 8084)
   websocket-service:
     build:
-      context: ./websocket-service
-      dockerfile: Dockerfile
-    container_name: exam-websocket-service
-    ports:
-      - "8085:8085"
+      context: .
+      dockerfile: Dockerfile.websocket
+    container_name: exam-perf-websocket-service
     environment:
       TZ: UTC
       JAVA_TOOL_OPTIONS: -Duser.timezone=UTC
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: production
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
@@ -311,33 +341,10 @@ services:
       redis:
         condition: service_healthy
     deploy:
-      replicas: 2
       resources:
         limits:
           cpus: '2'
           memory: 2G
-    networks:
-      - exam-network
-
-  # NGINX - Load Balancer (Optional)
-  nginx:
-    image: nginx:alpine
-    container_name: exam-nginx
-    environment:
-      TZ: UTC
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - api-gateway
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 1G
     networks:
       - exam-network
 
