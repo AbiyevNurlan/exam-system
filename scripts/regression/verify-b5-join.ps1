@@ -1,6 +1,6 @@
 # Live verification of feat/groups-bulk (B5), part 2: the join link, the join requests, the CSV
 # pending invite after registration, and the two checks part 1 reported (both with their parts
-# printed, so a failure says which one it is). Reuses the data of part 1 (stamp below).
+# printed, so a failure says which one it is). Uses only the data it creates itself.
 # Admin credentials are read from F:\exam-system\.env into variables only; nothing secret is printed.
 $ErrorActionPreference = 'Continue'
 [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::InvariantCulture
@@ -8,7 +8,6 @@ Set-Location F:\exam-system
 Add-Type -AssemblyName System.Net.Http
 $GW = 'http://127.0.0.1:8080'
 $MAIL = 'http://127.0.0.1:8025'
-$PART1 = '6ace5e2a'
 $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString('x')
 $script:results = @()
 
@@ -111,22 +110,6 @@ foreach ($line in Get-Content F:\exam-system\.env) {
 $mainLogin = Login $adminEmail $adminPassword
 if ($mainLogin.status -ne 200) { throw "admin login answered $($mainLogin.status)" }
 $adm = @{ id = $mainLogin.data.user.id; token = $mainLogin.data.accessToken }
-
-# ---------- the two checks part 1 reported, with their parts printed ----------
-$idBig = [int](Sql 'exam_db' "select id from user_groups where name = 'T-b5-$PART1-big'")
-$idOne = [int](Sql 'exam_db' "select id from user_groups where name = 'T-b5-$PART1-one'")
-$idTwo = [int](Sql 'exam_db' "select id from user_groups where name = 'T-b5-$PART1-two'")
-$idExam = [int](Sql 'exam_db' "select id from exams where title = 'T-b5-$PART1-group'")
-$byEmail = Api 'GET' "/api/admin/participants?q=t-b5-00007-$PART1" $adm.token $null
-$emailRows = @($byEmail.data.content)
-$firstEmail = if ($emailRows.Count) { $emailRows[0].email } else { '(none)' }
-$firstId = if ($emailRows.Count) { $emailRows[0].id } else { $null }
-$byId = Api 'GET' "/api/admin/participants?q=$firstId" $adm.token $null
-Check 'q by full email finds one; q by user id finds one' ($byEmail.data.totalElements -eq 1 -and $firstEmail -eq "t-b5-00007-$PART1@x.test" -and $byId.data.totalElements -eq 1 -and @($byId.data.content)[0].email -eq $firstEmail) "by email: total $($byEmail.data.totalElements), first $firstEmail; by id: total $($byId.data.totalElements), first $(if (@($byId.data.content).Count) { @($byId.data.content)[0].email } else { '(none)' })"
-$preview = Api 'GET' "/api/exams/$idExam/audience/preview?groupIds=$idOne,$idTwo" $adm.token $null
-$dbPerGroup = Sql 'exam_db' "select string_agg(c::text, ',' order by group_id) from (select group_id, count(*) c from user_group_members where group_id in ($idOne,$idTwo) group by group_id) x"
-$dbDistinct = Sql 'exam_db' "select count(distinct user_id) from user_group_members where group_id in ($idOne,$idTwo)"
-Check 'preview after a member was removed still agrees with the database' ($preview.status -eq 200 -and ((@($preview.data.perGroup) | Sort-Object groupId | ForEach-Object { $_.members }) -join ',') -eq $dbPerGroup -and "$($preview.data.distinctEligible)" -eq $dbDistinct) "api $((@($preview.data.perGroup) | Sort-Object groupId | ForEach-Object { $_.members }) -join ','), distinct $($preview.data.distinctEligible); database $dbPerGroup / $dbDistinct"
 
 # ---------- the join link ----------
 $groupJoin = Api 'POST' '/api/admin/groups' $adm.token @{ name = "T-b5-$stamp-join"; description = 'B5 join link' }
@@ -235,8 +218,10 @@ Check 'approving and rejecting in bulk: 2 approved, 2 rejected, the unknown id i
 Check 'three members in all, two rejections, no open request left; audit rows for both decisions' ((Sql 'exam_db' "select count(*) from user_group_members where group_id=$idApprove") -eq '3' -and (Sql 'exam_db' "select count(*) from group_join_requests where group_id=$idApprove and status='REJECTED'") -eq '2' -and (Sql 'exam_db' "select count(*) from group_join_requests where group_id=$idApprove and status='PENDING'") -eq '0' -and (Sql 'exam_db' "select count(*) from group_audit_log where group_id=$idApprove and action='JOIN_REJECTED'") -eq '2')
 $rejectedUser = Sql 'exam_db' "select user_id from group_join_requests where group_id=$idApprove and status='REJECTED' limit 1"
 $rejectedAsker = $racers | Where-Object { $_.id -eq $rejectedUser }
+# B8: after a rejection the same user may ask that group again only after the cooldown (default 24 hours)
+$usesBefore = Sql 'exam_db' "select uses from group_join_links where group_id=$idApprove"
 $askAgain = Api 'POST' "/api/join/$approveCode" $rejectedAsker.token $null
-Check 'a rejected participant can ask again (a decided request does not block it)' ($askAgain.status -eq 200 -and $askAgain.data.status -eq 'PENDING' -and $askAgain.data.changed -eq $true -and (Sql 'exam_db' "select count(*) from group_join_requests where group_id=$idApprove and user_id='$rejectedUser'") -eq '2')
+Check 'a rejected participant asking again at once: 409 JOIN_REQUEST_COOLDOWN with canRequestAgainAt, no new request, no use counted' ($askAgain.status -eq 409 -and $askAgain.code -eq 'JOIN_REQUEST_COOLDOWN' -and $askAgain.json.error.details.canRequestAgainAt -and (Sql 'exam_db' "select count(*) from group_join_requests where group_id=$idApprove and user_id='$rejectedUser'") -eq '1' -and (Sql 'exam_db' "select uses from group_join_links where group_id=$idApprove") -eq $usesBefore) "status $($askAgain.status) $($askAgain.code), canRequestAgainAt $($askAgain.json.error.details.canRequestAgainAt)"
 Check 'the request lists can be filtered by status; an unknown status is 400' ((Api 'GET' "/api/groups/$idApprove/join-requests?status=APPROVED" $adm.token $null).data.totalElements -eq 3 -and (Api 'GET' "/api/groups/$idApprove/join-requests?status=REJECTED" $adm.token $null).data.totalElements -eq 2 -and (Api 'GET' "/api/groups/$idApprove/join-requests?status=NOPE" $adm.token $null).status -eq 400)
 Check 'a member who asks again gets MEMBER, not a request' ((Api 'POST' "/api/join/$approveCode" $joiner.token $null).data.status -eq 'MEMBER')
 Check '501 request ids is 400; an empty list is 400; the request endpoints are 403 for a STUDENT' ((Api 'POST' "/api/groups/$idApprove/join-requests/approve" $adm.token @{ requestIds = @(1..501) }).status -eq 400 -and (Api 'POST' "/api/groups/$idApprove/join-requests/approve" $adm.token @{ requestIds = @() }).status -eq 400 -and (Api 'GET' "/api/groups/$idApprove/join-requests" $joiner.token $null).status -eq 403)
@@ -260,6 +245,27 @@ Start-Sleep -Seconds 2
 Check 'once the email is verified the invite becomes a membership (source CSV) and the invite is gone' ((Sql 'exam_db' "select source from user_group_members where group_id=$idCsv and user_id='$($csvAccount.id)'") -eq 'CSV' -and (Sql 'exam_db' "select count(*) from pending_group_invites where group_id=$idCsv and email_normalized='$futureEmail'") -eq '0' -and (Sql 'exam_db' "select count(*) from group_audit_log where group_id=$idCsv and action='INVITE_APPLIED' and target_user_id='$($csvAccount.id)'") -eq '1')
 Remove-Item $csvFile, "$env:TEMP\t-b5-import.json" -ErrorAction SilentlyContinue
 
+# ---------- the two checks part 1 reported, on the data of this run ----------
+$byEmail = Api 'GET' "/api/admin/participants?q=$($joiner.email)" $adm.token $null
+$emailRows = @($byEmail.data.content)
+$firstEmail = if ($emailRows.Count) { $emailRows[0].email } else { '(none)' }
+$firstId = if ($emailRows.Count) { $emailRows[0].id } else { $null }
+$byId = Api 'GET' "/api/admin/participants?q=$firstId" $adm.token $null
+Check 'q by full email finds one; q by user id finds one' ($byEmail.data.totalElements -eq 1 -and $firstEmail -eq $joiner.email -and $firstId -eq $joiner.id -and $byId.data.totalElements -eq 1 -and @($byId.data.content)[0].email -eq $firstEmail) "by email: total $($byEmail.data.totalElements), first $firstEmail; by id: total $($byId.data.totalElements), first $(if (@($byId.data.content).Count) { @($byId.data.content)[0].email } else { '(none)' })"
+# An exam for the groups join (1 member) and approve (4 members, the joiner is in both); then one member of approve is removed
+$groupExam = Api 'POST' '/api/exams' $adm.token @{ title = "T-b5-$stamp-group"; description = 'B5 audience preview'; durationMinutes = 30
+    startTime = [DateTime]::UtcNow.AddDays(1).ToString('yyyy-MM-ddTHH:mm:ss'); endTime = [DateTime]::UtcNow.AddDays(2).ToString('yyyy-MM-ddTHH:mm:ss')
+    shuffleQuestions = $false; shuffleOptions = $false; showResultsImmediately = $true; maxAttempts = 1; passingScore = 50
+    accessType = 'GROUP'; groupIds = @($idJoin, $idApprove)
+    questions = @(@{ questionText = 'T-b5 q1: 1 + 1 = ?'; questionType = 'MULTIPLE_CHOICE'; points = 1; orderIndex = 0; allowMultipleAnswers = $false
+                     options = @(@{ optionText = '2'; isCorrect = $true; orderIndex = 0 }, @{ optionText = '3'; isCorrect = $false; orderIndex = 1 }) }) }
+$idExam = $groupExam.data.id
+$removed = Api 'DELETE' "/api/admin/groups/$idApprove/members/$($racers[4].id)" $adm.token $null
+$preview = Api 'GET' "/api/exams/$idExam/audience/preview?groupIds=$idJoin,$idApprove" $adm.token $null
+$dbPerGroup = Sql 'exam_db' "select string_agg(c::text, ',' order by group_id) from (select group_id, count(*) c from user_group_members where group_id in ($idJoin,$idApprove) group by group_id) x"
+$dbDistinct = Sql 'exam_db' "select count(distinct user_id) from user_group_members where group_id in ($idJoin,$idApprove)"
+Check 'preview after a member was removed still agrees with the database' ($groupExam.status -eq 201 -and $removed.status -in 200, 204 -and $preview.status -eq 200 -and ((@($preview.data.perGroup) | Sort-Object groupId | ForEach-Object { $_.members }) -join ',') -eq $dbPerGroup -and "$($preview.data.distinctEligible)" -eq $dbDistinct -and $dbPerGroup -eq '1,3' -and $dbDistinct -eq '3') "exam $($groupExam.status) $($groupExam.code), remove $($removed.status); api $((@($preview.data.perGroup) | Sort-Object groupId | ForEach-Object { $_.members }) -join ','), distinct $($preview.data.distinctEligible); database $dbPerGroup / $dbDistinct"
+
 # ---------- the groups a bulk-added participant has, and the list of a link group ----------
 $joinerRow = @((Api 'GET' "/api/admin/participants?q=$($joiner.id)" $adm.token $null).data.content)[0]
 $dbJoinerGroups = Sql 'exam_db' "select count(*) from user_group_members m join user_groups g on g.id=m.group_id and g.active=true where m.user_id='$($joiner.id)'"
@@ -268,4 +274,4 @@ Check 'the participant list shows every group of a participant who joined by lin
 $failed = @($script:results | Where-Object { -not $_.ok })
 Write-Output ''
 Write-Output "TOTAL $($script:results.Count)  PASS $($script:results.Count - $failed.Count)  FAIL $($failed.Count)"
-Write-Output "stamp=$stamp; groups join=$idJoin approve=$idApprove limit=$idLimit csv=$idCsv; accounts be-b5j-*-$stamp@x.test"
+Write-Output "stamp=$stamp; groups join=$idJoin approve=$idApprove limit=$idLimit csv=$idCsv; exam $idExam; accounts be-b5j-*-$stamp@x.test"
