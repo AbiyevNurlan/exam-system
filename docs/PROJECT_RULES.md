@@ -233,7 +233,9 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
 - **Rate limits are per route and client address** (`RateLimiterConfig`: Redis key
   `request_rate_limiter.{<route id>:<ip>}`). A path that needs its own capacity gets its own route,
   before the general one. Capacities that a site may have to change come from environment variables
-  (`GATEWAY_AUTH_REGISTER_*`, `GATEWAY_AUTH_LOGIN_*`); the code routes (`auth-otp`) stay strict.
+  (`GATEWAY_AUTH_REGISTER_*`, `GATEWAY_AUTH_LOGIN_*`, `GATEWAY_OTP_REPLENISH`/`GATEWAY_OTP_BURST`);
+  the defaults of the code routes (`auth-otp`: 1 and 50, 5 tokens a request) stay strict and are
+  only loosened through `.env`.
 - **The client address is the remote address**; `X-Forwarded-For` is believed only from the proxies
   in `GATEWAY_TRUSTED_PROXIES` (`ClientIpResolver`, read from the right). Production must set it to
   nginx, otherwise everybody behind nginx shares one bucket.
@@ -248,6 +250,17 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
 - **Errors**: expected client errors are 4xx with a code and a generic message; responses never
   contain SQL, stack traces or other internals. 4xx are logged once at WARN, 5xx at ERROR.
 - **Secrets** come from the environment (`.env`, git-ignored). Never commit or print them.
+  `DB_PASSWORD` is the live password of the database role: change it only with
+  `scripts\init-public-env.ps1` (generates and applies it with `ALTER ROLE`), never in `.env` alone.
+  Inside the Postgres container 127.0.0.1 is trusted without a password, so a password check is
+  done from another container over the network.
+- **Temporary public mode** (`docker-compose.public.yml`, [PUBLIC_TEMP.md](PUBLIC_TEMP.md)) is
+  started and stopped only with `scripts\go-public.ps1` (never `down`). It publishes nothing on the
+  network (edge 127.0.0.1:8088, gateway 127.0.0.1:8080, Postgres 127.0.0.1:5432 only). A new
+  public path needs a `location` in `deploy/public/nginx.conf`; management paths (`/internal`,
+  `/actuator`, ...) stay blocked there. Its mail comes from `PUBLIC_MAIL_*`, never `MAIL_*` (that
+  would take the development stack off Mailpit). A new outside source in the frontend (a script,
+  font, image host) needs the CSP of `deploy/public/security-headers.conf`.
 
 ## Working agreements
 
