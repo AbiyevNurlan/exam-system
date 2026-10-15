@@ -126,6 +126,25 @@ class AuthServiceAccountTest {
     }
 
     @Test
+    void theProfilePhoneIsStoredAsE164() {
+        when(userRepository.updateProfile(USER, "Leyla", "Mammadova", "+994501234567")).thenReturn(Mono.just(1));
+        UpdateProfileRequest request = UpdateProfileRequest.builder().firstName("Leyla").lastName("Mammadova").phone("050 123 45 67").build();
+
+        StepVerifier.create(service.updateProfile(USER, request)).expectNextCount(1).verifyComplete();
+
+        verify(userRepository).updateProfile(USER, "Leyla", "Mammadova", "+994501234567");
+    }
+
+    @Test
+    void aForeignPhoneIs400AndNothingChanges() {
+        UpdateProfileRequest request = UpdateProfileRequest.builder().firstName("Leyla").lastName("Mammadova").phone("+7 912 345 67 89").build();
+        StepVerifier.create(service.updateProfile(USER, request))
+                .expectErrorSatisfies(e -> assertCode(e, HttpStatus.BAD_REQUEST, "VALIDATION_ERROR"))
+                .verify();
+        verify(userRepository, never()).updateProfile(any(), anyString(), anyString(), any());
+    }
+
+    @Test
     void aNameOfOneCharacterAfterTrimmingIs400() {
         UpdateProfileRequest request = UpdateProfileRequest.builder().firstName(" L ").lastName("Məmmədova").build();
         StepVerifier.create(service.updateProfile(USER, request)).expectErrorSatisfies(e -> assertCode(e, HttpStatus.BAD_REQUEST, "VALIDATION_ERROR")).verify();

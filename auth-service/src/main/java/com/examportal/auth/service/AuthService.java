@@ -10,6 +10,7 @@ import com.examportal.auth.exception.InvalidTokenException;
 import com.examportal.auth.exception.PasswordChangeRejectedException;
 import com.examportal.auth.mail.VerificationMailer;
 import com.examportal.auth.repository.UserRepository;
+import com.examportal.common.domain.PhoneNumbers;
 import com.examportal.common.domain.dto.auth.*;
 import com.examportal.common.domain.entity.User;
 import com.examportal.common.domain.entity.UserRole;
@@ -285,7 +286,13 @@ public class AuthService {
         if (firstName.length() < 2 || lastName.length() < 2) {
             return Mono.error(new ValidationException("First and last name must have at least 2 characters"));
         }
-        String phone = request.getPhone() == null || request.getPhone().isBlank() ? null : request.getPhone().trim();
+        String phone;
+        try {
+            // Azerbaijani numbers only, stored as E.164 (+994XXXXXXXXX); empty removes it
+            phone = PhoneNumbers.toE164(request.getPhone());
+        } catch (IllegalArgumentException invalid) {
+            return Mono.error(new ValidationException("phone", invalid.getMessage()));
+        }
 
         Mono<CurrentUserResponse> change = userRepository.updateProfile(userId, firstName, lastName, phone)
                 .flatMap(updated -> updated == 1

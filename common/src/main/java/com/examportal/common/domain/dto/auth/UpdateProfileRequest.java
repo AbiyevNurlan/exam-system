@@ -29,8 +29,9 @@ public class UpdateProfileRequest {
     @Size(min = 2, max = 50, message = "Last name must be between 2 and 50 characters")
     private String lastName;
 
+    // Optional; an Azerbaijani number, stored as E.164 (+994 and 9 digits, PhoneNumbers). Not unique, not verified.
     @JsonAlias("phoneNumber")
-    @Size(max = 20, message = "Phone number must not exceed 20 characters")
-    @Pattern(regexp = "^$|^[+]?[(]?[0-9]{1,4}[)]?[-\\s\\./0-9]*$", message = "Invalid phone number format")
+    @Size(max = 25, message = "Phone number must not exceed 25 characters")
+    @Pattern(regexp = "^[+0-9\\s().\\-]*$", message = "Invalid phone number format")
     private String phone;
 }
