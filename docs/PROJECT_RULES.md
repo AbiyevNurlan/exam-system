@@ -186,7 +186,10 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
   itself only ever gives away the group's name. Joining is for a STUDENT with a **verified** email
   (checked against auth-service, not from the token), is idempotent, and takes turns on the locked
   link row, so `max_uses` is never exceeded. `requires_approval` turns a join into a request an
-  admin approves. The code is never written to the audit log.
+  admin approves. The code is never written to the audit log. A participant sees the own requests
+  and their decision (`GET /api/join/requests/mine`; who decided is not shown). After a rejection
+  the same user may ask that group again only after `GROUP_JOIN_REJECT_COOLDOWN_HOURS` (default 24,
+  0 = at once): 409 `JOIN_REQUEST_COOLDOWN` with `canRequestAgainAt`, and the use is not counted.
 - **Service-to-service endpoints are under `/internal/**`**, are not routed by the gateway and
   require the `X-Internal-Secret` header (`INTERNAL_SERVICE_SECRET`, at least 32 characters; without
   it they answer 404). Users are resolved only through auth-service, never by reading its database.

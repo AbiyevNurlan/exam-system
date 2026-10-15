@@ -9,6 +9,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -171,6 +172,62 @@ public class GroupJoinRepository {
                 .bind("now", now)
                 .fetch()
                 .rowsUpdated();
+    }
+
+    /**
+     * A request as its participant sees it: the group by name, the state and when it was decided
+     * (who decided is not shown)
+     */
+    public record OwnRequest(Long id, Long groupId, String groupName, String status, LocalDateTime createdAt,
+                             LocalDateTime decidedAt) {
+    }
+
+    /**
+     * One page of the user's own requests, newest first (idx_group_join_requests_user). A request of
+     * a group that was deleted since is still listed, with the name the group had.
+     */
+    public Flux<OwnRequest> findRequestsOfUser(UUID userId, int limit, long offset) {
+        return databaseClient.sql("""
+                        SELECT r.id, r.group_id, g.name AS group_name, r.status, r.created_at, r.decided_at
+                        FROM group_join_requests r
+                        JOIN user_groups g ON g.id = r.group_id
+                        WHERE r.user_id = :userId
+                        ORDER BY r.created_at DESC, r.id DESC
+                        LIMIT :limit OFFSET :offset
+                        """)
+                .bind("userId", userId)
+                .bind("limit", limit)
+                .bind("offset", offset)
+                .map(row -> new OwnRequest(
+                        row.get("id", Long.class),
+                        row.get("group_id", Long.class),
+                        row.get("group_name", String.class),
+                        row.get("status", String.class),
+                        row.get("created_at", LocalDateTime.class),
+                        row.get("decided_at", LocalDateTime.class)))
+                .all();
+    }
+
+    public Mono<Long> countRequestsOfUser(UUID userId) {
+        return databaseClient.sql("SELECT COUNT(*) FROM group_join_requests WHERE user_id = :userId")
+                .bind("userId", userId)
+                .map(row -> row.get(0, Long.class))
+                .one();
+    }
+
+    /**
+     * When the user's most recent rejected request to the group was decided; empty when none was
+     */
+    public Mono<LocalDateTime> lastRejectedAt(Long groupId, UUID userId) {
+        return databaseClient.sql("""
+                        SELECT max(decided_at) AS decided_at FROM group_join_requests
+                        WHERE group_id = :groupId AND user_id = :userId AND status = 'REJECTED'
+                        """)
+                .bind("groupId", groupId)
+                .bind("userId", userId)
+                .map(row -> Optional.ofNullable(row.get("decided_at", LocalDateTime.class)))
+                .one()
+                .flatMap(Mono::justOrEmpty);
     }
 
     public Mono<Long> countRequests(Long groupId, String status) {

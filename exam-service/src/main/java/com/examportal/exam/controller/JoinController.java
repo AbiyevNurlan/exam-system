@@ -14,6 +14,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import com.examportal.common.domain.dto.PageResponse;
+import io.swagger.v3.oas.annotations.Parameter;
+import org.springframework.web.bind.annotation.RequestParam;
 import reactor.core.publisher.Mono;
 
 /**
@@ -37,11 +40,27 @@ public class JoinController {
                 .map(ApiResponse::success);
     }
 
+    @GetMapping("/requests/mine")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "My join requests", description = "The caller's own requests, newest first, max 50 per page: "
+            + "groupName, status (PENDING, APPROVED, REJECTED), createdAt, decidedAt. The newest rejected request of a "
+            + "group carries canRequestAgainAt while the rejection cooldown runs (a new request answers 409 "
+            + "JOIN_REQUEST_COOLDOWN until then).")
+    public Mono<ApiResponse<PageResponse<JoinDtos.OwnRequest>>> myRequests(
+            @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
+            @RequestParam(defaultValue = "20") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return joinService.myRequests(principal.getId(), page, size)
+                .map(ApiResponse::success);
+    }
+
     @PostMapping("/{code}")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Join the group of a code", description = "For participants (STUDENT) with a verified email: "
             + "status MEMBER, or PENDING when the link needs approval. Idempotent. 404 JOIN_CODE_INVALID, "
-            + "403 EMAIL_NOT_VERIFIED, 403 JOIN_PARTICIPANTS_ONLY.")
+            + "403 EMAIL_NOT_VERIFIED, 403 JOIN_PARTICIPANTS_ONLY, 409 JOIN_REQUEST_COOLDOWN (the last request to this group "
+            + "was rejected less than the cooldown ago; error.details.canRequestAgainAt).")
     public Mono<ApiResponse<JoinDtos.JoinResult>> join(
             @PathVariable String code,
             @AuthenticationPrincipal UserPrincipal principal) {

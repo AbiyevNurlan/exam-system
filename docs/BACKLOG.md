@@ -252,6 +252,8 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] `GET /api/exams/manage` rows and `GET /api/exams/{id}` (ADMIN, owner) carry `audienceGroupCount` and `groupIds`
 - [ ] Results: `riskLevel=LOW|MEDIUM|HIGH|CRITICAL`, `minPercent`, `maxPercent` (0..100), `sort=risk`; rows carry `submitKind` (`MANUAL`, `AUTO_EXPIRED`, null while running). `GET /api/exams/{id}/results/export` with the same parameters downloads a CSV (UTF-8 with BOM, comma, `X-Total-Count`); 422 `RESULTS_EXPORT_TOO_LARGE` above 50 000 rows
 - [ ] Grading overview: `GET /api/grading/pending-exams?page=&size=` and `GET /api/grading/pending-count` (`{sessions, answers}`, also for INSTRUCTOR, cached 10 s) replace the platform overview for the menu badge
+- [ ] Groups for INSTRUCTOR: the group pages (`/api/admin/groups/**`, join link, requests, additions by ids, CSV import) now answer an INSTRUCTOR for the own groups (another owner's group is 404); the admin menu shows them to ADMIN only so far. Rows carry `ownerId`. Adding by filter stays ADMIN only
+- [ ] Participant cabinet: `GET /api/join/requests/mine` (groupName, status PENDING/APPROVED/REJECTED, createdAt, decidedAt, canRequestAgainAt); joining can answer 409 `JOIN_REQUEST_COOLDOWN` with `error.details.canRequestAgainAt`
 - [ ] Audit list (ADMIN): `GET /api/admin/audit?action=&actorId=&from=&to=&q=&source=EXAM_SERVICE|AUTH_SERVICE&page=&size=` (from/to ISO UTC; 10 000 rows deep)
 
 ## Later

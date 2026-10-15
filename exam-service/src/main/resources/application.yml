@@ -85,6 +85,10 @@ exam:
       medium-from: ${EXAM_FRAUD_RISK_MEDIUM:5}
       high-from: ${EXAM_FRAUD_RISK_HIGH:15}
       critical-from: ${EXAM_FRAUD_RISK_CRITICAL:30}
+  groups:
+    # After a rejected join request the same user may ask that group again only this many hours later;
+    # 0 or less = at once (GroupJoinService)
+    join-reject-cooldown-hours: ${GROUP_JOIN_REJECT_COOLDOWN_HOURS:24}
   results:
     # Most rows a CSV export of an exam's results may have; more is refused with 422 RESULTS_EXPORT_TOO_LARGE
     export-max-rows: ${EXAM_RESULTS_EXPORT_MAX_ROWS:50000}

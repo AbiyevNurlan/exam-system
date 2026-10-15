@@ -95,6 +95,17 @@ public class GroupException extends ApplicationException {
         return new GroupException("The group has no such open join request", HttpStatus.NOT_FOUND, "JOIN_REQUEST_NOT_FOUND");
     }
 
+    /**
+     * The user's last request to this group was rejected less than the cooldown ago;
+     * error.details.canRequestAgainAt says from when (UTC)
+     */
+    public static GroupException joinRequestCooldown(java.time.LocalDateTime canRequestAgainAt) {
+        GroupException exception = new GroupException("Your request to join this group was rejected recently; "
+                + "you can ask again later", HttpStatus.CONFLICT, "JOIN_REQUEST_COOLDOWN");
+        exception.withDetails(java.util.Map.of("canRequestAgainAt", canRequestAgainAt));
+        return exception;
+    }
+
     public static GroupException emailNotVerified() {
         return new GroupException("Verify your email address before joining a group", HttpStatus.FORBIDDEN,
                 "EMAIL_NOT_VERIFIED");

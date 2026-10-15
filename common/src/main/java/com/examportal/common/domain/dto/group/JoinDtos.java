@@ -103,6 +103,27 @@ public final class JoinDtos {
         private boolean changed;
     }
 
+    /**
+     * A participant's own join request (GET /api/join/requests/mine): the group by name, the state
+     * and when it was decided. Who decided is not shown.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OwnRequest {
+        private Long id;
+        private Long groupId;
+        private String groupName;
+        // PENDING, APPROVED or REJECTED
+        private String status;
+        private LocalDateTime createdAt;
+        private LocalDateTime decidedAt;
+        // Only on the newest rejected request of a group while the rejection cooldown runs: from when
+        // the link can be used again
+        private LocalDateTime canRequestAgainAt;
+    }
+
     @Data
     @Builder
     @NoArgsConstructor

@@ -11,9 +11,11 @@ import com.examportal.exam.exception.GroupException;
 import com.examportal.exam.repository.GroupJoinRepository;
 import com.examportal.exam.repository.GroupJoinRepository.JoinRequest;
 import com.examportal.exam.repository.GroupJoinRepository.Link;
+import com.examportal.exam.repository.GroupJoinRepository.OwnRequest;
 import com.examportal.exam.repository.UserGroupMemberRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
@@ -65,6 +67,11 @@ public class GroupJoinService {
     private final ParticipantDirectory participants;
     private final TransactionalOperator transactionalOperator;
     private final GroupAccessPolicy accessPolicy;
+
+    // After a rejected request the same user may ask that group again only this many hours later
+    // (GROUP_JOIN_REJECT_COOLDOWN_HOURS; 0 or less = no wait)
+    @Value("${exam.groups.join-reject-cooldown-hours:24}")
+    private long rejectCooldownHours = 24;
 
     // ==================== Administrator ====================
 
@@ -248,7 +255,63 @@ public class GroupJoinService {
                 .flatMap(user -> transactionalOperator.transactional(joinLocked(normalized, userId)));
     }
 
+    /**
+     * The caller's own join requests, newest first: which group, the state and when it was decided,
+     * so a participant sees an approval or a rejection. The newest rejected request of a group carries
+     * canRequestAgainAt while the rejection cooldown runs.
+     */
+    public Mono<PageResponse<JoinDtos.OwnRequest>> myRequests(UUID userId, int page, int size) {
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        LocalDateTime now = LocalDateTime.now();
+        return joinRepository.countRequestsOfUser(userId)
+                .flatMap(total -> joinRepository.findRequestsOfUser(userId, pageSize, (long) pageNumber * pageSize)
+                        .collectList()
+                        .map(rows -> {
+                            Set<Long> seen = new java.util.HashSet<>();
+                            List<JoinDtos.OwnRequest> items = rows.stream().map(row -> {
+                                // Rows come newest first: the first row of a group is its newest request
+                                boolean newest = seen.add(row.groupId());
+                                LocalDateTime again = newest ? cooldownEnd(row) : null;
+                                return JoinDtos.OwnRequest.builder()
+                                        .id(row.id())
+                                        .groupId(row.groupId())
+                                        .groupName(row.groupName())
+                                        .status(row.status())
+                                        .createdAt(row.createdAt())
+                                        .decidedAt(row.decidedAt())
+                                        .canRequestAgainAt(again != null && again.isAfter(now) ? again : null)
+                                        .build();
+                            }).toList();
+                            return PageResponse.of(items, pageNumber, pageSize, total);
+                        }));
+    }
+
     // ==================== Private Helper Methods ====================
+
+    /**
+     * End of the rejection cooldown of a rejected request; null for any other request or without a cooldown
+     */
+    private LocalDateTime cooldownEnd(OwnRequest row) {
+        if (rejectCooldownHours <= 0 || !"REJECTED".equals(row.status()) || row.decidedAt() == null) {
+            return null;
+        }
+        return row.decidedAt().plusHours(rejectCooldownHours);
+    }
+
+    /**
+     * A request may be opened unless the user's last request to the group was rejected less than
+     * the cooldown ago (409 JOIN_REQUEST_COOLDOWN with canRequestAgainAt)
+     */
+    private Mono<Void> requireNoRecentRejection(Long groupId, UUID userId, LocalDateTime now) {
+        if (rejectCooldownHours <= 0) {
+            return Mono.empty();
+        }
+        return joinRepository.lastRejectedAt(groupId, userId)
+                .map(rejectedAt -> rejectedAt.plusHours(rejectCooldownHours))
+                .filter(again -> again.isAfter(now))
+                .flatMap(again -> Mono.<Void>error(GroupException.joinRequestCooldown(again)));
+    }
 
     /**
      * Inside one transaction, holding the lock of the link row
@@ -272,10 +335,12 @@ public class GroupJoinService {
                                 return Mono.error(GroupException.joinCodeInvalid());
                             }
                             if (link.requiresApproval()) {
-                                return joinRepository.addRequest(link.groupId(), userId, now)
-                                        .then(joinRepository.countUse(link.id(), now))
-                                        .then(auditService.record(userId, GroupAuditService.JOIN_REQUESTED, link.groupId(),
-                                                userId, "requested to join with the link"))
+                                // A recent rejection blocks a new request; the use is not counted then
+                                return requireNoRecentRejection(link.groupId(), userId, now)
+                                        .then(Mono.defer(() -> joinRepository.addRequest(link.groupId(), userId, now)
+                                                .then(joinRepository.countUse(link.id(), now))
+                                                .then(auditService.record(userId, GroupAuditService.JOIN_REQUESTED,
+                                                        link.groupId(), userId, "requested to join with the link"))))
                                         .thenReturn(result(STATUS_PENDING, link, true));
                             }
                             return memberRepository.addMember(link.groupId(), userId, GroupMemberSource.LINK.name(), link.createdBy())
