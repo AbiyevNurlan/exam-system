@@ -157,6 +157,16 @@ resilience4j:
     configs:
       default:
         timeoutDuration: 5s
+    # As in production: longer than the services' own timeouts (exam-service gives up on
+    # auth-service after 5 s, 15 s for large lists), so a service's own error (503
+    # USER_DIRECTORY_UNAVAILABLE) reaches the client instead of the gateway's generic fallback
+    instances:
+      authCircuitBreaker:
+        baseConfig: default
+        timeoutDuration: 10s
+      examCircuitBreaker:
+        baseConfig: default
+        timeoutDuration: 60s
 
 security:
   jwt:
