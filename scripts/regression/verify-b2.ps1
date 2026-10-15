@@ -377,12 +377,12 @@ Check 'regress: the owner attaches the own media: 200' ($putOwn.status -eq 200 -
 
 # ---------- e) management list ----------
 $adminOnce = Api 'POST' '/api/exams' $adm.token (ExamBody "T-b2-$stamp-adminmain" ([DateTime]::UtcNow.AddMinutes(5)) $weekEnd 1 $null $null)
-$manageKeys = 'id', 'title', 'status', 'accessType', 'startTime', 'endTime', 'durationMinutes', 'maxAttempts', 'maxAttemptsPerDay', 'totalQuestions', 'totalPoints', 'sessionCount', 'participantCount', 'createdBy', 'createdAt'
+$manageKeys = 'id', 'title', 'status', 'accessType', 'startTime', 'endTime', 'durationMinutes', 'maxAttempts', 'maxAttemptsPerDay', 'totalQuestions', 'totalPoints', 'sessionCount', 'participantCount', 'createdBy', 'createdAt', 'audienceGroupCount', 'groupIds'
 $all = Api 'GET' '/api/exams/manage?size=50' $admTwo.token $null
 $expectedAll = Sql 'exam_db' "select count(*) from exams where active = true and status <> 'ARCHIVED'"
 Check 'ADMIN: every exam that is not archived' ($all.status -eq 200 -and "$($all.data.totalElements)" -eq $expectedAll -and @($all.data.content).Count -eq [Math]::Min(50, [int]$expectedAll)) "total $($all.data.totalElements), database $expectedAll"
 $rowKeys = @(@($all.data.content)[0].PSObject.Properties.Name)
-Check 'a row has exactly the 15 listed fields' (-not ($manageKeys | Where-Object { $_ -notin $rowKeys }) -and -not ($rowKeys | Where-Object { $_ -notin $manageKeys })) ($rowKeys -join ', ')
+Check 'a row has exactly the 17 listed fields' (-not ($manageKeys | Where-Object { $_ -notin $rowKeys }) -and -not ($rowKeys | Where-Object { $_ -notin $manageKeys })) ($rowKeys -join ', ')
 Check 'the list carries no questions and no key' ($all.raw -notmatch '"questions"|isCorrect|explanation')
 AllDatesZ 'management list' $all.raw
 $mine = Api 'GET' "/api/exams/manage?search=T-b2-$stamp&size=50" $admTwo.token $null
@@ -405,7 +405,9 @@ Check 'a one-character search: 400' ($short.status -eq 400) "status $($short.sta
 $drafts = Api 'GET' '/api/exams/manage?status=DRAFT&size=50' $admTwo.token $null
 Check 'status=DRAFT lists only drafts' ("$($drafts.data.totalElements)" -eq (Sql 'exam_db' "select count(*) from exams where active = true and status='DRAFT'") -and -not (@($drafts.data.content) | Where-Object { $_.status -ne 'DRAFT' })) "total $($drafts.data.totalElements)"
 $archivedAll = Api 'GET' '/api/exams/manage?status=ARCHIVED&size=50' $admTwo.token $null
-Check 'status=ARCHIVED lists the archived exams' ("$($archivedAll.data.totalElements)" -eq (Sql 'exam_db' "select count(*) from exams where active = true and status='ARCHIVED'") -and $archivedAll.data.totalElements -ge 6 -and -not (@($archivedAll.data.content) | Where-Object { $_.status -ne 'ARCHIVED' })) "total $($archivedAll.data.totalElements)"
+# The number of archived exams depends on the data (cleanup removes test exams): compared with the database only
+$expectedArchived = Sql 'exam_db' "select count(*) from exams where active = true and status='ARCHIVED'"
+Check 'status=ARCHIVED lists the archived exams' ($archivedAll.status -eq 200 -and "$($archivedAll.data.totalElements)" -eq $expectedArchived -and @($archivedAll.data.content).Count -eq [Math]::Min(50, [int]$expectedArchived) -and -not (@($archivedAll.data.content) | Where-Object { $_.status -ne 'ARCHIVED' })) "total $($archivedAll.data.totalElements), database $expectedArchived"
 Check 'an unknown status: 400' ((Api 'GET' '/api/exams/manage?status=NOPE' $admTwo.token $null).status -eq 400)
 $big = Api 'GET' '/api/exams/manage?size=500' $admTwo.token $null
 Check 'size=500 is clamped to 50' ($big.data.size -eq 50 -and @($big.data.content).Count -le 50) "size $($big.data.size)"
