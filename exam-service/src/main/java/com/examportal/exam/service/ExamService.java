@@ -394,6 +394,8 @@ public class ExamService {
      * an archived exam back); a draft is changed with the normal update instead.
      * Only the exam row changes: questions, sessions and results stay as they are, and a session in
      * progress keeps its own end time. More attempts take effect at once; fewer never remove a session.
+     * A COMPLETED or ARCHIVED exam with attempts is never made SCHEDULED (409 EXAM_HAS_SESSIONS): it is
+     * reopened with a start time now or in the past (ACTIVE).
      */
     public Mono<ExamResponse> rescheduleExam(Long examId, RescheduleExamRequest request, UUID userId, String role) {
         log.info("Rescheduling exam {} by user {}", examId, userId);
@@ -424,7 +426,17 @@ public class ExamService {
                             ? request.getMaxAttemptsPerDay()
                             : exam.getMaxAttemptsPerDay();
 
-                    return examRepository.reschedule(examId, startTime, endTime, newStatus.name(),
+                    // A finished or archived exam with attempts must not become SCHEDULED: that status would open
+                    // it for editing again. Reopening it at once (ACTIVE) stays possible. Asked after the row lock.
+                    boolean backToScheduled = newStatus == ExamStatus.SCHEDULED
+                            && (exam.getStatus() == ExamStatus.COMPLETED || exam.getStatus() == ExamStatus.ARCHIVED);
+                    Mono<Void> attemptsGuard = backToScheduled
+                            ? editLock.hasSessions(examId).flatMap(taken -> taken
+                                    ? Mono.<Void>error(ExamException.rescheduleHasSessions())
+                                    : Mono.<Void>empty())
+                            : Mono.empty();
+
+                    return attemptsGuard.then(Mono.defer(() -> examRepository.reschedule(examId, startTime, endTime, newStatus.name(),
                                     request.getMaxAttempts(), request.isMaxAttemptsPerDayPresent(),
                                     request.getMaxAttemptsPerDay())
                             .then(auditService.record(userId, GroupAuditService.EXAM_RESCHEDULED, null, exam.getCreatedBy(),
@@ -437,7 +449,7 @@ public class ExamService {
                                             + " maxAttempts=" + exam.getMaxAttempts() + " -> " + newMaxAttempts
                                             + " maxAttemptsPerDay=" + exam.getMaxAttemptsPerDay()
                                             + " -> " + newMaxAttemptsPerDay))
-                            .then(examRepository.findById(examId));
+                            .then(examRepository.findById(examId))));
                 });
 
         // The exam row and its audit entry change together; the cached exam is dropped after commit.
