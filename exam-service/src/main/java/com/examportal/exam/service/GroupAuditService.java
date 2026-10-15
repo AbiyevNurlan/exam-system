@@ -37,6 +37,8 @@ public class GroupAuditService {
     public static final String EXAM_DELETED = "EXAM_DELETED";
     // Written for every reschedule, also the owner's own (targetUserId = the exam's creator)
     public static final String EXAM_RESCHEDULED = "EXAM_RESCHEDULED";
+    // Title or description changed (PATCH /api/exams/{id}/meta); written for the owner too
+    public static final String EXAM_META_UPDATED = "EXAM_META_UPDATED";
     // A person gave points to an open-ended answer, for the first time or again (targetUserId = the
     // participant; details: exam, session, answer, old and new points)
     public static final String ANSWER_GRADED = "ANSWER_GRADED";

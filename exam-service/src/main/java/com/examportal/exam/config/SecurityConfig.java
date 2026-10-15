@@ -79,6 +79,7 @@ public class SecurityConfig {
                         .pathMatchers("/api/grading/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers(HttpMethod.PUT, "/api/exams/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers(HttpMethod.DELETE, "/api/exams/**").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        .pathMatchers(HttpMethod.PATCH, "/api/exams/**").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/my").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/*/publish", "/api/exams/*/archive").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/*/results", "/api/exams/*/results/**").hasAnyRole("ADMIN", "INSTRUCTOR")

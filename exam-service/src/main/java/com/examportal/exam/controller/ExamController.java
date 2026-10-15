@@ -12,6 +12,7 @@ import com.examportal.common.domain.entity.RiskLevel;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.service.AnswerSubmissionService;
+import com.examportal.exam.service.ExamMetaService;
 import com.examportal.exam.service.ExamResultsService;
 import com.examportal.exam.service.ExamService;
 import com.examportal.exam.service.FraudEventService;
@@ -53,6 +54,7 @@ import java.util.UUID;
 public class ExamController {
 
     private final ExamService examService;
+    private final ExamMetaService examMetaService;
     private final AnswerSubmissionService answerService;
     private final SessionMediaService sessionMediaService;
     private final FraudEventService fraudEventService;
@@ -468,5 +470,20 @@ public class ExamController {
         
         return examService.updateExamStatus(id, ExamStatus.ARCHIVED, principal.getId(), principal.getRole())
                 .map(exam -> ApiResponse.success(exam, "Exam archived successfully"));
+    }
+
+    @PatchMapping("/{id}/meta")
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Change title or description", description = "Only title (3-255 characters) and description "
+            + "(at most 5000; empty removes it); a field left out stays. Works in every status, also when the exam has "
+            + "attempts: nothing that decides a result changes. Any other field is 400. ADMIN and the INSTRUCTOR who "
+            + "created the exam; one audit row. The answer is the exam without questions.")
+    public Mono<ApiResponse<ExamResponse>> updateMeta(
+            @PathVariable Long id,
+            @Valid @RequestBody ExamMetaRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return examMetaService.updateMeta(id, request, principal.getId(), principal.getRole())
+                .map(exam -> ApiResponse.success(exam, "Exam title and description updated"));
     }
 }
