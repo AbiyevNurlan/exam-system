@@ -10,7 +10,7 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [x] Real email provider (SMTP) for production and its sending limits (today only the local Mailpit is wired; production needs `MAIL_*`) (now: `MAIL_*` switch development and production to any SMTP provider, startup check, HTML+text mail; README "Real email". Choosing the provider and its account is an operations step)
 - [ ] SPF, DKIM and DMARC on the production sender domain, otherwise codes land in spam
 - [ ] Bounce and complaint handling: nothing reads the provider's bounces or spam complaints; codes keep being sent to dead or complaining addresses, which costs sender reputation
-- [ ] CAPTCHA and real per-client IP limits against OTP abuse: the gateway limit keys on the remote address, which is the proxy or Docker bridge for every client until forwarded headers are trusted
+- [ ] CAPTCHA against OTP abuse (real per-client IP limits are done: the gateway believes X-Forwarded-For from `GATEWAY_TRUSTED_PROXIES` only, which production must set to nginx)
 - [ ] OTP via SMS (later)
 - [ ] Accounts created before OTP and still unverified (30 on the development database, all test accounts) cannot log in until they verify by `resend-otp` or an admin uses `POST /auth/admin/users/{id}/verify-email`
 - [ ] `POST /auth/register` still answers 409 for a known email, so it tells whether an address is registered (resend and verify do not)
@@ -46,7 +46,7 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] `exam.settings.auto-submit-buffer-seconds` is configured but unused
 - [x] `TIMED_OUT` and `ABANDONED` session statuses are never set (removed)
 - [ ] Index for the results list ordering (`exam_id, submitted_at DESC`)
-- [ ] `FraudDetectionService` is not wired into the exam flow
+- [x] `FraudDetectionService` is not wired into the exam flow (removed: fraud events are stored by `FraudEventService` and scored by `FraudRiskPolicy`)
 - [x] No endpoint to read `group_audit_log` (now: `GET /api/admin/audit`, together with auth-service's `admin_audit_log`)
 - [x] Exam responses carry `accessType` but not the audience group ids (those come only from `PUT /api/exams/{id}/audience`)
 - [ ] The audit list merges two databases in exam-service: each is read up to the end of the requested page, so it is paged only 10 000 rows deep; `admin_audit_log` has no details column, and its `q` matches the action only
@@ -72,7 +72,7 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [x] Real email provider (SMTP) for production and its sending limits (today only the local Mailpit is wired; production needs `MAIL_*`) (now: `MAIL_*` switch development and production to any SMTP provider, startup check, HTML+text mail; README "Real email". Choosing the provider and its account is an operations step)
 - [ ] SPF, DKIM and DMARC on the production sender domain, otherwise codes land in spam
 - [ ] Bounce and complaint handling: nothing reads the provider's bounces or spam complaints; codes keep being sent to dead or complaining addresses, which costs sender reputation
-- [ ] CAPTCHA and real per-client IP limits against OTP abuse: the gateway limit keys on the remote address, which is the proxy or Docker bridge for every client until forwarded headers are trusted
+- [ ] CAPTCHA against OTP abuse (real per-client IP limits are done: the gateway believes X-Forwarded-For from `GATEWAY_TRUSTED_PROXIES` only, which production must set to nginx)
 - [ ] OTP via SMS (later)
 - [ ] Accounts created before OTP and still unverified (30 on the development database, all test accounts) cannot log in until they verify by `resend-otp` or an admin uses `POST /auth/admin/users/{id}/verify-email`
 - [ ] `POST /auth/register` still answers 409 for a known email, so it tells whether an address is registered (resend and verify do not)
@@ -129,7 +129,7 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [x] Dates of auth-service were written without `Z` (now: `UtcDateTimeModule` is registered there too)
 - [ ] `docker-compose.production.yml` does not pass `MEDIA_ORPHAN_RETENTION_DAYS` (and has no media storage at all)
 - [ ] Fraud events are written only: there is no endpoint for an admin to read `session_fraud_events`, and the frontend still posts the old body (`eventType`, `count`, `timestamp`), which now answers 400 instead of 404
-- [ ] The in-memory `FraudDetectionService` is not connected to anything
+- [x] The in-memory `FraudDetectionService` is not connected to anything (removed)
 - [ ] Roles can only be changed in the database: there is no admin endpoint for assigning ADMIN or INSTRUCTOR
 - [ ] Groups have no owner, so every group action is ADMIN only; an INSTRUCTOR cannot build the audience of their own exam and has to ask an admin
 - [ ] A join link cannot be deleted, only switched off or replaced; `group_join_links` keeps one row per group forever
@@ -152,9 +152,9 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Load-test data from `feat/results-grading` is still in the development database: exam `T-b3-load` with 5000 sessions (`session_id LIKE 'T-b3-load-%'`, spread over the existing test users, so their "my sessions" lists are long) and 4166 fraud events (`details = 'T-b3-load'`)
 - [ ] Results sorted by name are sorted in the service (names live in auth-service): all matching rows are read and named in batches of 500; refused above 10 000 rows
 - [ ] The internal user search has `text_pattern_ops` indexes for first and last name (auth V1), but none for the full name (`first || ' ' || last`) and none for the email prefix other than the unique `lower(email)` index; check its plan before the user table grows large
-- [ ] `FraudDetectionService` (in-memory counters, never called) should be deleted: fraud events are stored by `FraudEventService` and scored by `FraudRiskPolicy`
+- [x] `FraudDetectionService` (in-memory counters, never called) should be deleted (done): fraud events are stored by `FraudEventService` and scored by `FraudRiskPolicy`
 - [ ] `ExamCacheService` is an in-memory map although its name and the old comments suggest Redis: with several exam-service instances the cached exam and the questions of a session differ per instance
-- [ ] The gateway's rate limiter keeps one Redis bucket per client IP for all routes, although the routes have different capacities (`/auth/verify-otp` 50 with 5 tokens per request, `/auth/**` 200): a drained verification budget also refuses `/auth/register` and `/auth/login` for that IP
+- [x] The gateway's rate limiter keeps one Redis bucket per client IP for all routes (now: one bucket per route and client address, and `/auth/register` and `/auth/login` have routes and capacities of their own: 300 registrations from one address in 67 s without a 429), although the routes have different capacities (`/auth/verify-otp` 50 with 5 tokens per request, `/auth/**` 200): a drained verification budget also refuses `/auth/register` and `/auth/login` for that IP
 - [ ] `/internal/**` answers 404 without the shared secret (by design, like an unknown path), not 401/403
 - [ ] Monitoring is polled (3 second cache); there is no push over the websocket service, and no action (stop a session, warn a participant)
 - [ ] Analytics are up to 60 seconds old and are not invalidated by a grading or a new session (`generatedAt` says how old)
@@ -174,8 +174,17 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] `scripts\check-env.ps1` reads `.env` only; variables set in the shell override `.env` for docker-compose and are not checked
 - [ ] `exam-grafana` and `exam-prometheus` containers from an earlier compose file are left as stopped orphans
 - [ ] The VS Code Java extension compiles into `target/classes` without Lombok; `.\mvnw.cmd package` without `clean` can pack those classes and the service then fails at start with "Unresolved compilation problems" (2026-10-14). Always build with `clean package`
-- [ ] `api-gateway/src/main/resources/application-production.yml` does not route `/api/admin/participants/**`, `/api/join/**` and `/api/analytics/**` (the development file does); `/api/admin/audit/**` and `/api/grading/**` were added to both
-- [ ] The gateway circuit breaker of exam-service opens for 10 s when calls fail during a restart, and the per-IP rate limit is shared with every browser on the same host: live checks must wait for five good calls and repeat a 429
+- [x] `api-gateway/src/main/resources/application-production.yml` does not route `/api/admin/participants/**`, `/api/join/**` and `/api/analytics/**` (the development file does); `/api/admin/audit/**` and `/api/grading/**` were added to both (now: the same routes in both files, checked by `scripts\check-gateway-routes.ps1`; `scripts\check-gateway-production.ps1` sends one request per frontend path through a production-profile gateway)
+- [ ] The gateway circuit breaker of exam-service opens for 10 s when calls fail during a restart (the per-IP bucket is now per route: a browser on the same host no longer drains the auth routes of a script, but the exam route of that address is still shared): live checks must wait for five good calls and repeat a 429
+- [x] The production profile of the gateway routed nothing: its `lb://` routes had no load balancer and no instances, every request ended in the circuit breaker fallback (now: `spring-cloud-starter-loadbalancer` with the instances of `gateway.services` = `AUTH_SERVICE_URL`, `EXAM_SERVICE_URL`, ...; 2026-10-15)
+- [x] The gateway fallback answered 200 with an error text, and 405 to every POST (now: every method, 503 with `Retry-After` and the code `SERVICE_UNAVAILABLE`; the field `error` is an object now, as in the other errors)
+- [x] CORS: production allowed every origin with credentials, development every origin; `X-Total-Count` and `Content-Disposition` were not exposed (now: `CORS_ALLOWED_ORIGINS`, required in production, localhost by default in development; `X-Total-Count`, `Content-Disposition`, `Retry-After` exposed)
+- [ ] `/auth/verify-otp` and `/auth/resend-otp` stay at 10 requests at once and then one every 5 seconds per address: a hall of 1 000 people who verify their codes through one address needs more than an hour. Raise it per site with care, or move the code check to a per-email limit only (it already has one: 5 attempts, 60 s cooldown)
+- [ ] The load balancer of the production gateway takes turns over the configured instances without health checks: a stopped instance gets every n-th request until the circuit breaker opens
+- [ ] `docker-compose.production.yml` now requires `CORS_ALLOWED_ORIGINS` and `GATEWAY_TRUSTED_PROXIES`; the address of nginx in the compose network is not fixed, so the trusted range is the network's subnet (set it, or give the network a fixed subnet)
+- [ ] `scripts\check-gateway-routes.ps1` runs only by hand (no CI)
+- [ ] `scripts\cleanup-test-data.ps1` exists and was tried on a restored copy only; it has not been run on the development database (dry run there: 40 577 users, 139 exams, 62 groups, 5 204 sessions to delete; 2026-10-15). Older test data that does not follow the rules (exams `R*`, `M-*`, accounts `@example.com`) is not found by it
+- [ ] Test data of `fix/gateway-hardening`: 301 accounts `t-b6-6acfabc6-*@x.test` (300 registered in the rate limit check, unverified), `t-b6-adm2-*@x.test` (ADMIN for one check, STUDENT again), groups `T-b6-*-par*` with 301 members each
 - [ ] `verify-b5.ps1` adds 20 000 synthetic participants on every run (the development database has 40 000 since 2026-10-14), and `verify-b4-2.ps1` checks sessions of 2026-10-13 that are no longer running: both are one-off scripts, not repeatable regression tests
 - [ ] `feat/admin-api-gaps` was verified only against the running stack (no automated tests)
 - [ ] Test data of `feat/admin-api-gaps`: groups and exams `T-b7-*`, accounts `be-b7-*@x.test` (two of them INSTRUCTOR by SQL, one with the first name `=SUM(1+1)` for the CSV injection check), one deleted exam `T-b7-*-e4` per run

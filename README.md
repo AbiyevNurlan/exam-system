@@ -190,7 +190,7 @@ exam-system/
 │       ├── config/                   # Performance, RateLimit, Resilience, Security configs
 │       ├── controller/               # ExamController
 │       ├── service/                  # ExamService, CacheService, SchedulerService
-│       │                             # AnswerSubmissionService, FraudDetectionService
+│       │                             # AnswerSubmissionService, FraudEventService
 │       ├── repository/               # Exam, Question, Option, Session, Answer repos
 │       └── mapper/                   # ExamMapper (MapStruct)
 │

@@ -227,6 +227,23 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
   `code=`/`otp=`/`token=`/`password=`/`secret=` pairs as a last line of defence.
 - **A new top-level API path needs a gateway route** in both `api-gateway` application files
   (`application.yml` and `application-production.yml`); otherwise the gateway answers 401 or 404.
+  Both files keep the same route ids, order and paths: `scripts\check-gateway-routes.ps1` exits 1
+  on a difference, and `scripts\check-gateway-production.ps1` sends one admin request per frontend
+  path through a gateway with the production profile (run it after any gateway change).
+- **Rate limits are per route and client address** (`RateLimiterConfig`: Redis key
+  `request_rate_limiter.{<route id>:<ip>}`). A path that needs its own capacity gets its own route,
+  before the general one. Capacities that a site may have to change come from environment variables
+  (`GATEWAY_AUTH_REGISTER_*`, `GATEWAY_AUTH_LOGIN_*`); the code routes (`auth-otp`) stay strict.
+- **The client address is the remote address**; `X-Forwarded-For` is believed only from the proxies
+  in `GATEWAY_TRUSTED_PROXIES` (`ClientIpResolver`, read from the right). Production must set it to
+  nginx, otherwise everybody behind nginx shares one bucket.
+- **CORS origins come from `CORS_ALLOWED_ORIGINS`** (never `*` in production). A response header the
+  frontend reads must be in `exposedHeaders` of both files.
+- **Gateway time limits are longer than the services' own timeouts**, so a service's own error (503
+  `USER_DIRECTORY_UNAVAILABLE`) reaches the client; the gateway fallback answers 503 with `Retry-After`.
+- **Test data follows the naming rules** (accounts `@x.test`, exams and groups `T-...`):
+  `scripts\cleanup-test-data.ps1` finds it by them. Run its dry run first; `-Execute` asks for the
+  confirmation word typed by hand and takes a backup itself.
 - **Full email addresses are never logged** and never written to audit details; use `LogMaskUtils`.
 - **Errors**: expected client errors are 4xx with a code and a generic message; responses never
   contain SQL, stack traces or other internals. 4xx are logged once at WARN, 5xx at ERROR.
