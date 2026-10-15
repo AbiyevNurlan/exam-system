@@ -12,7 +12,7 @@ against a stack that serves real users: they create test data.
 | `verify-b4.ps1` | monitoring, analytics (stops and starts auth-service once) | `T-b4-*` exams, `be-b4-*@x.test` |
 | `verify-b5-join.ps1` | join links and requests | `T-b5*` groups, `@x.test` accounts |
 | `verify-b6-buckets.ps1` | rate limit buckets per route (301 registrations) | `t-b6-*@x.test` |
-| `verify-b6-parallel.ps1` | parallel admin actions | `t-b6-*@x.test` |
+| `verify-b6-parallel.ps1` | parallel admin actions (on 6 participants it registers) | `T-b6-*` groups, `t-b6-*@x.test` |
 | `verify-b7.ps1` | admin API gaps, CSV export, audit list | `T-b7-*`, `be-b7-*@x.test` |
 
 Run one with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\regression\verify-b2.ps1`.

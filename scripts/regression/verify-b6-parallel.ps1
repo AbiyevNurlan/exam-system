@@ -1,7 +1,8 @@
 # B6 step 5 live: two admins add the same filter to the same group at the same moment; the participant
-# list while auth-service is stopped. Creates T-b6-<stamp>-par* groups and t-b6-adm2-<stamp>@x.test
+# list while auth-service is stopped. Creates T-b6-<stamp>-par* groups, t-b6-par-<stamp>-N@x.test and t-b6-adm2-<stamp>@x.test
 # (ADMIN for the test only, STUDENT again at the end). Admin credentials from .env, never printed.
-param([string]$Filter = 't-b6-6acfabc6', [int]$Rounds = 5)
+# Without -Filter the run registers its own participants (t-b6-par-<stamp>-N@x.test) and adds those.
+param([string]$Filter = '', [int]$Rounds = 5, [int]$Participants = 6)
 $ErrorActionPreference = 'Continue'
 Set-Location F:\exam-system
 Add-Type -AssemblyName System.Net.Http
@@ -37,7 +38,20 @@ docker exec exam-postgres psql -U postgres -d exam_auth -Atc "update users set r
 $admin2 = (Call 'POST' '/auth/login' $null @{ email = $email2; password = $pw }).data.accessToken
 Check 'setup: a second admin (test account) signed in' ($reg.status -eq 201 -and $admin2) "register $($reg.status)"
 
+if (-not $Filter) {
+    # Participants of this run only, so the race has something to add whatever earlier cleanups removed
+    $Filter = "t-b6-par-$stamp"
+    for ($n = 1; $n -le $Participants; $n++) {
+        for ($try = 0; $try -lt 10; $try++) {
+            $p = Call 'POST' '/auth/register' $null @{ email = "$Filter-$n@x.test"; password = $pw; firstName = "Bsix$n"; lastName = 'Par' }
+            if ($p.status -ne 429) { break }
+            Start-Sleep -Seconds 6
+        }
+    }
+    docker exec exam-postgres psql -U postgres -d exam_auth -Atc "update users set email_verified=true where email like '$Filter-%@x.test'" | Out-Null
+}
 $matching = (Call 'GET' "/api/admin/participants?q=$Filter&page=0&size=1" $admin1 $null).data.totalElements
+Check "setup: participants matching '$Filter' to add" ($matching -ge 1 -and ($PSBoundParameters.ContainsKey('Filter') -or $matching -eq $Participants)) "$matching"
 for ($round = 1; $round -le $Rounds; $round++) {
     $group = (Call 'POST' '/api/admin/groups' $admin1 @{ name = "T-b6-$stamp-par$round" }).data.id
     $dry1 = Call 'POST' "/api/groups/$group/members/bulk-by-filter" $admin1 @{ filter = @{ q = $Filter }; dryRun = $true }
@@ -74,5 +88,5 @@ Check 'after scripts\up.ps1 auth-service the list answers again' ($back.status -
         Write-Output "roles given back: $given"
     }
 }
-Write-Output "stamp $stamp; groups T-b6-$stamp-par1..$Rounds; second admin $email2 is STUDENT again"
+Write-Output "stamp $stamp; groups T-b6-$stamp-par1..$Rounds; filter $Filter; second admin $email2 is STUDENT again"
 Write-Output "$(($script:results | Where-Object { $_ }).Count) / $($script:results.Count) passed"
