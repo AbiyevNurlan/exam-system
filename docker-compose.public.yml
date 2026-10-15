@@ -1,0 +1,173 @@
+# Temporary public mode: this computer serves the site through a Cloudflare quick tunnel.
+# An override of docker-compose.yml, started and stopped only by scripts\go-public.ps1
+# (docs/PUBLIC_TEMP.md):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.public.yml ...
+#
+# - The same database and media volumes as development (nothing is copied or recreated).
+# - Services run with the production profile, with the secrets of .env (scripts\init-public-env.ps1)
+#   and a real SMTP server (no Mailpit).
+# - One origin: "edge" (nginx) serves the frontend build and passes /api/, /auth/ and signed
+#   /exam-media/ requests on. "cloudflared" connects only to edge. Nothing is published on the
+#   network: edge on 127.0.0.1:8088 for local checks and gateway on 127.0.0.1:8080 for the local
+#   scripts; everything else (Postgres, Redis, storage, services) is not published at all.
+# - Fixed addresses: the gateway believes X-Forwarded-For only from edge (172.28.0.10), edge
+#   believes CF-Connecting-IP only from cloudflared (172.28.1.11).
+
+services:
+  # Not published: the scripts reach it with docker exec (and this machine may run a Postgres of its
+  # own on 5432)
+  postgres:
+    ports: !reset []
+
+  redis:
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - run scripts\init-public-env.ps1}
+    # The password goes into a config file inside the container, not onto the command line
+    command: ["sh", "-c", "umask 077 && printf 'requirepass %s\\n' \"$$REDIS_PASSWORD\" > /tmp/auth.conf && exec redis-server /tmp/auth.conf --appendonly yes"]
+    ports: !reset []
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+
+  # Development mailbox: not part of the public mode (a real SMTP server is required below)
+  mailpit:
+    profiles: ["dev-mail"]
+
+  media-storage:
+    # Listen on both networks: by default the storage binds only its first address (exam-network),
+    # and edge reaches it over the public network. Nothing is published on the host.
+    command: server -dir=/data -s3 -s3.port=8333 -ip.bind=0.0.0.0
+    ports: !reset []
+    networks:
+      exam-network: {}
+      public:
+        ipv4_address: 172.28.0.30
+
+  auth-service:
+    ports: !reset []
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required - run scripts\init-public-env.ps1}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - run scripts\init-public-env.ps1}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET is required - run scripts\init-public-env.ps1}
+      # A real SMTP server, from PUBLIC_MAIL_* of .env (.env.example, Gmail example). Not MAIL_*:
+      # those would also take the development stack off Mailpit and send its test mails for real.
+      # Defaults: port 587 with STARTTLS.
+      MAIL_HOST: ${PUBLIC_MAIL_HOST:?PUBLIC_MAIL_HOST is required in public mode (real SMTP, see .env.example)}
+      MAIL_PORT: ${PUBLIC_MAIL_PORT:-587}
+      MAIL_USERNAME: ${PUBLIC_MAIL_USERNAME:?PUBLIC_MAIL_USERNAME is required in public mode}
+      MAIL_PASSWORD: ${PUBLIC_MAIL_PASSWORD:?PUBLIC_MAIL_PASSWORD is required in public mode (for Gmail an App Password)}
+      MAIL_FROM: ${PUBLIC_MAIL_FROM:?PUBLIC_MAIL_FROM is required in public mode}
+      MAIL_FROM_NAME: ${PUBLIC_MAIL_FROM_NAME:-}
+      MAIL_REPLY_TO: ${PUBLIC_MAIL_REPLY_TO:-}
+      MAIL_SMTP_AUTH: ${PUBLIC_MAIL_SMTP_AUTH:-true}
+      MAIL_STARTTLS: ${PUBLIC_MAIL_STARTTLS:-true}
+      MAIL_SSL: ${PUBLIC_MAIL_SSL:-false}
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  exam-service:
+    ports: !reset []
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required - run scripts\init-public-env.ps1}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - run scripts\init-public-env.ps1}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET is required - run scripts\init-public-env.ps1}
+      # Presigned media URLs point at the edge: the tunnel address (set by go-public.ps1 for each
+      # start, it changes with every tunnel) or, without it, the local check port
+      MEDIA_S3_PUBLIC_ENDPOINT: ${PUBLIC_URL:-http://127.0.0.1:8088}
+      MEDIA_CORS_ORIGINS: ${PUBLIC_URL:-http://127.0.0.1:8088}
+
+  api-gateway:
+    ports: !override
+      - "127.0.0.1:8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - run scripts\init-public-env.ps1}
+      # Browsers reach the API only from the edge's own origin, and the edge drops that Origin and
+      # refuses every other one (deploy/public/nginx.conf): the gateway never needs to allow a site.
+      # The tunnel address changes with every start, so it is not listed; the only entry is the
+      # local check port, never "*".
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:8088
+      GATEWAY_TRUSTED_PROXIES: 172.28.0.10
+      GATEWAY_AUTH_REGISTER_RATE: ${GATEWAY_AUTH_REGISTER_RATE:-500}
+      GATEWAY_AUTH_REGISTER_BURST: ${GATEWAY_AUTH_REGISTER_BURST:-1000}
+      GATEWAY_AUTH_LOGIN_RATE: ${GATEWAY_AUTH_LOGIN_RATE:-500}
+      GATEWAY_AUTH_LOGIN_BURST: ${GATEWAY_AUTH_LOGIN_BURST:-1000}
+    networks:
+      exam-network: {}
+      public:
+        ipv4_address: 172.28.0.20
+
+  websocket-service:
+    ports: !reset []
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - run scripts\init-public-env.ps1}
+
+  monitoring-service:
+    ports: !reset []
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required - run scripts\init-public-env.ps1}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - run scripts\init-public-env.ps1}
+
+  # Reverse proxy of the public mode: the frontend build (scripts\build-frontend.ps1) and the API
+  edge:
+    image: nginx:1.30.5-alpine
+    container_name: exam-edge
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+    volumes:
+      - ./deploy/public/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/public/security-headers.conf:/etc/nginx/security-headers.conf:ro
+      - ./deploy/public/proxy-gateway.conf:/etc/nginx/proxy-gateway.conf:ro
+      - ./deploy/public/site:/usr/share/nginx/html:ro
+    ports:
+      - "127.0.0.1:8088:80"   # local checks only; the tunnel reaches edge over the tunnel network
+    networks:
+      public:
+        ipv4_address: 172.28.0.10
+      tunnel:
+        ipv4_address: 172.28.1.10
+    depends_on:
+      - api-gateway
+      - media-storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # Cloudflare quick tunnel (no account): a random https://*.trycloudflare.com address per start,
+  # read from this container's log (scripts\go-public.ps1 url)
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    container_name: exam-cloudflared
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--url", "http://edge:80"]
+    environment:
+      TZ: UTC
+    networks:
+      tunnel:
+        ipv4_address: 172.28.1.11
+    depends_on:
+      - edge
+
+networks:
+  # edge, gateway and media storage
+  public:
+    name: exam-system_public
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+  # edge and cloudflared only (cloudflared reaches the internet through it)
+  tunnel:
+    name: exam-system_tunnel
+    ipam:
+      config:
+        - subnet: 172.28.1.0/24

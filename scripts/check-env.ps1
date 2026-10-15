@@ -17,25 +17,28 @@
 .EXAMPLE
     .\scripts\check-env.ps1
     .\scripts\check-env.ps1 -ComposeFile .\docker-compose.production.yml
+    .\scripts\check-env.ps1 -ComposeFile .\docker-compose.yml, .\docker-compose.public.yml
 #>
 [CmdletBinding()]
 param(
-    [string]$EnvFile = '',       # default: <repository>\.env
-    [string]$ComposeFile = ''    # default: <repository>\docker-compose.yml
+    [string]$EnvFile = '',          # default: <repository>\.env
+    [string[]]$ComposeFile = @()    # default: <repository>\docker-compose.yml; several = base and overrides
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 if (-not $EnvFile) { $EnvFile = Join-Path $repoRoot '.env' }
-if (-not $ComposeFile) { $ComposeFile = Join-Path $repoRoot 'docker-compose.yml' }
+if (-not $ComposeFile) { $ComposeFile = @(Join-Path $repoRoot 'docker-compose.yml') }
 
 # Keys whose value must be base64 of at least this many bytes
 $base64Keys = @('JWT_SECRET', 'OTP_HMAC_SECRET')
 $minKeyBytes = 32
 
-if (-not (Test-Path -LiteralPath $ComposeFile)) {
-    Write-Host "Compose file not found: $ComposeFile"
-    exit 1
+foreach ($file in $ComposeFile) {
+    if (-not (Test-Path -LiteralPath $file)) {
+        Write-Host "Compose file not found: $file"
+        exit 1
+    }
 }
 if (-not (Test-Path -LiteralPath $EnvFile)) {
     Write-Host "Env file not found: $EnvFile"
@@ -43,9 +46,10 @@ if (-not (Test-Path -LiteralPath $EnvFile)) {
     exit 1
 }
 
-# Required keys, in the order the compose file mentions them
+# Required keys, in the order the compose files mention them
 $required = New-Object System.Collections.Generic.List[string]
-foreach ($match in [regex]::Matches((Get-Content -LiteralPath $ComposeFile -Raw), '\$\{([A-Za-z_][A-Za-z0-9_]*):?\?')) {
+$composeText = ($ComposeFile | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join "`n"
+foreach ($match in [regex]::Matches($composeText, '\$\{([A-Za-z_][A-Za-z0-9_]*):?\?')) {
     $name = $match.Groups[1].Value
     if (-not $required.Contains($name)) { $required.Add($name) }
 }
@@ -57,6 +61,9 @@ foreach ($line in Get-Content -LiteralPath $EnvFile) {
         $value = $Matches[2].Trim()
         if ($value.Length -ge 2 -and (($value[0] -eq '"' -and $value[-1] -eq '"') -or ($value[0] -eq "'" -and $value[-1] -eq "'"))) {
             $value = $value.Substring(1, $value.Length - 2)
+        } else {
+            # As docker compose reads it: " #..." after an unquoted value is a comment
+            $value = $value -replace '\s+#.*$', ''
         }
         $values[$Matches[1]] = $value
     }
@@ -75,7 +82,7 @@ foreach ($name in $required) {
     }
 }
 
-$composeName = Split-Path $ComposeFile -Leaf
+$composeName = ($ComposeFile | ForEach-Object { Split-Path $_ -Leaf }) -join ' + '
 if ($problems.Count -gt 0) {
     Write-Host "$EnvFile is not ready for ${composeName}:"
     foreach ($problem in $problems) { Write-Host "  - $problem" }

@@ -112,5 +112,9 @@ docker-compose.override.yml
 # Database backups (scripts/backup.ps1) - contain user data, never commit
 backups/
 
+# Public mode (scripts/go-public.ps1): the frontend build and the current tunnel address
+deploy/public/site/
+deploy/public/state/
+
 # Kubernetes
 *.kubeconfig

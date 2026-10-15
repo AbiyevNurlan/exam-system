@@ -83,13 +83,16 @@ $adminEmail = Read-DotEnv 'ADMIN_EMAIL'
 $adminPassword = Read-DotEnv 'ADMIN_PASSWORD'
 
 cmd /c "docker rm -f $container >nul 2>&1"
+# Redis of the public mode (docker-compose.public.yml) has a password, the development one has none
+$redisCommand = (& docker inspect -f '{{json .Config.Cmd}}' exam-redis 2>$null) -join ''
+$redisSettings = if ($redisCommand -match 'requirepass') { @("REDIS_PASSWORD=$(Read-DotEnv 'REDIS_PASSWORD')") } else { @() }
 $envFile = [IO.Path]::GetTempFileName()
 try {
-    Set-Content $envFile -Encoding ascii -Value @(
+    Set-Content $envFile -Encoding ascii -Value (@(
         'SPRING_PROFILES_ACTIVE=production', "JWT_SECRET=$jwt", 'REDIS_HOST=redis', 'REDIS_PORT=6379', 'TZ=UTC',
         "CORS_ALLOWED_ORIGINS=$AllowedOrigin", 'GATEWAY_TRUSTED_PROXIES=127.0.0.1',
-        'AUTH_SERVICE_URL=http://auth-service:8081', 'EXAM_SERVICE_URL=http://exam-service:8082')
-    docker run -d --name $container --network $Network -p "${Port}:8080" --env-file $envFile $Image | Out-Null
+        'AUTH_SERVICE_URL=http://auth-service:8081', 'EXAM_SERVICE_URL=http://exam-service:8082') + $redisSettings)
+    docker run -d --name $container --network $Network -p "127.0.0.1:${Port}:8080" --env-file $envFile $Image | Out-Null
 } finally {
     Remove-Item $envFile -Force
 }
