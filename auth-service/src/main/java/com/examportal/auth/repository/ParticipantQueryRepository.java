@@ -1,5 +1,6 @@
 package com.examportal.auth.repository;
 
+import com.examportal.common.domain.ParticipantCode;
 import com.examportal.common.domain.dto.internal.ParticipantQuery;
 import com.examportal.common.exception.ValidationException;
 import lombok.RequiredArgsConstructor;
@@ -46,7 +47,7 @@ public class ParticipantQueryRepository {
 
         DatabaseClient.GenericExecuteSpec count = bindAll(databaseClient.sql("SELECT COUNT(*) FROM users" + where), params);
         DatabaseClient.GenericExecuteSpec page = bindAll(databaseClient.sql(
-                        "SELECT id, email, first_name, last_name, COALESCE(email_verified, false) AS email_verified, "
+                        "SELECT id, email, participant_code, first_name, last_name, COALESCE(email_verified, false) AS email_verified, "
                                 + LOCKED_NOW + " AS blocked, "
                                 + "CASE WHEN " + LOCKED_NOW + " THEN locked_until END AS locked_until, created_at "
                                 + "FROM users" + where + " ORDER BY " + order + " LIMIT :limit OFFSET :offset"), params)
@@ -58,6 +59,7 @@ public class ParticipantQueryRepository {
                         .map(row -> ParticipantQuery.Participant.builder()
                                 .id(row.get("id", UUID.class))
                                 .email(row.get("email", String.class))
+                                .participantCode(row.get("participant_code", Integer.class))
                                 .firstName(row.get("first_name", String.class))
                                 .lastName(row.get("last_name", String.class))
                                 .emailVerified(Boolean.TRUE.equals(row.get("email_verified", Boolean.class)))
@@ -137,6 +139,12 @@ public class ParticipantQueryRepository {
                 where.append(" OR id = :qId");
             } catch (IllegalArgumentException notAnId) {
                 // q is a name or an email
+            }
+            // Exactly a 7-digit participant code: that account (exact match; display and search only)
+            Integer code = ParticipantCode.parse(term);
+            if (code != null) {
+                params.put("qCode", code);
+                where.append(" OR participant_code = :qCode");
             }
             where.append(")");
         }

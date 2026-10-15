@@ -77,7 +77,10 @@ public class AuthService {
                 // A concurrent registration can still hit the unique index
                 .switchIfEmpty(Mono.defer(() -> createUser(request, email)
                         .onErrorMap(DuplicateKeyException.class, e -> new DuplicateEmailException(
-                                "User with email '" + email + "' already exists", e))))
+                                "User with email '" + email + "' already exists", e))
+                        .onErrorMap(AuthService::participantCodesExhausted, e -> new ApplicationException(
+                                "No participant code is left: new accounts cannot be created",
+                                HttpStatus.SERVICE_UNAVAILABLE, "PARTICIPANT_CODES_EXHAUSTED", e))))
                 // Empty when the cooldown or the hourly limit refuses a new code: no email, same answer
                 .flatMap(user -> otpService.issue(user.getId(), OtpService.PURPOSE_EMAIL_VERIFICATION))
                 // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real
@@ -323,10 +326,24 @@ public class AuthService {
                         error -> log.info("Password change refused for user {}", userId));
     }
 
+    /**
+     * The participant code sequence has given all 9 000 000 codes (it never cycles, so no code repeats):
+     * the database refuses the insert with "reached maximum value of sequence participant_code_seq"
+     */
+    static boolean participantCodesExhausted(Throwable error) {
+        for (Throwable e = error; e != null; e = e.getCause() == e ? null : e.getCause()) {
+            if (e.getMessage() != null && e.getMessage().contains("participant_code_seq")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private CurrentUserResponse toCurrentUser(User user) {
         return CurrentUserResponse.builder()
                 .id(user.getId())
                 .email(user.getEmail())
+                .participantCode(user.getParticipantCode())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
                 .phoneNumber(user.getPhoneNumber())

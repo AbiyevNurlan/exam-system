@@ -27,7 +27,9 @@ public class UserLookupResponse {
     public static class UserRef {
         private UUID id;
         /** Normalized (trimmed, lower case) */
-        private String email;
+        private String email;
+        // 7-digit participant code (display and search only, never security)
+        private Integer participantCode;
         private String firstName;
         private String lastName;
         private boolean emailVerified;

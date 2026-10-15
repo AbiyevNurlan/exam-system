@@ -19,7 +19,9 @@ import java.util.UUID;
 public class AdminUserResponse {
 
     private UUID id;
-    private String email;
+    private String email;
+    // 7-digit participant code (display and search only, never security)
+    private Integer participantCode;
     private String firstName;
     private String lastName;
     private String role;

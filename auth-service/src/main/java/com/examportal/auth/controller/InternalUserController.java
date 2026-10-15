@@ -1,6 +1,7 @@
 package com.examportal.auth.controller;
 
 import com.examportal.auth.repository.UserRepository;
+import com.examportal.common.domain.ParticipantCode;
 import com.examportal.common.domain.dto.internal.UserLookupRequest;
 import com.examportal.common.domain.dto.internal.UserLookupResponse;
 import com.examportal.common.domain.dto.internal.UserSearchRequest;
@@ -78,13 +79,15 @@ public class InternalUserController {
         }
         int limit = request.getLimit() != null ? request.getLimit() : UserSearchRequest.MAX_LIMIT;
 
-        return userRepository.searchActive(pattern, id, limit)
+        // q that is exactly a 7-digit participant code also finds its account (exact match only)
+        return userRepository.searchActive(pattern, id, ParticipantCode.parse(term), limit)
                 .map(user -> UserLookupResponse.UserRef.builder()
                         .id(user.getId())
                         .email(user.getEmail())
                         .firstName(user.getFirstName())
                         .lastName(user.getLastName())
                         .emailVerified(user.isEmailVerified())
+                        .participantCode(user.getParticipantCode())
                         .build())
                 .collectList();
     }
@@ -142,6 +145,7 @@ public class InternalUserController {
                         .firstName(user.getFirstName())
                         .lastName(user.getLastName())
                         .emailVerified(user.isEmailVerified())
+                        .participantCode(user.getParticipantCode())
                         .build())
                 .collectList()
                 .map(users -> UserLookupResponse.builder().users(users).build());

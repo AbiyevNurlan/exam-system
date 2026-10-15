@@ -43,7 +43,7 @@ public class AdminUserService {
     private static final String LOCKED_NOW =
             "(account_locked = true AND (locked_until IS NULL OR locked_until > LOCALTIMESTAMP))";
 
-    private static final String SELECT_USERS = "SELECT id, email, first_name, last_name, role, "
+    private static final String SELECT_USERS = "SELECT id, email, participant_code, first_name, last_name, role, "
             + LOCKED_NOW + " AS locked, "
             + "CASE WHEN " + LOCKED_NOW + " THEN locked_until END AS locked_until, "
             + "failed_login_attempts, email_verified, created_at FROM users";
@@ -97,6 +97,7 @@ public class AdminUserService {
                         .map(row -> AdminUserResponse.builder()
                                 .id(row.get("id", UUID.class))
                                 .email(row.get("email", String.class))
+                                .participantCode(row.get("participant_code", Integer.class))
                                 .firstName(row.get("first_name", String.class))
                                 .lastName(row.get("last_name", String.class))
                                 .role(row.get("role", String.class))

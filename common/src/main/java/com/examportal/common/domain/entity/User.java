@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
+import org.springframework.data.annotation.ReadOnlyProperty;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
@@ -51,6 +52,12 @@ public class User extends BaseEntity {
 
     @Column("locked_until")
     private LocalDateTime lockedUntil;
+
+    // The 7-digit participant code, given by the database (default next_participant_code(), auth-service V3).
+    // Read only: an insert or an update of the entity never writes it. Display and search only, never security.
+    @ReadOnlyProperty
+    @Column("participant_code")
+    private Integer participantCode;
 
     public String getFullName() {
         return firstName + " " + lastName;

@@ -50,7 +50,8 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
     /**
      * Active users whose first name, last name, full name or email matches the LIKE pattern (already
      * lower case, with the user's own % and _ escaped by a backslash), or whose id is the given one
-     * (null = no id search); for the internal search.
+     * (null = no id search), or whose participant code is the given one (null = no code search, exact
+     * match only); for the internal search.
      */
     @Query("""
             SELECT * FROM users
@@ -59,11 +60,13 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
                    OR lower(last_name) LIKE :pattern ESCAPE '\\'
                    OR lower(first_name || ' ' || last_name) LIKE :pattern ESCAPE '\\'
                    OR lower(email) LIKE :pattern ESCAPE '\\'
-                   OR id = :id)
+                   OR id = :id
+                   OR participant_code = :code)
             ORDER BY lower(last_name), lower(first_name), id
             LIMIT :limit
             """)
-    Flux<User> searchActive(@Param("pattern") String pattern, @Param("id") UUID id, @Param("limit") int limit);
+    Flux<User> searchActive(@Param("pattern") String pattern, @Param("id") UUID id, @Param("code") Integer code,
+                            @Param("limit") int limit);
 
     /**
      * Check if any user has the given role
