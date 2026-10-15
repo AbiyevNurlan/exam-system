@@ -117,7 +117,7 @@ try {
     # Every path family of the frontend (services/*.ts) with one harmless request
     $checks = @(
         @('POST', '/auth/login', 'sign-in (done above)'),
-        @('GET', '/auth/me', 'auth-service (404 of the service: no such path)'),
+        @('GET', '/auth/me', 'auth-service (current user)'),
         @('GET', '/api/exams/manage?page=0&size=1', 'exams management'),
         @('GET', '/api/exams/available?page=0&size=1', 'participant exam list'),
         @('GET', '/api/exams/my-sessions?page=0&size=1', 'participant sessions'),

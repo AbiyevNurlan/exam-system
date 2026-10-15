@@ -87,6 +87,18 @@ spring:
                 redis-rate-limiter.replenishRate: ${GATEWAY_OTP_REPLENISH:1}
                 redis-rate-limiter.burstCapacity: ${GATEWAY_OTP_BURST:50}
                 redis-rate-limiter.requestedTokens: 5
+        # Password change: its own small bucket per client IP against guessing the current password with
+        # a stolen token (5 at once, then one every 5 seconds). Must stay before the general auth route.
+        - id: auth-password
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/auth/change-password
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_PASSWORD_REPLENISH:1}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_PASSWORD_BURST:25}
+                redis-rate-limiter.requestedTokens: 5
         - id: auth-service
           uri: http://auth-service:8081
           predicates:

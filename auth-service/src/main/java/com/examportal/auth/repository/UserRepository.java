@@ -142,6 +142,27 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
     Mono<Integer> updatePasswordHash(UUID userId, String passwordHash);
 
     /**
+     * The user's own profile fields (PUT /auth/profile); an inactive account is not changed
+     */
+    @Modifying
+    @Query("""
+            UPDATE users SET first_name = :firstName, last_name = :lastName, phone_number = :phoneNumber,
+                             updated_at = CURRENT_TIMESTAMP
+            WHERE id = :userId AND active = true
+            """)
+    Mono<Integer> updateProfile(@Param("userId") UUID userId,
+                                @Param("firstName") String firstName,
+                                @Param("lastName") String lastName,
+                                @Param("phoneNumber") String phoneNumber);
+
+    /**
+     * Find user by id and lock the row until the surrounding transaction ends, so two password
+     * changes (or a change and a reset) of the same account take turns
+     */
+    @Query("SELECT * FROM users WHERE id = :userId FOR UPDATE")
+    Mono<User> findByIdForUpdate(@Param("userId") UUID userId);
+
+    /**
      * Find user by email and lock the row until the surrounding transaction ends
      */
     @Query("SELECT * FROM users WHERE email = :email FOR UPDATE")

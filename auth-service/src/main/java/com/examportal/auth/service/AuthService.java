@@ -7,17 +7,21 @@ import com.examportal.auth.exception.EmailNotVerifiedException;
 import com.examportal.auth.exception.InvalidCredentialsException;
 import com.examportal.auth.exception.InvalidOtpException;
 import com.examportal.auth.exception.InvalidTokenException;
+import com.examportal.auth.exception.PasswordChangeRejectedException;
 import com.examportal.auth.mail.VerificationMailer;
 import com.examportal.auth.repository.UserRepository;
 import com.examportal.common.domain.dto.auth.*;
 import com.examportal.common.domain.entity.User;
 import com.examportal.common.domain.entity.UserRole;
+import com.examportal.common.exception.ApplicationException;
+import com.examportal.common.exception.ValidationException;
 import com.examportal.common.security.JwtTokenProvider;
 import com.examportal.common.utils.LogMaskUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
@@ -25,6 +29,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * Authentication Service
@@ -43,6 +48,7 @@ public class AuthService {
     private final GroupInviteClient groupInviteClient;
     private final OtpService otpService;
     private final VerificationMailer verificationMailer;
+    private final AccountAuditLog accountAuditLog;
 
     @Value("${auth.lockout.max-attempts:5}")
     private int lockoutMaxAttempts;
@@ -251,6 +257,83 @@ public class AuthService {
                 .switchIfEmpty(Mono.error(new InvalidOtpException()))
                 .doOnNext(valid -> log.info("Password reset successful for: {}", maskEmail(email)))
                 .then();
+    }
+
+    // ==================== The own account ====================
+
+    /**
+     * GET /auth/me: the user of the token, read from the database. A user that is gone or
+     * deactivated answers 401, like a revoked token.
+     */
+    public Mono<CurrentUserResponse> currentUser(UUID userId) {
+        return userRepository.findById(userId)
+                .filter(User::isActive)
+                .switchIfEmpty(Mono.error(new InvalidTokenException("User not found")))
+                .map(this::toCurrentUser);
+    }
+
+    /**
+     * PUT /auth/profile: first name, last name and phone of the own account (an empty phone removes it).
+     * The change and its audit row are written together.
+     */
+    public Mono<CurrentUserResponse> updateProfile(UUID userId, UpdateProfileRequest request) {
+        String firstName = request.getFirstName().trim();
+        String lastName = request.getLastName().trim();
+        if (firstName.length() < 2 || lastName.length() < 2) {
+            return Mono.error(new ValidationException("First and last name must have at least 2 characters"));
+        }
+        String phone = request.getPhone() == null || request.getPhone().isBlank() ? null : request.getPhone().trim();
+
+        Mono<CurrentUserResponse> change = userRepository.updateProfile(userId, firstName, lastName, phone)
+                .flatMap(updated -> updated == 1
+                        ? accountAuditLog.record(userId, AccountAuditLog.PROFILE_UPDATED)
+                        : Mono.<Void>error(new InvalidTokenException("User not found")))
+                .then(Mono.defer(() -> userRepository.findById(userId)))
+                .map(this::toCurrentUser);
+        return transactionalOperator.transactional(change)
+                .doOnSuccess(user -> log.info("Profile updated by user {}", userId));
+    }
+
+    /**
+     * POST /auth/change-password. The current password must match; the new one follows the
+     * registration policy (ChangePasswordRequest) and must differ from it. On success every refresh
+     * token of the user is revoked (all other sessions are signed out) and a new pair is returned for
+     * this one; access tokens already issued stay valid until they expire (at most 15 minutes).
+     * A wrong current password, a gone or a deactivated account all answer the same 400
+     * PASSWORD_CHANGE_REJECTED. The row lock makes a change and a reset of the same account take turns.
+     */
+    public Mono<AuthResponse> changePassword(UUID userId, ChangePasswordRequest request) {
+        Mono<User> change = userRepository.findByIdForUpdate(userId)
+                .filter(User::isActive)
+                .filter(user -> passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash()))
+                .switchIfEmpty(Mono.error(new PasswordChangeRejectedException()))
+                .flatMap(user -> passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())
+                        ? Mono.<User>error(new ApplicationException("The new password must differ from the current one",
+                                HttpStatus.BAD_REQUEST, "PASSWORD_UNCHANGED"))
+                        : userRepository.updatePasswordHash(userId, passwordEncoder.encode(request.getNewPassword()))
+                                .then(tokenService.revokeAllUserTokens(userId))
+                                .then(accountAuditLog.record(userId, AccountAuditLog.PASSWORD_CHANGED))
+                                .thenReturn(user));
+
+        // New password, revoked sessions and the audit row commit together; the new pair comes after the commit
+        return transactionalOperator.transactional(change)
+                .flatMap(this::generateAuthResponse)
+                .doOnSuccess(response -> log.info("Password changed by user {}; every refresh token revoked", userId))
+                .doOnError(PasswordChangeRejectedException.class,
+                        error -> log.info("Password change refused for user {}", userId));
+    }
+
+    private CurrentUserResponse toCurrentUser(User user) {
+        return CurrentUserResponse.builder()
+                .id(user.getId())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .phoneNumber(user.getPhoneNumber())
+                .role(user.getRole().name())
+                .emailVerified(user.isEmailVerified())
+                .createdAt(user.getCreatedAt())
+                .build();
     }
 
     // ==================== Private Helper Methods ====================

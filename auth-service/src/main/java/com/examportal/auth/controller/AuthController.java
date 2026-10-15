@@ -3,6 +3,7 @@ package com.examportal.auth.controller;
 import com.examportal.auth.service.AuthService;
 import com.examportal.common.domain.dto.ApiResponse;
 import com.examportal.common.domain.dto.auth.*;
+import com.examportal.common.security.UserPrincipal;
 import com.examportal.common.utils.LogMaskUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -11,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -150,6 +152,41 @@ public class AuthController {
                 .then(Mono.just(ResponseEntity.ok(
                         ApiResponse.<Void>success(null, "Password reset successfully"))))
                 .doOnSuccess(response -> log.info("Password reset successful"));
+    }
+
+    // ==================== The own account (token required; the user is always the one of the token) ====================
+
+    @GetMapping("/me")
+    @Operation(summary = "Current user", description = "The signed-in user: id, email, names, phone, role, "
+            + "emailVerified, createdAt. Never anyone else.")
+    public Mono<ResponseEntity<ApiResponse<CurrentUserResponse>>> me(@AuthenticationPrincipal UserPrincipal principal) {
+        return authService.currentUser(principal.getId())
+                .map(user -> ResponseEntity.ok(ApiResponse.success(user)));
+    }
+
+    @PutMapping("/profile")
+    @Operation(summary = "Update own profile", description = "firstName, lastName (2-50 characters) and phone "
+            + "(\"phoneNumber\" is accepted too; empty removes it). The email and the role cannot be changed here.")
+    public Mono<ResponseEntity<ApiResponse<CurrentUserResponse>>> updateProfile(
+            @Valid @RequestBody UpdateProfileRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return authService.updateProfile(principal.getId(), request)
+                .map(user -> ResponseEntity.ok(ApiResponse.success(user, "Profile updated")));
+    }
+
+    @PostMapping("/change-password")
+    @Operation(summary = "Change own password", description = "currentPassword and newPassword (registration policy, "
+            + "different from the current one). Every refresh token of the user is revoked and a new token pair is "
+            + "returned for this session. 400 PASSWORD_CHANGE_REJECTED for a wrong current password (always the "
+            + "same answer), 400 PASSWORD_UNCHANGED, 400 VALIDATION_ERROR. Rate limited by the gateway.")
+    public Mono<ResponseEntity<ApiResponse<AuthResponse>>> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        return authService.changePassword(principal.getId(), request)
+                .map(tokens -> ResponseEntity.ok(ApiResponse.success(tokens,
+                        "Password changed. Other sessions were signed out.")));
     }
 
     /**
