@@ -31,6 +31,8 @@ $admin1 = (Call 'POST' '/auth/login' $null @{ email = (Setting 'ADMIN_EMAIL'); p
 $pw = 'Tt9!' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
 $email2 = "t-b6-adm2-$stamp@x.test"
 $reg = Call 'POST' '/auth/register' $null @{ email = $email2; password = $pw; firstName = 'Bsix'; lastName = 'Admin2' }
+# The role given below is taken back in the finally block before the summary
+try {
 docker exec exam-postgres psql -U postgres -d exam_auth -Atc "update users set role='ADMIN', email_verified=true where email='$email2'" | Out-Null
 $admin2 = (Call 'POST' '/auth/login' $null @{ email = $email2; password = $pw }).data.accessToken
 Check 'setup: a second admin (test account) signed in' ($reg.status -eq 201 -and $admin2) "register $($reg.status)"
@@ -65,7 +67,12 @@ for ($i = 0; $i -lt 60; $i++) {
     if ($back.status -eq 200) { break }
 }
 Check 'after scripts\up.ps1 auth-service the list answers again' ($back.status -eq 200) "status $($back.status) after $([Math]::Round(($i + 1) * 3)) s"
-
-docker exec exam-postgres psql -U postgres -d exam_auth -Atc "update users set role='STUDENT' where email='$email2'" | Out-Null
+} finally {
+    # The test account gets the participant role back, whatever happened above (cleanup-test-data.ps1 keeps every ADMIN)
+    if ($email2 -like '*@x.test') {
+        $given = docker exec exam-postgres psql -U postgres -d exam_auth -Atc "update users set role='STUDENT' where role <> 'STUDENT' and email='$email2'"
+        Write-Output "roles given back: $given"
+    }
+}
 Write-Output "stamp $stamp; groups T-b6-$stamp-par1..$Rounds; second admin $email2 is STUDENT again"
 Write-Output "$(($script:results | Where-Object { $_ }).Count) / $($script:results.Count) passed"
