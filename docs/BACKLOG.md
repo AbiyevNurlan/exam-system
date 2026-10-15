@@ -284,3 +284,27 @@ Deliberately out of scope so far; not started.
 - [ ] Password set (or confirmed) at OTP verification, which closes the remaining pre-hijack gap
 - [ ] `POST /api/exams/{id}/start` answers 415 for an empty body that is labelled `application/x-www-form-urlencoded`
 - [ ] Plan for removing test data from the development databases and the media bucket (test accounts `@x.test`, `T-...`/`M-...` groups and exams, test media)
+
+## Gələcək (future: Kubernetes, not started)
+
+Plan only, nothing of it is code yet. Target: the services on 4-5 servers with Kubernetes (k3s); the
+data outside the cluster.
+
+- [ ] **Order.** First **D** (servers, a domain, TLS, backups kept off the server) and **T2** (load test of
+  the target: thousands of starts at once, 100 000 accounts); K8s only after both, with their figures
+- [ ] **Data outside the cluster.** PostgreSQL, Redis and the media storage (SeaweedFS, or any S3) run on
+  their own data servers (or managed PostgreSQL), not in Kubernetes: no database volume ever depends on a
+  node or on a cluster rebuild; backups and restore tests (`scripts\backup.ps1`, `restore-test.ps1`)
+  carry over to those servers
+- [ ] **K8s-1: manifests.** Deployments for api-gateway, auth-service, exam-service and the frontend (nginx);
+  readiness and liveness probes on `/actuator/health`; resource requests and limits; HPA for exam-service
+  and the gateway (CPU and request rate); PodDisruptionBudget (at least one instance of every service while
+  a node is drained); secrets from a secret store, never in a manifest; ingress with TLS; a staging namespace
+  with its own database that runs `scripts\regression` before every release
+- [ ] **K8s-2: what to do when things go wrong.** A written runbook: a node is lost, a rollout fails
+  (rollback), the database server is lost (restore from the off-server backup, how long it takes), Redis is
+  lost (sessions and rate limits start empty, what users see), the media storage is lost, a certificate
+  runs out; who is called, in which order
+- [ ] **Open before K8s-1:** the scheduled jobs of exam-service (activation, completion, auto-submit) run on
+  every instance and rely on conditional updates (AUDIT_GAP §6.7): measure under T2 whether a shared lock is
+  needed; websocket-service and monitoring-service are stubs and need not be deployed
