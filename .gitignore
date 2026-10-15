@@ -115,6 +115,7 @@ backups/
 # Public mode (scripts/go-public.ps1): the frontend build and the current tunnel address
 deploy/public/site/
 deploy/public/state/
+deploy/public/CURRENT_URL.txt
 
 # Kubernetes
 *.kubeconfig
