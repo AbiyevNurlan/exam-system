@@ -118,7 +118,9 @@ public class AuditService {
         return participants.names(ids).map(users -> {
             for (AuditEntryResponse row : rows) {
                 row.setActorName(name(users, row.getActorId()));
+                row.setActorCode(code(users, row.getActorId()));
                 row.setTargetUserName(name(users, row.getTargetUserId()));
+                row.setTargetUserCode(code(users, row.getTargetUserId()));
             }
             return rows;
         });
@@ -126,6 +128,12 @@ public class AuditService {
 
     private String name(Map<UUID, UserRef> users, UUID id) {
         return id == null ? null : ParticipantDirectory.fullName(users.get(id));
+    }
+
+    // The participant code is shown next to the name; display only
+    private Integer code(Map<UUID, UserRef> users, UUID id) {
+        UserRef user = id == null ? null : users.get(id);
+        return user == null ? null : user.getParticipantCode();
     }
 
     private AuditEntryResponse fromExamService(AuditQueryRepository.Row row) {

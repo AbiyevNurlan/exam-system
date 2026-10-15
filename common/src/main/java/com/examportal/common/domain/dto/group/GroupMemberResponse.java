@@ -26,6 +26,8 @@ public class GroupMemberResponse {
     private String lastName;
     // Masked (first character and domain), never the full address
     private String email;
+    // 7-digit participant code (display and search only, never security)
+    private Integer participantCode;
 
     private GroupMemberSource source;
     private UUID addedBy;

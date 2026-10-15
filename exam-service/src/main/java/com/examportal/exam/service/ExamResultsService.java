@@ -77,7 +77,9 @@ public class ExamResultsService {
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private static final List<String> EXPORT_HEADERS = List.of(
             "Sessiya ID", "Ad Soyad", "E-poçt", "Cəhd", "Status", "Başlama (UTC)", "Təhvil (UTC)", "Müddət (san)",
-            "Bal", "Maks. bal", "Faiz", "Keçdi", "Qiymətləndirmə", "Təhvil növü", "Pozuntu sayı", "Risk səviyyəsi");
+            "Bal", "Maks. bal", "Faiz", "Keçdi", "Qiymətləndirmə", "Təhvil növü", "Pozuntu sayı", "Risk səviyyəsi",
+            // B10: added last, so the columns before it keep their place for whoever reads the file
+            "İştirakçı kodu");
 
     private final ExamResultsRepository resultsRepository;
     private final ExamSessionRepository sessionRepository;
@@ -312,6 +314,7 @@ public class ExamResultsService {
                 .userId(row.userId())
                 .participantName(ParticipantDirectory.fullName(user))
                 .email(user != null ? user.getEmail() : null)
+                .participantCode(user != null ? user.getParticipantCode() : null)
                 .attemptNumber(row.attemptNumber())
                 .status(row.status())
                 .startedAt(row.startedAt())
@@ -411,7 +414,8 @@ public class ExamResultsService {
                 row.getGradingStatus() != null ? row.getGradingStatus().name() : null,
                 row.getSubmitKind(),
                 String.valueOf(row.getViolationCount()),
-                row.getRiskLevel() != null ? row.getRiskLevel().name() : null));
+                row.getRiskLevel() != null ? row.getRiskLevel().name() : null,
+                row.getParticipantCode() != null ? String.valueOf(row.getParticipantCode()) : null));
     }
 
     private static void appendLine(StringBuilder text, List<String> cells) {
@@ -471,6 +475,7 @@ public class ExamResultsService {
                 .map(row -> ExamResultsSummaryResponse.Scorer.builder()
                         .userId(row.userId())
                         .participantName(ParticipantDirectory.fullName(users.get(row.userId())))
+                        .participantCode(users.get(row.userId()) != null ? users.get(row.userId()).getParticipantCode() : null)
                         .sessionId(row.sessionId())
                         .percentage(row.percentage())
                         .score(row.score())
@@ -579,6 +584,7 @@ public class ExamResultsService {
                         .id(session.getUserId())
                         .name(ParticipantDirectory.fullName(participant))
                         .email(participant != null ? participant.getEmail() : null)
+                        .participantCode(participant != null ? participant.getParticipantCode() : null)
                         .build())
                 .attemptNumber(data.attemptNumber())
                 .status(session.getStatus())

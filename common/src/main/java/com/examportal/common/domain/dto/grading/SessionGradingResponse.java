@@ -27,6 +27,8 @@ public class SessionGradingResponse {
     private UUID userId;
     private String participantName;
     private String email;
+    // 7-digit participant code (display and search only, never security)
+    private Integer participantCode;
     private SessionStatus status;
     private GradingStatus gradingStatus;
     private LocalDateTime submittedAt;

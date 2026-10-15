@@ -165,6 +165,7 @@ public class ParticipantService {
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
                 .email(user.getEmail())
+                .participantCode(user.getParticipantCode())
                 .registeredAt(user.getCreatedAt())
                 .emailVerified(user.isEmailVerified())
                 .blocked(user.isBlocked())

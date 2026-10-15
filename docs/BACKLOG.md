@@ -266,6 +266,8 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 
 Deliberately out of scope so far; not started.
 
+- [ ] Group CSV import by participant code (B10 left it out on purpose): the email stays the key of the import; a `code` column (7 digits, exact match, an unknown code reported per row like an unknown email) would need its own lookup in auth-service and the same audit as the email import
+
 - [ ] Organizations (several companies on one installation)
 - [ ] Programs (a set of exams a participant goes through)
 - [ ] Mentorship applications

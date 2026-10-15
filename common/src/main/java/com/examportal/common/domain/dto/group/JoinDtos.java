@@ -133,6 +133,8 @@ public final class JoinDtos {
         private UUID userId;
         private String participantName;
         private String email;
+        // 7-digit participant code (display and search only, never security)
+        private Integer participantCode;
         private String status;
         private LocalDateTime createdAt;
         private UUID decidedBy;

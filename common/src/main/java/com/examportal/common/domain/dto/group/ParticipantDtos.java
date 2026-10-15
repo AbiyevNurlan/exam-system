@@ -58,6 +58,8 @@ public final class ParticipantDtos {
         private String lastName;
         // Not masked: the list is for administrators only
         private String email;
+        // 7-digit participant code (display and search only, never security)
+        private Integer participantCode;
         private LocalDateTime registeredAt;
         private boolean emailVerified;
         private boolean blocked;

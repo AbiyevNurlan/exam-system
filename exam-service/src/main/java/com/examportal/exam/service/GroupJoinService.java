@@ -177,6 +177,7 @@ public class GroupJoinService {
                                                     .userId(row.userId())
                                                     .participantName(ParticipantDirectory.fullName(user))
                                                     .email(user != null ? user.getEmail() : null)
+                                                    .participantCode(user != null ? user.getParticipantCode() : null)
                                                     .status(row.status())
                                                     .createdAt(row.createdAt())
                                                     .decidedBy(row.decidedBy())

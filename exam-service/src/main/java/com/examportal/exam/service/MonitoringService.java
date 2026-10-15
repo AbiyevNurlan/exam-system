@@ -223,6 +223,7 @@ public class MonitoringService {
                 .userId(row.userId())
                 .participantName(ParticipantDirectory.fullName(user))
                 .email(user != null ? user.getEmail() : null)
+                .participantCode(user != null ? user.getParticipantCode() : null)
                 .attemptNumber(row.attemptNumber())
                 .startedAt(row.startedAt())
                 .deadline(row.deadline())

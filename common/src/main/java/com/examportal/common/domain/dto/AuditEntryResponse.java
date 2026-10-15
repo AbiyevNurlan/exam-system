@@ -31,11 +31,15 @@ public class AuditEntryResponse {
     private UUID actorId;
     // "First Last" of the actor, when the user directory answered
     private String actorName;
+    // Participant code of the actor (display only)
+    private Integer actorCode;
     // GROUP, EXAM or USER
     private String targetType;
     private String targetId;
     private UUID targetUserId;
     private String targetUserName;
+    // Participant code of the target user (display only)
+    private Integer targetUserCode;
     private String details;
     private LocalDateTime createdAt;
 }

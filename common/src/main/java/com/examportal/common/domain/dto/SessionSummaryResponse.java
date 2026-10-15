@@ -27,6 +27,8 @@ public class SessionSummaryResponse {
     // Null when the user is unknown to auth-service or it could not be reached
     private String participantName;
     private String email;
+    // 7-digit participant code (display and search only, never security)
+    private Integer participantCode;
     // Which of the participant's sessions for this exam this is (1 = the first)
     private Integer attemptNumber;
     private SessionStatus status;

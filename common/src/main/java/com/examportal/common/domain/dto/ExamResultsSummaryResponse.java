@@ -53,6 +53,8 @@ public class ExamResultsSummaryResponse {
     public static class Scorer {
         private UUID userId;
         private String participantName;
+        // 7-digit participant code (display and search only, never security)
+        private Integer participantCode;
         private String sessionId;
         private BigDecimal percentage;
         private BigDecimal score;
