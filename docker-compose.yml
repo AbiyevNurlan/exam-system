@@ -207,6 +207,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - copy .env.example to .env}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Optional (.env.example, section Gateway); the defaults are those of api-gateway application.yml
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:*,http://127.0.0.1:*}
+      GATEWAY_TRUSTED_PROXIES: ${GATEWAY_TRUSTED_PROXIES:-}
+      GATEWAY_AUTH_REGISTER_RATE: ${GATEWAY_AUTH_REGISTER_RATE:-100}
+      GATEWAY_AUTH_REGISTER_BURST: ${GATEWAY_AUTH_REGISTER_BURST:-200}
+      GATEWAY_AUTH_LOGIN_RATE: ${GATEWAY_AUTH_LOGIN_RATE:-100}
+      GATEWAY_AUTH_LOGIN_BURST: ${GATEWAY_AUTH_LOGIN_BURST:-200}
     networks:
       - exam-network
     depends_on:
