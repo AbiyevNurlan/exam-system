@@ -26,7 +26,15 @@ public class MyStatsRepository {
      * no open answer waits for a grader, and the exam shows results at once or has ended at :now
      */
     public Mono<MyStatsResponse> forUser(UUID userId, LocalDateTime now) {
-        return databaseClient.sql("""
+        return forUser(userId, null, now);
+    }
+
+    /**
+     * B11: the same figures over the exams one instructor created (examOwner), for the participant card of
+     * an instructor; examOwner = null is every exam (GET /api/me/stats, an administrator's card)
+     */
+    public Mono<MyStatsResponse> forUser(UUID userId, UUID examOwner, LocalDateTime now) {
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql("""
                         WITH mine AS (
                             SELECT s.exam_id, s.percentage, s.passed, s.submitted_at, s.grading_status, e.title,
                                    (s.grading_status <> 'PENDING'
@@ -34,6 +42,7 @@ public class MyStatsRepository {
                             FROM exam_sessions s
                             JOIN exams e ON e.id = s.exam_id
                             WHERE s.user_id = :userId AND s.status = 'COMPLETED'
+                        """ + (examOwner == null ? "" : "      AND e.created_by = :examOwner\n") + """
                         ),
                         best AS (
                             SELECT exam_id, max(percentage) AS best FROM mine WHERE visible GROUP BY exam_id
@@ -53,8 +62,11 @@ public class MyStatsRepository {
                         LEFT JOIN last ON true
                         """)
                 .bind("userId", userId)
-                .bind("now", now)
-                .map(row -> {
+                .bind("now", now);
+        if (examOwner != null) {
+            spec = spec.bind("examOwner", examOwner);
+        }
+        return spec.map(row -> {
                     Long lastExamId = row.get("last_exam_id", Long.class);
                     return MyStatsResponse.builder()
                             .examsTaken(number(row.get("exams_taken", Long.class)))

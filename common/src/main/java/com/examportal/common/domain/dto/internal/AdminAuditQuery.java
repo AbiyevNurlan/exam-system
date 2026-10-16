@@ -13,7 +13,7 @@ import java.util.UUID;
  * Admin Audit Query
  * exam-service asks auth-service for the entries of its admin_audit_log (unlocking accounts,
  * verifying emails by hand) to show them in the one audit list: POST /internal/audit/admin.
- * Only ids, the action and the time cross the wire; auth-service stores no details for these.
+ * Ids, the action and the time cross the wire, and since B11 the details of profile changes.
  */
 public final class AdminAuditQuery {
 
@@ -48,6 +48,8 @@ public final class AdminAuditQuery {
         private UUID actorId;
         private String action;
         private UUID targetUserId;
+        // B11: "field: before -> after" of profile changes; null for every other action
+        private String details;
         private LocalDateTime createdAt;
     }
 

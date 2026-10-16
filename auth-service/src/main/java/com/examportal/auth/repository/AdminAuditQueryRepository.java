@@ -32,7 +32,7 @@ public class AdminAuditQueryRepository {
         Mono<List<AdminAuditQuery.Entry>> entries = limit == 0
                 ? Mono.just(List.of())
                 : bind(databaseClient.sql("""
-                                SELECT id, admin_user_id, action, target_user_id, created_at FROM admin_audit_log
+                                SELECT id, admin_user_id, action, target_user_id, details, created_at FROM admin_audit_log
                                 WHERE %s
                                 ORDER BY created_at DESC NULLS LAST, id DESC
                                 LIMIT :limit
@@ -43,6 +43,7 @@ public class AdminAuditQueryRepository {
                                 .actorId(row.get("admin_user_id", UUID.class))
                                 .action(row.get("action", String.class))
                                 .targetUserId(row.get("target_user_id", UUID.class))
+                                .details(row.get("details", String.class))
                                 .createdAt(row.get("created_at", LocalDateTime.class))
                                 .build())
                         .all()

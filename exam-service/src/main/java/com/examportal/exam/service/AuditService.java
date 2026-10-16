@@ -108,6 +108,22 @@ public class AuditService {
     }
 
     /**
+     * B11, the participant card: the given rows of both audit logs (each already limited to the newest of
+     * one user), merged by time, the newest `limit`, with actor and target names and codes from one lookup
+     */
+    public Mono<List<AuditEntryResponse>> merge(List<AuditQueryRepository.Row> examRows, List<AdminAuditQuery.Entry> authRows,
+                                                int limit) {
+        List<AuditEntryResponse> merged = Stream.concat(
+                        (examRows == null ? List.<AuditQueryRepository.Row>of() : examRows).stream().map(this::fromExamService),
+                        (authRows == null ? List.<AdminAuditQuery.Entry>of() : authRows).stream().map(this::fromAuthService))
+                .sorted(Comparator.comparing(AuditEntryResponse::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(AuditEntryResponse::getId, Comparator.reverseOrder()))
+                .limit(limit)
+                .collect(Collectors.toCollection(ArrayList::new));
+        return named(merged);
+    }
+
+    /**
      * Actor and target names of one page: one lookup for all of them (no names when it fails)
      */
     private Mono<List<AuditEntryResponse>> named(List<AuditEntryResponse> rows) {
@@ -176,6 +192,8 @@ public class AuditService {
                 .targetType(entry.getTargetUserId() != null ? "USER" : null)
                 .targetId(entry.getTargetUserId() != null ? entry.getTargetUserId().toString() : null)
                 .targetUserId(entry.getTargetUserId())
+                // B11: profile changes carry "field: before -> after"; cleaned like the details of exam-service
+                .details(clean(entry.getDetails()))
                 .createdAt(entry.getCreatedAt())
                 .build();
     }

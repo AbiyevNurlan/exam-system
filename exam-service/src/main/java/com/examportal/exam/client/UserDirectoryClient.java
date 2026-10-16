@@ -3,6 +3,7 @@ package com.examportal.exam.client;
 import com.examportal.common.domain.dto.ApiResponse;
 import com.examportal.common.domain.dto.internal.AdminAuditQuery;
 import com.examportal.common.domain.dto.internal.ProfileWriteRequest;
+import com.examportal.common.domain.dto.participant.ParticipantCardDtos;
 import com.examportal.common.domain.dto.profile.ParticipantProfileDtos;
 import com.examportal.common.exception.ResourceNotFoundException;
 import com.examportal.common.domain.dto.internal.ParticipantQuery;
@@ -190,6 +191,16 @@ public class UserDirectoryClient {
         return exchangeProfile(webClient.put().uri("/internal/users/{id}/profile", userId)
                         .bodyValue(ProfileWriteRequest.builder().actorId(actorId).profile(profile).build()),
                 new ParameterizedTypeReference<ApiResponse<ParticipantProfileDtos.Profile>>() {
+                });
+    }
+
+    /**
+     * B11: the account part of the participant card (GET /internal/users/{id}/card): account, profile and the
+     * newest `events` account events. 404 of auth-service (no such account) is a 404 here.
+     */
+    public Mono<ParticipantCardDtos.AuthCard> participantCard(UUID userId, int events) {
+        return exchangeProfile(webClient.get().uri("/internal/users/{id}/card?events={events}", userId, events),
+                new ParameterizedTypeReference<ApiResponse<ParticipantCardDtos.AuthCard>>() {
                 });
     }
 

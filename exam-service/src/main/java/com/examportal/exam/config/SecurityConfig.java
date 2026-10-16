@@ -24,6 +24,9 @@ import reactor.core.publisher.Mono;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    // A user id in a path pattern ({userId:...}): only a UUID matches, so /summary never does
+    public static final String UUID_PATTERN = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Bean
@@ -55,6 +58,11 @@ public class SecurityConfig {
                         // Group administration - ADMIN for every group, INSTRUCTOR for the own ones; which
                         // group is decided by GroupAccessPolicy (another owner's group is a 404)
                         .pathMatchers("/api/admin/groups", "/api/admin/groups/**").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // B11 participant card - ADMIN every account, INSTRUCTOR the members of own groups
+                        // (ParticipantCardService; anyone else of an instructor is a 404). Only these two GET
+                        // paths with a user id: the list, the summary and every write stay ADMIN only.
+                        .pathMatchers(HttpMethod.GET, "/api/admin/participants/{userId:" + UUID_PATTERN + "}",
+                                "/api/admin/participants/{userId:" + UUID_PATTERN + "}/sessions").hasAnyRole("ADMIN", "INSTRUCTOR")
                         // Every other administration path - admin only, here by path as well as by @PreAuthorize
                         .pathMatchers("/api/admin/**").hasRole("ADMIN")
                         // Everything below a group (bulk membership, join link, join requests) - as above;
