@@ -63,6 +63,11 @@ services:
       MAIL_SMTP_AUTH: ${PUBLIC_MAIL_SMTP_AUTH:-true}
       MAIL_STARTTLS: ${PUBLIC_MAIL_STARTTLS:-true}
       MAIL_SSL: ${PUBLIC_MAIL_SSL:-false}
+      # Connection pools must fit max_connections = 100 of the one Postgres together: the production
+      # profiles ask for 150 (exam) + 100 (auth) + 20 (monitoring); here 50 + 25 + 10 = 85 (2026-10-16:
+      # exam-service had taken all 100 and nobody else could connect)
+      SPRING_R2DBC_POOL_INITIALSIZE: 5
+      SPRING_R2DBC_POOL_MAXSIZE: 25
     depends_on: !override
       postgres:
         condition: service_healthy
@@ -80,6 +85,9 @@ services:
       # start, it changes with every tunnel) or, without it, the local check port
       MEDIA_S3_PUBLIC_ENDPOINT: ${PUBLIC_URL:-http://127.0.0.1:8088}
       MEDIA_CORS_ORIGINS: ${PUBLIC_URL:-http://127.0.0.1:8088}
+      # See auth-service: 50 of the 100 connections of Postgres
+      SPRING_R2DBC_POOL_INITIALSIZE: 10
+      SPRING_R2DBC_POOL_MAXSIZE: 50
 
   api-gateway:
     ports: !override
@@ -114,6 +122,9 @@ services:
       SPRING_PROFILES_ACTIVE: production
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required - run scripts\init-public-env.ps1}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - run scripts\init-public-env.ps1}
+      # See auth-service: 10 of the 100 connections of Postgres
+      SPRING_R2DBC_POOL_INITIALSIZE: 2
+      SPRING_R2DBC_POOL_MAXSIZE: 10
 
   # Reverse proxy of the public mode: the frontend build (scripts\build-frontend.ps1) and the API
   edge:
