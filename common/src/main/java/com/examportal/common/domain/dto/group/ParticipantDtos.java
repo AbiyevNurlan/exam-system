@@ -46,6 +46,10 @@ public final class ParticipantDtos {
         // yyyy-MM-dd, calendar days in the exam day zone (Asia/Baku by default), both inclusive
         private String registeredFrom;
         private String registeredTo;
+        // B11: profile category (participant_categories code, e.g. UNIVERSITY_STUDENT); accounts without a profile never match
+        private String category;
+        // B11: start of the profile institution, ignoring case; at least 2 characters
+        private String institution;
     }
 
     @Data

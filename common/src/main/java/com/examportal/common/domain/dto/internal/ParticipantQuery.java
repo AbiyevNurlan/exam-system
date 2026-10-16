@@ -45,6 +45,9 @@ public final class ParticipantQuery {
         // Only these users / none of these users; null = no such restriction, empty = nobody / everybody
         private List<UUID> includeIds;
         private List<UUID> excludeIds;
+        // B11: profile category (exact code) and the start of the institution (ignoring case)
+        private String category;
+        private String institution;
     }
 
     @Data

@@ -133,8 +133,20 @@ public class ParticipantService {
             return Mono.error(new ValidationException("registeredTo cannot be before registeredFrom"));
         }
 
+        String category = given.getCategory() == null || given.getCategory().isBlank() ? null : given.getCategory().trim().toUpperCase(Locale.ROOT);
+        if (category != null && !category.matches("[A-Z][A-Z_]{1,39}")) {
+            return Mono.error(new ValidationException("category must be a category code such as UNIVERSITY_STUDENT"));
+        }
+        String institution = given.getInstitution() == null || given.getInstitution().isBlank() ? null : given.getInstitution().trim();
+        if (institution != null && (institution.length() < ParticipantQuery.MIN_SEARCH_LENGTH || institution.length() > ParticipantQuery.MAX_SEARCH_LENGTH)) {
+            return Mono.error(new ValidationException("institution must be between " + ParticipantQuery.MIN_SEARCH_LENGTH
+                    + " and " + ParticipantQuery.MAX_SEARCH_LENGTH + " characters"));
+        }
+
         ParticipantQuery.Filter.FilterBuilder resolved = ParticipantQuery.Filter.builder()
                 .q(term)
+                .category(category)
+                .institution(institution)
                 .verified(given.getVerified())
                 .blocked(given.getBlocked())
                 // The day is a calendar day in the exam day zone; both ends are inclusive

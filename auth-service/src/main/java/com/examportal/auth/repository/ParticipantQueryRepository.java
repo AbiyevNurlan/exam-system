@@ -172,6 +172,31 @@ public class ParticipantQueryRepository {
             where.append(" AND id <> ALL(:excludeIds)");
             params.put("excludeIds", filter.getExcludeIds().toArray(new UUID[0]));
         }
+        // B11: the profile (participant_profiles, one row per user); an account without one never matches
+        boolean byCategory = StringUtils.hasText(filter.getCategory());
+        boolean byInstitution = StringUtils.hasText(filter.getInstitution());
+        if (byCategory || byInstitution) {
+            where.append(" AND EXISTS (SELECT 1 FROM participant_profiles p WHERE p.user_id = users.id");
+            if (byCategory) {
+                String category = filter.getCategory().trim().toUpperCase(Locale.ROOT);
+                if (!category.matches("[A-Z][A-Z_]{1,39}")) {
+                    throw new ValidationException("category", "must be a category code such as UNIVERSITY_STUDENT");
+                }
+                where.append(" AND p.category = :category");
+                params.put("category", category);
+            }
+            if (byInstitution) {
+                String institution = filter.getInstitution().trim().toLowerCase(Locale.ROOT);
+                if (institution.length() < ParticipantQuery.MIN_SEARCH_LENGTH || institution.length() > ParticipantQuery.MAX_SEARCH_LENGTH) {
+                    throw new ValidationException("institution", "must be between " + ParticipantQuery.MIN_SEARCH_LENGTH
+                            + " and " + ParticipantQuery.MAX_SEARCH_LENGTH + " characters");
+                }
+                // The start of the name (idx_participant_profiles_institution_lower); % and _ are searched for as typed
+                where.append(" AND lower(p.institution) LIKE :institution ESCAPE '!'");
+                params.put("institution", institution.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%");
+            }
+            where.append(")");
+        }
         return where.toString();
     }
 
