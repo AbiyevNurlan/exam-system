@@ -11,14 +11,21 @@
     the frontend repository are reported, not refused. The branch and commit of the build go to
     deploy\public\state\frontend-build.txt (not served).
 
+    With -OutDir the build goes into that folder instead (emptied first) and deploy\public\site and
+    the state file stay as they are: scripts\deploy-frontend.ps1 builds there and then swaps the
+    files into the served folder without a moment in which it is empty.
+
 .EXAMPLE
     .\scripts\build-frontend.ps1
     .\scripts\build-frontend.ps1 -FrontendDir D:\code\exam-frontend
+    .\scripts\build-frontend.ps1 -OutDir F:\exam-system\deploy\public\frontend-staging
 #>
 [CmdletBinding()]
 param(
     # Default: $env:EXAM_FRONTEND_DIR, else the usual folder of this machine
-    [string]$FrontendDir = ''
+    [string]$FrontendDir = '',
+    # Build into this folder instead of deploy\public\site (the served folder is not touched)
+    [string]$OutDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +69,17 @@ $dist = Join-Path $FrontendDir 'dist'
 if (-not (Test-Path -LiteralPath (Join-Path $dist 'index.html'))) {
     Write-Host 'dist\index.html is missing after the build; deploy\public\site was not changed.'
     exit 1
+}
+
+if ($OutDir) {
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    Get-ChildItem -LiteralPath $OutDir -Force | Remove-Item -Recurse -Force
+    Copy-Item -Path (Join-Path $dist '*') -Destination $OutDir -Recurse -Force
+    Set-Content -LiteralPath (Join-Path $OutDir '.build-info') -Encoding ascii -Value @(
+        "built=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))", "branch=$branch", "commit=$commit", "uncommitted=$dirty")
+    $files = @(Get-ChildItem -LiteralPath $OutDir -Recurse -File)
+    Write-Host ("{0}: {1} files, {2:N0} bytes (deploy\public\site not changed)" -f $OutDir, $files.Count, ($files | Measure-Object Length -Sum).Sum)
+    exit 0
 }
 
 # Replace the contents (not the folder itself: the running edge has it mounted)

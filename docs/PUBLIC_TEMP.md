@@ -110,6 +110,29 @@ Digər parametrlər: `-SkipFrontendBuild` (`deploy\public\site`-dakı mövcud bu
 
 **Ünvan hər `start`-da dəyişir.** İştirakçılara linki hər dəfə yenidən göndərmək lazımdır.
 
+### Yalnız frontendi yeniləmək (link dəyişmir)
+
+```powershell
+.\scripts\deploy-frontend.ps1
+```
+
+**Nə vaxt işlədilir:** yalnız frontend dəyişəndə, yəni frontend repo-nun `main`-inə yeni commit gələndə. Skript heç bir konteyneri dayandırmır və yenidən başlatmır. Tunel də toxunulmaz qalır, ona görə ictimai link eyni qalır.
+
+**Backend dəyişəndə** (servislər, gateway, nginx konfiqurasiyası, `.env`) `.\scripts\go-public.ps1 start` lazımdır. Bu halda link dəyişir.
+
+**Skript nə edir:**
+1. Frontend repo-nun `main`-də və təmiz olduğunu yoxlayır, sonra C:-də boş yeri (≥ 1,5 GB).
+2. Ayrıca qovluqda build edir: `deploy\public\frontend-staging`.
+3. Xidmət edilən versiyanı `deploy\public\frontend-previous\<vaxt>` qovluğuna yedəkləyir. Ən son 3 nüsxə saxlanılır.
+4. Faylları sayt heç bir an boş qalmayacaq ardıcıllıqla dəyişir.
+5. Yoxlayır:
+   - link eynidir və heç bir konteyner yenidən başlamayıb;
+   - `/` və `/login` 200 qaytarır;
+   - verilən `index.html` yeni build-dir və `no-cache` başlığı ilə gəlir.
+6. Yoxlama uğursuz olarsa əvvəlki versiyanı avtomatik qaytarır və bunu bildirir: çıxış kodu 2.
+
+Deploy zamanı link hər 0,3 saniyədən bir yoxlanılır və sonda ən uzun kəsinti göstərilir. Geri qayıtma mexanizmini sınamaq üçün `-TestRollback` açarından istifadə edin: skript deploy edir, yoxlamanı qəsdən uğursuz sayır və köhnə versiyanı qaytarır.
+
 ### Development rejiminə qayıtmaq
 
 ```powershell

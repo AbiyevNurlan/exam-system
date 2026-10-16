@@ -114,6 +114,8 @@ backups/
 
 # Public mode (scripts/go-public.ps1): the frontend build and the current tunnel address
 deploy/public/site/
+deploy/public/frontend-staging/
+deploy/public/frontend-previous/
 deploy/public/state/
 deploy/public/CURRENT_URL.txt
 
