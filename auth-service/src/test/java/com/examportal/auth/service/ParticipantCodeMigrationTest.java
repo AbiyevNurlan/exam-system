@@ -89,7 +89,8 @@ class ParticipantCodeMigrationTest {
             insertUser(db, "student-c@x.test", "STUDENT", "2026-03-01 10:00:00");
         }
 
-        flyway("latest").migrate();
+        // V3 itself (V5 replaces its default by a trigger and forbids changing a code: ParticipantCodeImmutableTest)
+        flyway("3").migrate();
 
         try (Connection db = connect()) {
             // Backfill: every account, oldest first, gets the codes of n = 0, 1, 2, 3
