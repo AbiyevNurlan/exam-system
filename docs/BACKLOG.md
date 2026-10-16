@@ -92,6 +92,12 @@ Rules for all changes: [PROJECT_RULES.md](PROJECT_RULES.md).
 - [ ] Password reset is only for verified accounts; an unverified user registers again instead. A successful reset also lifts a lockout
 - [x] `forgotPassword` deletes old reset tokens and creates the new one without a transaction; no email is sent yet (TODO in code; `EmailSender` now exists) (now: `forgot-password` emails a 6-digit code, `reset-password` takes `{email, code, newPassword}`; the token flow is removed)
 - [x] Failed logins are logged at ERROR
+- [x] B11: an extendable participant profile (auth V4 `participant_profiles`, categories as the lookup `participant_categories`), `GET/PUT /api/me/profile`, the admin's participant card `GET /api/admin/participants/{id}` (INSTRUCTOR: members of own groups only), `PATCH /api/admin/participants/{id}/profile` (ADMIN, audited before/after), category and institution filters, participant codes fixed by the database (auth V5) and `scripts\check-participant-codes.ps1`
+- [ ] B11: the frontend has no profile form and no participant card yet (the API is there)
+- [ ] B11: `PATCH .../profile` cannot clear `birthDate` (null keeps a field); a full `PUT /api/me/profile` by the participant can
+- [ ] B11: an INSTRUCTOR's card shows no events (the audit rows of other groups and of accounts are not filtered by owner); an ADMIN sees the newest 20 of both logs
+- [ ] B11: required fields per category are configuration of auth-service (`participant-profile.required-fields`), not editable in the admin screens; adding a category is a migration (one INSERT into `participant_categories`)
+- [ ] B11: `scripts\regression\verify-b11.ps1` has not run yet: it needs the development stack, and the public mode was up while B11 was written (V4, V5 and V14 were checked on throwaway copies of the live databases only)
 
 ## Platform
 
