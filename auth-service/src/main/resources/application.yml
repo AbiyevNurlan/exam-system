@@ -112,6 +112,15 @@ auth:
     admin-email: ${ADMIN_EMAIL:}
     admin-password: ${ADMIN_PASSWORD:}
 
+# B11: the participant profile. Per category (participant_categories) the fields that must be filled, by their
+# JSON names: institution, facultyOrDepartment, courseOrGrade, workplace, position, city, birthDate.
+# Default: none, only the category itself is required. Example:
+#   required-fields:
+#     UNIVERSITY_STUDENT: [institution, facultyOrDepartment]
+#     EMPLOYEE: [workplace]
+participant-profile:
+  required-fields: {}
+
 management:
   health:
     # The mail server being down must not take the service out of rotation
