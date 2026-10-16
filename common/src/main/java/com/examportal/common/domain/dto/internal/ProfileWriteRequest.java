@@ -20,4 +20,6 @@ import java.util.UUID;
 public class ProfileWriteRequest {
     private UUID actorId;
     private ParticipantProfileDtos.UpdateRequest profile;
+    // PATCH by an administrator: a null field keeps its stored value, an empty text clears it
+    private boolean partial;
 }

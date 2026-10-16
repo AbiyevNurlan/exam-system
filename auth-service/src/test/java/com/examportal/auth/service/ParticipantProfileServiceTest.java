@@ -128,6 +128,34 @@ class ParticipantProfileServiceTest {
     }
 
     @Test
+    void anAdministratorsPatchKeepsWhatIsLeftOutAndClearsWhatIsEmpty() {
+        ParticipantProfileDtos.Profile before = ParticipantProfileDtos.Profile.builder().category("UNIVERSITY_STUDENT")
+                .institution("ADA").city("Bakı").courseOrGrade("2").build();
+        when(profiles.findByUserId(USER)).thenReturn(Mono.just(before), Mono.just(before));
+
+        StepVerifier.create(service.update(USER, UpdateRequest.builder().courseOrGrade("3").city("").build(), ADMIN, true))
+                .expectNextCount(1).verifyComplete();
+
+        ArgumentCaptor<UpdateRequest> written = ArgumentCaptor.forClass(UpdateRequest.class);
+        verify(profiles).upsert(eq(USER), written.capture(), eq(ADMIN));
+        assertThat(written.getValue().getCategory()).isEqualTo("UNIVERSITY_STUDENT");
+        assertThat(written.getValue().getInstitution()).isEqualTo("ADA");
+        assertThat(written.getValue().getCourseOrGrade()).isEqualTo("3");
+        assertThat(written.getValue().getCity()).isNull();
+        verify(audit).record(ADMIN, AccountAuditLog.PARTICIPANT_PROFILE_UPDATED, USER,
+                "courseOrGrade: '2' -> '3'; city: 'Bakı' -> -");
+    }
+
+    @Test
+    void aPatchWithoutAStoredProfileNeedsTheCategory() {
+        when(profiles.findByUserId(USER)).thenReturn(Mono.empty());
+        StepVerifier.create(service.update(USER, UpdateRequest.builder().city("Bakı").build(), ADMIN, true))
+                .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(ValidationException.class).hasMessageContaining("category"))
+                .verify();
+        verify(profiles, never()).upsert(any(), any(), any());
+    }
+
+    @Test
     void anUnknownOrInactiveAccountIs404() {
         UUID nobody = UUID.randomUUID();
         when(users.findById(nobody)).thenReturn(Mono.empty());

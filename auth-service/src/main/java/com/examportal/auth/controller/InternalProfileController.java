@@ -63,6 +63,6 @@ public class InternalProfileController {
         if (request == null || request.getActorId() == null) {
             return Mono.error(new ValidationException("actorId", "is required"));
         }
-        return profileService.update(userId, request.getProfile(), request.getActorId()).map(ApiResponse::success);
+        return profileService.update(userId, request.getProfile(), request.getActorId(), request.isPartial()).map(ApiResponse::success);
     }
 }

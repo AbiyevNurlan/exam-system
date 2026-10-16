@@ -3,7 +3,15 @@ package com.examportal.exam.controller;
 import com.examportal.common.domain.dto.ApiResponse;
 import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.group.ParticipantDtos;
+import com.examportal.common.domain.dto.profile.ParticipantProfileDtos;
+import com.examportal.common.security.UserPrincipal;
+import com.examportal.exam.client.UserDirectoryClient;
 import com.examportal.exam.service.ParticipantService;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
+import java.util.UUID;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -30,6 +38,7 @@ import reactor.core.publisher.Mono;
 public class ParticipantAdminController {
 
     private final ParticipantService participantService;
+    private final UserDirectoryClient userDirectory;
 
     @GetMapping
     @Operation(summary = "List participants", description = "Users with the role STUDENT, paged on the server (default 25, max 50). "
@@ -62,5 +71,16 @@ public class ParticipantAdminController {
     public Mono<ApiResponse<ParticipantDtos.Summary>> getSummary() {
         return participantService.getSummary()
                 .map(ApiResponse::success);
+    }
+
+    @PatchMapping("/{userId}/profile")
+    @Operation(summary = "Change a participant's profile (ADMIN)", description = "Partial: a field left out (or null) keeps "
+            + "its value, an empty text clears it; birthDate can only be replaced. The same rules as PUT /api/me/profile "
+            + "(active category, limits, HTML removed, required fields). Audited as PARTICIPANT_PROFILE_UPDATED with the "
+            + "administrator as actor and every field before and after. 404 for an unknown account.")
+    public Mono<ApiResponse<ParticipantProfileDtos.Profile>> patchProfile(@PathVariable UUID userId,
+                                                                        @RequestBody ParticipantProfileDtos.UpdateRequest change,
+                                                                        @AuthenticationPrincipal UserPrincipal principal) {
+        return userDirectory.patchProfile(userId, principal.getId(), change).map(ApiResponse::success);
     }
 }

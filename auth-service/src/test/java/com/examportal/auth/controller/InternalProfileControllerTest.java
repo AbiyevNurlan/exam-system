@@ -48,7 +48,7 @@ class InternalProfileControllerTest {
                     .verify();
         }
         verify(service, never()).mine(any());
-        verify(service, never()).update(any(), any(), any());
+        verify(service, never()).update(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     @Test
@@ -57,9 +57,16 @@ class InternalProfileControllerTest {
         StepVerifier.create(controller.put(SECRET, user, ProfileWriteRequest.builder().build())).expectError(ValidationException.class).verify();
 
         ParticipantProfileDtos.UpdateRequest profile = ParticipantProfileDtos.UpdateRequest.builder().category("OTHER").build();
-        when(service.update(user, profile, user)).thenReturn(Mono.just(ParticipantProfileDtos.Profile.builder().category("OTHER").build()));
+        when(service.update(user, profile, user, false)).thenReturn(Mono.just(ParticipantProfileDtos.Profile.builder().category("OTHER").build()));
         StepVerifier.create(controller.put(SECRET, user, ProfileWriteRequest.builder().actorId(user).profile(profile).build()))
                 .assertNext(answer -> assertThat(answer.getData().getCategory()).isEqualTo("OTHER"))
                 .verifyComplete();
+
+        // An administrator's PATCH arrives as partial with the administrator as actor
+        UUID admin = UUID.randomUUID();
+        when(service.update(user, profile, admin, true)).thenReturn(Mono.just(ParticipantProfileDtos.Profile.builder().category("OTHER").build()));
+        StepVerifier.create(controller.put(SECRET, user, ProfileWriteRequest.builder().actorId(admin).profile(profile).partial(true).build()))
+                .expectNextCount(1).verifyComplete();
+        verify(service).update(user, profile, admin, true);
     }
 }

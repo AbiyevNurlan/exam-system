@@ -188,8 +188,21 @@ public class UserDirectoryClient {
      * own change, the administrator otherwise. 400 of auth-service (a field) is passed on with its message.
      */
     public Mono<ParticipantProfileDtos.Profile> saveProfile(UUID userId, UUID actorId, ParticipantProfileDtos.UpdateRequest profile) {
+        return writeProfile(userId, actorId, profile, false);
+    }
+
+    /**
+     * B11: an administrator's partial change (null keeps a field, "" clears it); auth-service audits it with the
+     * administrator as actor and the values before and after
+     */
+    public Mono<ParticipantProfileDtos.Profile> patchProfile(UUID userId, UUID adminId, ParticipantProfileDtos.UpdateRequest change) {
+        return writeProfile(userId, adminId, change, true);
+    }
+
+    private Mono<ParticipantProfileDtos.Profile> writeProfile(UUID userId, UUID actorId, ParticipantProfileDtos.UpdateRequest profile,
+                                                            boolean partial) {
         return exchangeProfile(webClient.put().uri("/internal/users/{id}/profile", userId)
-                        .bodyValue(ProfileWriteRequest.builder().actorId(actorId).profile(profile).build()),
+                        .bodyValue(ProfileWriteRequest.builder().actorId(actorId).profile(profile).partial(partial).build()),
                 new ParameterizedTypeReference<ApiResponse<ParticipantProfileDtos.Profile>>() {
                 });
     }
