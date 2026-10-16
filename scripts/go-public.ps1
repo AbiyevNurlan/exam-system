@@ -36,7 +36,9 @@ param(
     # Serve the build that is already in deploy\public\site
     [switch]$SkipFrontendBuild,
     # Skip the production gateway check (it starts a temporary gateway for about a minute)
-    [switch]$SkipGatewayCheck
+    [switch]$SkipGatewayCheck,
+    # start: replace a running tunnel by a new one (a new address), e.g. after Cloudflare dropped it
+    [switch]$NewTunnel
 )
 
 # Native commands (docker, git, curl) are judged by their exit codes; in Windows PowerShell their
@@ -48,6 +50,9 @@ $baseFile = Join-Path $repoRoot 'docker-compose.yml'
 $publicFile = Join-Path $repoRoot 'docker-compose.public.yml'
 $stateDir = Join-Path $repoRoot 'deploy\public\state'
 $urlFile = Join-Path $stateDir 'url.txt'
+# The address for people (git-ignored), and the mark of a stop on purpose (see scripts\watch-public.ps1)
+$currentUrlFile = Join-Path $repoRoot 'deploy\public\CURRENT_URL.txt'
+$stoppedFile = Join-Path $stateDir 'stopped-on-purpose'
 $composeArgs = @('compose', '--project-directory', $repoRoot, '-f', $baseFile, '-f', $publicFile)
 $tunnelContainer = 'exam-cloudflared'
 $localEdge = 'http://127.0.0.1:8088'
@@ -301,6 +306,12 @@ switch ($Command) {
         Write-Host '== Stack'
         if (Test-Running 'exam-mailpit') { & docker stop exam-mailpit | Out-Null; Write-Host 'Mailpit stopped (not part of the public mode)' }
 
+        # A running tunnel that Cloudflare dropped ("Tunnel not found") keeps its dead address:
+        # -NewTunnel stops it first so that the start below opens a new one
+        if ($NewTunnel -and (Test-Running $tunnelContainer)) {
+            Invoke-Compose stop cloudflared | Out-Null
+            Write-Host 'Old tunnel stopped (-NewTunnel)'
+        }
         # The tunnel first: its address goes into exam-service (presigned media URLs)
         Invoke-Compose up -d --no-deps cloudflared | Select-Object -Last 1 | Write-Host
         $url = Wait-TunnelUrl
@@ -322,6 +333,8 @@ switch ($Command) {
 
         New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
         Set-Content -LiteralPath $urlFile -Encoding ascii -Value $url
+        Set-Content -LiteralPath $currentUrlFile -Encoding ascii -Value $url
+        Remove-Item -LiteralPath $stoppedFile -Force -ErrorAction SilentlyContinue
 
         $failed = Invoke-SmokeTests $url
         Write-Host ''
@@ -334,6 +347,9 @@ switch ($Command) {
     'stop' {
         Invoke-Compose stop cloudflared edge | Select-Object -Last 2 | Write-Host
         Remove-Item -LiteralPath $urlFile -Force -ErrorAction SilentlyContinue
+        # Stopped on purpose: scripts\watch-public.ps1 leaves the site down until the next start
+        New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+        Set-Content -LiteralPath $stoppedFile -Encoding ascii -Value (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         Write-Host 'Tunnel and edge stopped. Database, Redis, storage and services keep running (public settings).'
         Write-Host 'Back to development: .\scripts\up.ps1 (recreates the services with docker-compose.yml, starts Mailpit).'
         exit 0

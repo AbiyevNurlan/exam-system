@@ -110,6 +110,33 @@ Digər parametrlər: `-SkipFrontendBuild` (`deploy\public\site`-dakı mövcud bu
 
 **Ünvan hər `start`-da dəyişir.** İştirakçılara linki hər dəfə yenidən göndərmək lazımdır.
 
+### Sayt düşəndə avtomatik yenidən açılsın
+
+Pulsuz quick tunnel bəzən Cloudflare tərəfindən silinir. Loqda `Unauthorized: Tunnel not found` görünür və köhnə link həmişəlik ölür. Kompüter yenidən başlayanda da link dəyişir. Bunun üçün nəzarətçi skript var:
+
+```powershell
+.\scripts\watch-public.ps1          # pəncərə açıq qaldıqca hər 60 saniyədən bir yoxlayır
+.\scripts\watch-public.ps1 -Once    # bir dəfə yoxlayır (Task Scheduler üçün)
+```
+
+**Nə vaxt saytı yenidən açır:** edge və ya tunel işləmirsə, tunelin linki dəyişibsə, ya da `/` üç cəhddə 200 qaytarmırsa. Bu halda `go-public.ps1 start -NewTunnel -SkipBackup -SkipFrontendBuild` işlədir:
+- data-ya toxunulmur;
+- yeni link `deploy\public\CURRENT_URL.txt` və `deploy\public\state\watch.log` fayllarına yazılır.
+
+**Yeni linki iştirakçılara özünüz göndərməlisiniz.**
+
+**Nə vaxt açmır:** `go-public.ps1 stop` ilə qəsdən dayandırılan saytı. Növbəti `start`-a qədər toxunmur. Bir yenidən başlatmadan sonra 5 dəqiqə gözləyir ki, dövrəyə düşməsin.
+
+**Kompüter açılanda avtomatik işləsin** (bir dəfə, adi PowerShell-də):
+
+```powershell
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File F:\exam-system\scripts\watch-public.ps1'
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+Register-ScheduledTask -TaskName 'Yukselis watch-public' -Action $action -Trigger $trigger -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -StartWhenAvailable)
+```
+
+Silmək üçün: `Unregister-ScheduledTask -TaskName 'Yukselis watch-public' -Confirm:$false`. Docker Desktop da Windows ilə birlikdə açılmalıdır: Settings → General → "Start Docker Desktop when you sign in".
+
 ### Yalnız frontendi yeniləmək (link dəyişmir)
 
 ```powershell
