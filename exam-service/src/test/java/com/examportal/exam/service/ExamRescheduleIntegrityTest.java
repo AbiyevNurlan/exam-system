@@ -46,6 +46,7 @@ class ExamRescheduleIntegrityTest {
     private final ExamCacheService cacheService = mock(ExamCacheService.class);
     private final ExamMapper mapper = mock(ExamMapper.class);
     private final TransactionalOperator transactionalOperator = mock(TransactionalOperator.class);
+    private final com.examportal.exam.history.ExamHistoryService history = mock(com.examportal.exam.history.ExamHistoryService.class);
     private final com.examportal.exam.structure.ExamStateRepository stateRepository = mock(com.examportal.exam.structure.ExamStateRepository.class);
 
     private ExamService service;
@@ -54,6 +55,7 @@ class ExamRescheduleIntegrityTest {
     @SuppressWarnings("unchecked")
     void setUp() {
         when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(call -> call.getArgument(0));
+        when(history.record(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyList())).thenReturn(Mono.empty());
         when(accessPolicy.requireAccess(any(), anyString(), any(Exam.class))).thenAnswer(call -> Mono.just(call.getArgument(2)));
         when(accessPolicy.canManage(any(), anyString(), any(Exam.class))).thenReturn(true);
         when(examRepository.reschedule(anyLong(), any(), any(), anyString(), any(), anyBoolean(), any())).thenReturn(Mono.just(1));
@@ -68,12 +70,12 @@ class ExamRescheduleIntegrityTest {
                 mock(ExamAudienceRepository.class), auditService, mock(ExamMediaService.class), mock(ExamValidator.class),
                 mapper, transactionalOperator, stateRepository,
                 new com.examportal.exam.structure.StructurePlanner(), mock(com.examportal.exam.structure.ExamStructureWriter.class),
-                mock(ExamBlockRepository.class), new ExamFeatures(false, false));
+                mock(ExamBlockRepository.class), new ExamFeatures(false, false), history);
         // A plain exam (one block, exam timer): the B12a publish gate lets it through
         when(stateRepository.load(EXAM_ID)).thenReturn(Mono.just(new com.examportal.exam.structure.ExamState(EXAM_ID, OWNER,
                 "T", null, ExamStatus.ACTIVE, 30, LocalDateTime.now(), LocalDateTime.now().plusDays(1), null, false, false,
                 false, 1, null, null, com.examportal.common.domain.entity.ExamAccessType.PUBLIC,
-                com.examportal.common.domain.entity.TimingMode.EXAM_TIMER, false, true, true, List.of())));
+                com.examportal.common.domain.entity.TimingMode.EXAM_TIMER, false, true, true, List.of(), List.of())));
     }
 
     private void examIs(ExamStatus status, boolean withAttempts) {

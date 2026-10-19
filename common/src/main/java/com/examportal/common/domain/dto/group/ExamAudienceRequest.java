@@ -25,4 +25,7 @@ public class ExamAudienceRequest {
 
     @Size(max = 50, message = "An exam can have at most 50 audience groups")
     private List<@NotNull(message = "Group id must not be null") Long> groupIds;
+
+    // B12a: why (optional, 3-500 characters), written to the exam's history
+    private String changeReason;
 }

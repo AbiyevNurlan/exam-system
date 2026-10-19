@@ -78,6 +78,8 @@ class ExamBlocksServiceTest {
         request.setShuffleOptions(false);
         request.setShowResultsImmediately(true);
         request.setMaxAttempts(1);
+        // The update writes what it gets: a client sends the passing score it shows
+        request.setPassingScore(exam.getPassingScore());
         return request;
     }
 

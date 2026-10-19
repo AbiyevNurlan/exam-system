@@ -1,5 +1,7 @@
 package com.examportal.exam.service;
 
+import com.examportal.exam.history.ExamHistoryService;
+import com.examportal.exam.history.ExamRevisionRepository;
 import com.examportal.exam.mapper.ExamMapper;
 import com.examportal.exam.repository.*;
 import com.examportal.exam.storage.MediaStorage;
@@ -78,7 +80,17 @@ final class ExamTestStack implements AutoCloseable {
         return new ExamService(exams, questions, options, sessions, new ExamAttemptRepository(db), new ExamEditLock(db),
                 new ExamManageRepository(db), new GroupMembershipRepository(db), new ExamDayClock("Asia/Baku"), cache,
                 mock(AnswerSubmissionService.class), accessPolicy, groups, audience, groupAudit, examMedia,
-                new ExamValidator(), new ExamMapper(), tx, states, new StructurePlanner(), writer, blocks, features);
+                new ExamValidator(), new ExamMapper(), tx, states, new StructurePlanner(), writer, blocks, features,
+                history(features));
+    }
+
+    ExamHistoryService history(ExamFeatures features) {
+        return new ExamHistoryService(new ExamRevisionRepository(db), features);
+    }
+
+    ExamMetaService metaService(ExamFeatures features) {
+        return new ExamMetaService(exams, new ExamMetaRepository(db), accessPolicy, groupAudit, cache, new ExamMapper(), tx,
+                history(features));
     }
 
     long scalar(String sql) {

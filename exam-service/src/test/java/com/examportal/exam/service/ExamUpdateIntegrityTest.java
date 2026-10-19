@@ -62,6 +62,7 @@ class ExamUpdateIntegrityTest {
     private final ExamValidator validator = mock(ExamValidator.class);
     private final ExamMapper mapper = mock(ExamMapper.class);
     private final TransactionalOperator transactionalOperator = mock(TransactionalOperator.class);
+    private final com.examportal.exam.history.ExamHistoryService history = mock(com.examportal.exam.history.ExamHistoryService.class);
     private final ExamStateRepository stateRepository = mock(ExamStateRepository.class);
     private final ExamStructureWriter structureWriter = mock(ExamStructureWriter.class);
     private final ExamBlockRepository blockRepository = mock(ExamBlockRepository.class);
@@ -72,6 +73,7 @@ class ExamUpdateIntegrityTest {
     @SuppressWarnings("unchecked")
     void setUp() {
         when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(call -> call.getArgument(0));
+        when(history.record(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyList())).thenReturn(Mono.empty());
         when(accessPolicy.requireAccess(any(), anyString(), any(Exam.class))).thenAnswer(call -> Mono.just(call.getArgument(2)));
         when(accessPolicy.canManage(any(), anyString(), any(Exam.class))).thenReturn(true);
         when(editLock.lockForEdit(EXAM_ID)).thenReturn(Mono.just(EXAM_ID));
@@ -90,7 +92,7 @@ class ExamUpdateIntegrityTest {
         when(cacheService.cacheExam(any())).thenAnswer(call -> Mono.just(call.getArgument(0)));
         when(stateRepository.load(EXAM_ID)).thenReturn(Mono.just(new ExamState(EXAM_ID, OWNER, "Old", null, ExamStatus.DRAFT,
                 30, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(2), null, false, false, false, 1, null,
-                null, ExamAccessType.PUBLIC, TimingMode.EXAM_TIMER, false, true, true,
+                null, ExamAccessType.PUBLIC, TimingMode.EXAM_TIMER, false, true, true, List.of(),
                 List.of(new ExamState.BlockState(70L, 1, "Əsas blok", null, null, 0, true, false, true, List.of())))));
         when(structureWriter.apply(eq(EXAM_ID), any(ExamState.class), any(StructurePlan.class))).thenReturn(Mono.empty());
         service = new ExamService(examRepository, questionRepository, optionRepository, mock(ExamSessionRepository.class),
@@ -98,7 +100,7 @@ class ExamUpdateIntegrityTest {
                 mock(GroupMembershipRepository.class), mock(ExamDayClock.class), cacheService,
                 mock(AnswerSubmissionService.class), accessPolicy, mock(UserGroupRepository.class),
                 mock(ExamAudienceRepository.class), auditService, examMedia, validator, mapper, transactionalOperator,
-                stateRepository, new StructurePlanner(), structureWriter, blockRepository, new ExamFeatures(false, false));
+                stateRepository, new StructurePlanner(), structureWriter, blockRepository, new ExamFeatures(false, false), history);
     }
 
     private void examIs(ExamStatus status) {

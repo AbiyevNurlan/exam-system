@@ -22,7 +22,7 @@ public record ExamState(Long id, UUID createdBy, String title, String descriptio
                         Boolean showResultsImmediately, Integer maxAttempts, Integer maxAttemptsPerDay,
                         Long categoryId, ExamAccessType accessType, TimingMode timingMode,
                         boolean allowReturnToPreviousBlocks, boolean allowSkipBreak, boolean showBlockBreakdown,
-                        List<BlockState> blocks) {
+                        List<Long> audienceGroupIds, List<BlockState> blocks) {
 
     /**
      * Every question of the exam in the order participants number them: blocks by position, inside a

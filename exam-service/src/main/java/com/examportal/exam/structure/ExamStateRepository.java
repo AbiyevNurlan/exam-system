@@ -138,13 +138,19 @@ public class ExamStateRepository {
                         row.get("status", String.class)))
                 .all().collectList();
 
+        // The stored audience groups (also inactive ones: what the exam row refers to)
+        Mono<List<Long>> audience = databaseClient.sql("SELECT group_id FROM exam_audience WHERE exam_id = :examId ORDER BY group_id")
+                .bind("examId", examId)
+                .map(row -> row.get("group_id", Long.class))
+                .all().collectList();
+
         // One statement at a time: inside a transaction they share one connection
         return exam.flatMap(e -> blocks.flatMap(b -> questions.flatMap(q -> options.flatMap(o -> links
-                .map(l -> assemble(e, b, q, o, l))))));
+                .flatMap(l -> audience.map(a -> assemble(e, b, q, o, l, a)))))));
     }
 
     private static ExamState assemble(ExamRow exam, List<BlockRow> blocks, List<QuestionRow> questions,
-                                      List<OptionRow> options, List<LinkRow> links) {
+                                      List<OptionRow> options, List<LinkRow> links, List<Long> audience) {
         Map<Long, List<MediaRef>> questionMedia = new HashMap<>();
         Map<Long, List<MediaRef>> optionMedia = new HashMap<>();
         for (LinkRow link : links) {
@@ -175,7 +181,7 @@ public class ExamStateRepository {
                 exam.durationMinutes(), exam.startTime(), exam.endTime(), exam.passingScore(), exam.shuffleQuestions(),
                 exam.shuffleOptions(), exam.showResultsImmediately(), exam.maxAttempts(), exam.maxAttemptsPerDay(),
                 exam.categoryId(), exam.accessType(), exam.timingMode(), exam.allowReturn(), exam.allowSkipBreak(),
-                exam.showBlockBreakdown(), blockStates);
+                exam.showBlockBreakdown(), List.copyOf(audience), blockStates);
     }
 
     private static boolean flag(Readable row, String column) {

@@ -11,6 +11,7 @@ import com.examportal.common.domain.entity.GradingStatus;
 import com.examportal.common.domain.entity.RiskLevel;
 import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.security.UserPrincipal;
+import com.examportal.exam.history.ChangeContextFactory;
 import com.examportal.exam.service.AnswerSubmissionService;
 import com.examportal.exam.service.ExamMetaService;
 import com.examportal.exam.service.ExamResultsService;
@@ -30,6 +31,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -59,6 +61,8 @@ public class ExamController {
     private final SessionMediaService sessionMediaService;
     private final FraudEventService fraudEventService;
     private final ExamResultsService resultsService;
+    // B12a: who changes an exam, from where and why (the history)
+    private final ChangeContextFactory changes;
 
     // ==================== Exam CRUD Operations ====================
 
@@ -71,11 +75,13 @@ public class ExamController {
             + "allowReturnToPreviousBlocks, allowSkipBreak, showBlockBreakdown. The answer carries blocks and totalMinutes.")
     public Mono<ApiResponse<ExamResponse>> createExam(
             @Valid @RequestBody CreateExamRequest request,
+            ServerHttpRequest httpRequest,
             @AuthenticationPrincipal UserPrincipal principal) {
-        
+
         log.info("Creating exam: {} by user: {}", request.getTitle(), principal.getId());
-        
-        return examService.createExam(request, principal.getId(), principal.getRole())
+
+        return changes.create(principal, httpRequest)
+                .flatMap(change -> examService.createExam(request, change))
                 .map(exam -> ApiResponse.success(exam, "Exam created successfully"));
     }
 
@@ -84,15 +90,20 @@ public class ExamController {
     @Operation(summary = "Update an exam", description = "Update an existing exam (DRAFT or SCHEDULED only, never with attempts: 409 EXAM_HAS_SESSIONS). Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); your own confirmed media, or media the exam already carries (ADMIN: any). WARNING: the alt text of option media is shown to participants and must not reveal the answer. "
             + "B12a: changed IN PLACE: a block, question or option with its id keeps its row and id (a question may move to another block), one without an id is new, one left out is deleted. "
             + "Either questions (the exam's only block; 400 BLOCKS_REQUIRED for an exam with more) or blocks, as on create. Fields left out (timingMode, allowReturnToPreviousBlocks, allowSkipBreak, showBlockBreakdown) stay. "
-            + "A SCHEDULED exam cannot get block timers, fixed navigation or returning to earlier blocks before B12b (409 FEATURE_NOT_AVAILABLE).")
+            + "A SCHEDULED exam cannot get block timers, fixed navigation or returning to earlier blocks before B12b (409 FEATURE_NOT_AVAILABLE). "
+            + "Every change is written to the history (GET /{id}/history) with one saveId; changeReason (body or query, 3-500 characters) is optional, "
+            + "and required (400 CHANGE_REASON_REQUIRED) for a sensitive change of a SCHEDULED or ACTIVE exam only when REQUIRE_CHANGE_REASON_AFTER_PUBLISH is on.")
     public Mono<ApiResponse<ExamResponse>> updateExam(
             @PathVariable Long id,
             @Valid @RequestBody UpdateExamRequest request,
+            @RequestParam(required = false) @Parameter(description = "Why (optional, 3-500 characters); the body field wins") String changeReason,
+            ServerHttpRequest httpRequest,
             @AuthenticationPrincipal UserPrincipal principal) {
-        
+
         log.info("Updating exam: {} by user: {}", id, principal.getId());
-        
-        return examService.updateExam(id, request, principal.getId(), principal.getRole())
+
+        return changes.create(principal, httpRequest, request.getChangeReason(), changeReason)
+                .flatMap(change -> examService.updateExam(id, request, change))
                 .map(exam -> ApiResponse.success(exam, "Exam updated successfully"));
     }
 
@@ -100,14 +111,18 @@ public class ExamController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
     @Operation(summary = "Delete an exam", description = "Removes an exam for good, with its questions, options, media links "
-            + "and audience. Only an exam without any session: otherwise 409 EXAM_CANNOT_DELETE and nothing is removed; archive it instead.")
+            + "and audience. Only an exam without any session: otherwise 409 EXAM_CANNOT_DELETE and nothing is removed; archive it instead. "
+            + "B12a: the history of the exam stays and records the attempt either way (DELETE_ATTEMPTED, with the whole exam when it was deleted).")
     public Mono<Void> deleteExam(
             @PathVariable Long id,
+            @RequestParam(required = false) @Parameter(description = "Why (optional, 3-500 characters)") String changeReason,
+            ServerHttpRequest httpRequest,
             @AuthenticationPrincipal UserPrincipal principal) {
-        
+
         log.info("Deleting exam: {} by user: {}", id, principal.getId());
-        
-        return examService.deleteExam(id, principal.getId(), principal.getRole());
+
+        return changes.create(principal, httpRequest, changeReason)
+                .flatMap(change -> examService.deleteExam(id, change));
     }
 
     @GetMapping("/{id}")
@@ -421,11 +436,14 @@ public class ExamController {
     public Mono<ApiResponse<ExamAudienceResponse>> setAudience(
             @PathVariable Long id,
             @Valid @RequestBody ExamAudienceRequest request,
+            @RequestParam(required = false) @Parameter(description = "Why (optional, 3-500 characters); the body field wins") String changeReason,
+            ServerHttpRequest httpRequest,
             @AuthenticationPrincipal UserPrincipal principal) {
 
         log.info("Setting audience of exam: {} by user: {}", id, principal.getId());
 
-        return examService.setAudience(id, request, principal.getId(), principal.getRole())
+        return changes.create(principal, httpRequest, request.getChangeReason(), changeReason)
+                .flatMap(change -> examService.setAudience(id, request, change))
                 .map(audience -> ApiResponse.success(audience, "Exam audience updated successfully"));
     }
 
@@ -438,11 +456,14 @@ public class ExamController {
             + "B12a: block timers, a block without free navigation or returning to earlier blocks need B12b: 409 FEATURE_NOT_AVAILABLE until it is switched on.")
     public Mono<ApiResponse<ExamResponse>> publishExam(
             @PathVariable Long id,
+            @RequestParam(required = false) @Parameter(description = "Why (optional, 3-500 characters)") String changeReason,
+            ServerHttpRequest httpRequest,
             @AuthenticationPrincipal UserPrincipal principal) {
-        
+
         log.info("Publishing exam: {} by user: {}", id, principal.getId());
-        
-        return examService.updateExamStatus(id, ExamStatus.ACTIVE, principal.getId(), principal.getRole())
+
+        return changes.create(principal, httpRequest, changeReason)
+                .flatMap(change -> examService.updateExamStatus(id, ExamStatus.ACTIVE, change))
                 .map(exam -> ApiResponse.success(exam, "Exam published successfully"));
     }
 
@@ -456,11 +477,14 @@ public class ExamController {
     public Mono<ApiResponse<ExamResponse>> rescheduleExam(
             @PathVariable Long id,
             @Valid @RequestBody RescheduleExamRequest request,
+            @RequestParam(required = false) @Parameter(description = "Why (optional, 3-500 characters); the body field wins") String changeReason,
+            ServerHttpRequest httpRequest,
             @AuthenticationPrincipal UserPrincipal principal) {
 
         log.info("Rescheduling exam: {} by user: {}", id, principal.getId());
 
-        return examService.rescheduleExam(id, request, principal.getId(), principal.getRole())
+        return changes.create(principal, httpRequest, request.getChangeReason(), changeReason)
+                .flatMap(change -> examService.rescheduleExam(id, request, change))
                 .map(exam -> ApiResponse.success(exam, "Exam rescheduled successfully"));
     }
 
@@ -471,11 +495,14 @@ public class ExamController {
             + "POST /{id}/reschedule brings it back.")
     public Mono<ApiResponse<ExamResponse>> archiveExam(
             @PathVariable Long id,
+            @RequestParam(required = false) @Parameter(description = "Why (optional, 3-500 characters)") String changeReason,
+            ServerHttpRequest httpRequest,
             @AuthenticationPrincipal UserPrincipal principal) {
-        
+
         log.info("Archiving exam: {} by user: {}", id, principal.getId());
-        
-        return examService.updateExamStatus(id, ExamStatus.ARCHIVED, principal.getId(), principal.getRole())
+
+        return changes.create(principal, httpRequest, changeReason)
+                .flatMap(change -> examService.updateExamStatus(id, ExamStatus.ARCHIVED, change))
                 .map(exam -> ApiResponse.success(exam, "Exam archived successfully"));
     }
 
@@ -488,9 +515,12 @@ public class ExamController {
     public Mono<ApiResponse<ExamResponse>> updateMeta(
             @PathVariable Long id,
             @Valid @RequestBody ExamMetaRequest request,
+            @RequestParam(required = false) @Parameter(description = "Why (optional, 3-500 characters); the body field wins") String changeReason,
+            ServerHttpRequest httpRequest,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return examMetaService.updateMeta(id, request, principal.getId(), principal.getRole())
+        return changes.create(principal, httpRequest, request.getChangeReason(), changeReason)
+                .flatMap(change -> examMetaService.updateMeta(id, request, change))
                 .map(exam -> ApiResponse.success(exam, "Exam title and description updated"));
     }
 }

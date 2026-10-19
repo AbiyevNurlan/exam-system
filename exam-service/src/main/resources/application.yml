@@ -97,6 +97,11 @@ exam:
     # blocks) is B12b. Until it is in place this stays false and an exam that needs it cannot be
     # published (409 FEATURE_NOT_AVAILABLE). B12b turns it on.
     rules-enabled: ${EXAM_BLOCK_RULES_ENABLED:false}
+  history:
+    # B12a: changeReason (3-500 characters) is optional on every change of an exam. With this on, a sensitive
+    # change (answer key, points, duration, window, block timers and rules, publish, archive) of a SCHEDULED
+    # or ACTIVE exam needs one: 400 CHANGE_REASON_REQUIRED.
+    require-change-reason-after-publish: ${REQUIRE_CHANGE_REASON_AFTER_PUBLISH:false}
   media:
     # Allowed uploads: IMAGE jpeg/png/webp, AUDIO mp3/ogg/m4a, VIDEO mp4 (MediaTypePolicy)
     image-max-bytes: 5242880          # 5 MB

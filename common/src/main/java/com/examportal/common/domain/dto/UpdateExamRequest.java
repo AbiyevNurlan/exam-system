@@ -99,6 +99,10 @@ public class UpdateExamRequest {
     @Valid
     private List<ExamBlockDTO> blocks;
 
+    // B12a: why (optional, 3-500 characters), written to the exam's history; required for a sensitive change of a
+    // published exam only when REQUIRE_CHANGE_REASON_AFTER_PUBLISH is on
+    private String changeReason;
+
     // Omitted = unchanged
     private TimingMode timingMode;
     private Boolean allowReturnToPreviousBlocks;
