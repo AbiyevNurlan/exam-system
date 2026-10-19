@@ -11,6 +11,9 @@ import com.examportal.exam.exception.ExamException;
 import com.examportal.exam.exception.GroupException;
 import com.examportal.exam.mapper.ExamMapper;
 import com.examportal.exam.repository.*;
+import com.examportal.exam.structure.ExamStateRepository;
+import com.examportal.exam.structure.ExamStructureWriter;
+import com.examportal.exam.structure.StructurePlanner;
 import com.examportal.exam.validator.ExamValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +55,10 @@ public class ExamService {
     private final ExamValidator validator;
     private final ExamMapper mapper;
     private final TransactionalOperator transactionalOperator;
+    // B12a: blocks and questions are read and written in place
+    private final ExamStateRepository stateRepository;
+    private final StructurePlanner planner;
+    private final ExamStructureWriter structureWriter;
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
@@ -81,7 +88,11 @@ public class ExamService {
                     exam.setAccessType(accessType);
                     return examRepository.save(exam);
                 }))
-                .flatMap(savedExam -> saveQuestionsAndOptions(savedExam.getId(), request.getQuestions())
+                // The database gave the new exam its first block; the questions go into it
+                .flatMap(savedExam -> stateRepository.load(savedExam.getId())
+                        .flatMap(created -> structureWriter.apply(savedExam.getId(), created, planner.forCreate(null,
+                                request.getQuestions(), created.blocks().get(0).id(),
+                                Boolean.TRUE.equals(request.getShuffleQuestions()))))
                         .then(groupIds.isEmpty()
                                 ? Mono.<Void>empty()
                                 : writeAudience(savedExam.getId(), savedExam.getStatus(), ExamAccessType.PUBLIC,
@@ -129,27 +140,16 @@ public class ExamService {
                                 .flatMap(stored -> requireValidAudience(newAccessType, groupIds, userId, role, stored)))
                         .then(examMedia.validate(request.getQuestions(), userId, role, examId))
                         .thenReturn(exam))
-                .flatMap(exam -> {
-                    ExamAccessType oldAccessType = exam.getAccessType();
-                    mapper.updateEntity(exam, request);
-                    if (newAccessType == null) {
-                        return examRepository.save(exam);
-                    }
-                    exam.setAccessType(newAccessType);
-                    return examRepository.save(exam)
-                            .flatMap(saved -> audienceRepository.findGroupIdsByExamId(examId).collectList()
-                                    // An unchanged audience writes nothing, so it leaves no audit entry either
-                                    .flatMap(oldGroupIds -> oldAccessType == newAccessType && oldGroupIds.equals(groupIds)
-                                            ? Mono.<Void>empty()
-                                            : writeAudience(examId, saved.getStatus(), oldAccessType, newAccessType,
-                                                    oldGroupIds, groupIds, userId))
-                                    .thenReturn(saved));
-                })
-                .flatMap(exam -> deleteExistingQuestionsAndOptions(examId)
-                        .then(saveQuestionsAndOptions(examId, request.getQuestions()))
-                        .then(examRepository.updateTotalQuestions(examId, request.getQuestions().size()))
-                        .then(auditForeignExam(userId, exam, GroupAuditService.EXAM_UPDATED_BY_ADMIN))
-                        .thenReturn(exam))
+                // The stored structure, read under the row lock: questions, options and blocks are changed in
+                // place (ids stay), not deleted and created again
+                .flatMap(exam -> stateRepository.load(examId)
+                        .flatMap(before -> Mono.fromCallable(() -> planner.forUpdate(null, request.getQuestions(), before,
+                                        Boolean.TRUE.equals(request.getShuffleQuestions())))
+                                .flatMap(plan -> saveExamRow(exam, request, newAccessType, groupIds, userId)
+                                        .flatMap(saved -> structureWriter.apply(examId, before, plan)
+                                                .then(examRepository.updateTotalQuestions(examId, plan.questionCount()))
+                                                .then(auditForeignExam(userId, saved, GroupAuditService.EXAM_UPDATED_BY_ADMIN))
+                                                .thenReturn(saved)))))
                 .flatMap(this::loadExamWithQuestions);
 
         // One transaction for the exam row and the replaced questions/options; the cache is refreshed after commit
@@ -693,53 +693,25 @@ public class ExamService {
     }
 
     /**
-     * Save questions and their options
+     * The exam row of an update, and its audience when the request names one. Part of the caller's transaction.
      */
-    private Mono<Void> saveQuestionsAndOptions(Long examId, List<QuestionDTO> questions) {
-        return Flux.fromIterable(questions)
-                .index()
-                // Sequential: these writes share the one connection of the surrounding transaction
-                .concatMap(tuple -> {
-                    int index = tuple.getT1().intValue();
-                    QuestionDTO dto = tuple.getT2();
-                    dto.setOrderIndex(index);
-                    
-                    Question question = mapper.toEntity(dto, examId);
-                    return questionRepository.save(question)
-                            .flatMap(savedQuestion -> examMedia.attachToQuestion(savedQuestion.getId(), dto)
-                                    .then(Mono.defer(() -> {
-                                        if (dto.getOptions() != null && !dto.getOptions().isEmpty()) {
-                                            return saveOptions(savedQuestion.getId(), dto.getOptions());
-                                        }
-                                        return Mono.empty();
-                                    })));
-                })
-                .then();
-    }
-
-    /**
-     * Save options for a question
-     */
-    private Mono<Void> saveOptions(Long questionId, List<OptionDTO> options) {
-        return Flux.fromIterable(options)
-                .index()
-                .concatMap(tuple -> {
-                    OptionDTO dto = tuple.getT2();
-                    dto.setOrderIndex(tuple.getT1().intValue());
-                    return optionRepository.save(mapper.toEntity(dto, questionId))
-                            .flatMap(savedOption -> examMedia.attachToOption(savedOption.getId(), dto));
-                })
-                .then();
-    }
-
-    /**
-     * Delete existing questions and options for an exam. Only ever called by updateExam for an exam
-     * without sessions (checked under the row lock), so no answer and no result refers to them.
-     */
-    private Mono<Void> deleteExistingQuestionsAndOptions(Long examId) {
-        return questionRepository.findByExamIdOrderByOrderIndex(examId)
-                .concatMap(question -> optionRepository.deleteByQuestionId(question.getId()))
-                .then(questionRepository.deleteByExamId(examId));
+    private Mono<Exam> saveExamRow(Exam exam, UpdateExamRequest request, ExamAccessType newAccessType,
+                                   List<Long> groupIds, UUID userId) {
+        Long examId = exam.getId();
+        ExamAccessType oldAccessType = exam.getAccessType();
+        mapper.updateEntity(exam, request);
+        if (newAccessType == null) {
+            return examRepository.save(exam);
+        }
+        exam.setAccessType(newAccessType);
+        return examRepository.save(exam)
+                .flatMap(saved -> audienceRepository.findGroupIdsByExamId(examId).collectList()
+                        // An unchanged audience writes nothing, so it leaves no audit entry either
+                        .flatMap(oldGroupIds -> oldAccessType == newAccessType && oldGroupIds.equals(groupIds)
+                                ? Mono.<Void>empty()
+                                : writeAudience(examId, saved.getStatus(), oldAccessType, newAccessType,
+                                        oldGroupIds, groupIds, userId))
+                        .thenReturn(saved));
     }
 
     /**

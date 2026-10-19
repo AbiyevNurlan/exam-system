@@ -64,7 +64,8 @@ class ExamRescheduleIntegrityTest {
                 mock(ExamManageRepository.class), mock(GroupMembershipRepository.class), mock(ExamDayClock.class),
                 cacheService, mock(AnswerSubmissionService.class), accessPolicy, mock(UserGroupRepository.class),
                 mock(ExamAudienceRepository.class), auditService, mock(ExamMediaService.class), mock(ExamValidator.class),
-                mapper, transactionalOperator);
+                mapper, transactionalOperator, mock(com.examportal.exam.structure.ExamStateRepository.class),
+                new com.examportal.exam.structure.StructurePlanner(), mock(com.examportal.exam.structure.ExamStructureWriter.class));
     }
 
     private void examIs(ExamStatus status, boolean withAttempts) {
