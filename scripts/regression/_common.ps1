@@ -19,7 +19,8 @@ function Wait-Gateway {
         try {
             $r = Invoke-WebRequest -Uri "$Gateway/actuator/health" -UseBasicParsing -TimeoutSec 5
             $status = [int]$r.StatusCode
-            $body = [string]$r.Content
+            # PowerShell 5.1 returns byte[] for the actuator's vendor JSON content type
+            $body = if ($r.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($r.Content) } else { [string]$r.Content }
         } catch {
             $resp = $_.Exception.Response
             if ($resp) { $status = [int]$resp.StatusCode }
