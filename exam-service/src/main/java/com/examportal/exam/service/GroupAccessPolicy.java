@@ -35,24 +35,15 @@ public class GroupAccessPolicy {
      * Whether the caller may see and change this group
      */
     public static boolean canManage(UserGroup group, UUID userId, String role) {
-        if (group == null || role == null) {
-            return false;
-        }
-        if (ADMIN.equals(role)) {
-            return true;
-        }
-        return INSTRUCTOR.equals(role) && userId != null && userId.equals(group.getOwnerId());
+        return group != null && OwnershipPolicy.owns(userId, role, group.getOwnerId());
     }
 
     /**
      * The owner a list is limited to: null for ADMIN (every group), the caller for INSTRUCTOR. Any
-     * other role gets an owner no group has, so its lists are empty.
+     * other role gets an owner no group has, so its lists are empty (OwnershipPolicy).
      */
     public static UUID ownerFilter(UUID userId, String role) {
-        if (ADMIN.equals(role)) {
-            return null;
-        }
-        return INSTRUCTOR.equals(role) && userId != null ? userId : new UUID(0L, 0L);
+        return OwnershipPolicy.ownerFilter(userId, role);
     }
 
     /**

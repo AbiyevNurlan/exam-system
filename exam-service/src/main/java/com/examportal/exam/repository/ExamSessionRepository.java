@@ -25,6 +25,17 @@ public interface ExamSessionRepository extends R2dbcRepository<ExamSession, Long
     Mono<ExamSession> findBySessionId(String sessionId);
 
     /**
+     * B13: the session when the caller may manage its exam (not deleted), the ownership in the SQL condition:
+     * admin = every exam, otherwise only an exam created by owner. Empty otherwise, so a session of another
+     * owner's exam is the same 404 SESSION_NOT_FOUND as a missing one. Call through ExamAccessPolicy.
+     */
+    @Query("""
+        SELECT s.* FROM exam_sessions s JOIN exams e ON e.id = s.exam_id
+        WHERE s.session_id = :sessionId AND e.active IS DISTINCT FROM false AND (:admin OR e.created_by = :owner)
+        """)
+    Mono<ExamSession> findManageableBySessionId(String sessionId, boolean admin, UUID owner);
+
+    /**
      * Find all sessions for an exam
      */
     Flux<ExamSession> findByExamId(Long examId);

@@ -218,17 +218,20 @@ class BlockResultTest {
     void theReviewIsNotForAnotherInstructorNorForParticipants() throws Exception {
         Taken taken = taken("T-b12a block result review foreign", true);
 
-        // A PUBLIC exam is visible to everybody, so not owning it is 403 (ExamAccessPolicy.findManageableExam)
+        // B13: a session of an exam the caller does not own is the same 404 as a session that does not exist,
+        // on a PUBLIC exam too (ExamAccessPolicy.findManageableSession, the owner in the SQL condition)
         assertThatThrownBy(() -> results.getReview(taken.sessionId(), UUID.randomUUID(), "INSTRUCTOR").block())
-                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_OWNER"));
+                .satisfies(e -> assertThat(code(e)).isEqualTo("SESSION_NOT_FOUND"));
         assertThatThrownBy(() -> results.getReview(taken.sessionId(), taken.participant(), "STUDENT").block())
-                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_OWNER"));
-        // Outside the audience of a GROUP exam it is 404, the same as an exam that does not exist
+                .satisfies(e -> assertThat(code(e)).isEqualTo("SESSION_NOT_FOUND"));
+        assertThatThrownBy(() -> results.getReview("no-such-session", UUID.randomUUID(), "INSTRUCTOR").block())
+                .satisfies(e -> assertThat(code(e)).isEqualTo("SESSION_NOT_FOUND"));
+        // The same outside the audience of a GROUP exam
         stack.db.sql("UPDATE exams SET access_type = 'GROUP' WHERE id = :e").bind("e", taken.exam().getId()).then().block();
         assertThatThrownBy(() -> results.getReview(taken.sessionId(), UUID.randomUUID(), "INSTRUCTOR").block())
-                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_FOUND"));
+                .satisfies(e -> assertThat(code(e)).isEqualTo("SESSION_NOT_FOUND"));
         assertThatThrownBy(() -> results.getReview(taken.sessionId(), taken.participant(), "STUDENT").block())
-                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_FOUND"));
+                .satisfies(e -> assertThat(code(e)).isEqualTo("SESSION_NOT_FOUND"));
         // And a STUDENT does not reach the service at all
         assertThat(ExamController.class.getMethod("getSessionReview", String.class,
                 com.examportal.common.security.UserPrincipal.class).getAnnotation(PreAuthorize.class).value())

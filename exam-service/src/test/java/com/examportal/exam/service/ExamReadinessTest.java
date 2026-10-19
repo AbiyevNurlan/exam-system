@@ -141,7 +141,8 @@ class ExamReadinessTest {
         assertThat(readiness.getBlocking().get(0).getQuestionNumber()).isEqualTo(2);
         assertThatThrownBy(() -> stack.readiness(new ExamFeatures(false, false))
                 .check(exam.getId(), UUID.randomUUID(), "INSTRUCTOR", stack.accessPolicy).block())
-                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_OWNER"));
+                // B13: another owner's exam is the same 404 as a missing one
+                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_FOUND"));
 
         assertThatThrownBy(() -> service.updateExamStatus(exam.getId(), ExamStatus.ACTIVE, ExamHistoryTest.nurlan()).block())
                 .satisfies(e -> {

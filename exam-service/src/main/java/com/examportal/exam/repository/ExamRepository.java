@@ -42,16 +42,25 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
 
     /**
      * The access rule as a SQL condition on "exams e". Used only through ExamAccessPolicy, which holds
-     * the same rule for a single exam: ADMIN, the owning INSTRUCTOR, every PUBLIC exam, and GROUP exams
-     * with at least one active audience group the user is a member of.
+     * the same rule for a single exam: ADMIN every exam; an INSTRUCTOR only the own ones (B13: no PUBLIC
+     * exam and no audience of another teacher); anybody else every PUBLIC exam and the GROUP exams with at
+     * least one active audience group the user is a member of.
      */
     String ACCESS_CONDITION = """
-        (:admin OR (:instructor AND e.created_by = :userId) OR e.access_type = 'PUBLIC' OR EXISTS (
+        (:admin OR (:instructor AND e.created_by = :userId) OR (NOT :instructor AND (e.access_type = 'PUBLIC' OR EXISTS (
             SELECT 1 FROM exam_audience a
             JOIN user_groups g ON g.id = a.group_id AND g.active = true
             JOIN user_group_members m ON m.group_id = a.group_id
-            WHERE a.exam_id = e.id AND m.user_id = :userId))
+            WHERE a.exam_id = e.id AND m.user_id = :userId))))
         """;
+
+    /**
+     * B13: the exam (not deleted) when the caller may manage it, the ownership in the SQL condition:
+     * admin = every exam, otherwise only an exam created by owner. Empty for anything else, so another
+     * owner's exam is the same 404 as a missing one. Call through ExamAccessPolicy.
+     */
+    @Query("SELECT * FROM exams e WHERE e.id = :id AND e.active IS DISTINCT FROM false AND (:admin OR e.created_by = :owner)")
+    Mono<Exam> findManageableById(Long id, boolean admin, UUID owner);
 
     /**
      * SCHEDULED or ACTIVE exams the user may access and can still start or resume: an attempt is left

@@ -119,10 +119,10 @@ class ExamMetaServiceTest {
     }
 
     @Test
-    void theExamOfAnotherInstructorIs403AndOutsideTheAudience404() throws Exception {
+    void theExamOfAnotherInstructorIsTheSame404AsOutsideTheAudience() throws Exception {
         when(accessPolicy.canManage(any(), anyString(), any(Exam.class))).thenReturn(false);
         StepVerifier.create(service.updateMeta(EXAM_ID, body("{\"title\":\"New title\"}"), UUID.randomUUID(), "INSTRUCTOR"))
-                .expectErrorSatisfies(e -> assertCode(e, HttpStatus.FORBIDDEN, "EXAM_NOT_OWNER"))
+                .expectErrorSatisfies(e -> assertCode(e, HttpStatus.NOT_FOUND, "EXAM_NOT_FOUND"))
                 .verify();
 
         when(accessPolicy.requireAccess(any(), anyString(), any(Exam.class))).thenReturn(Mono.error(ExamException.notFound(EXAM_ID)));

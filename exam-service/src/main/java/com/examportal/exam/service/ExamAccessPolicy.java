@@ -5,6 +5,7 @@ import com.examportal.common.domain.entity.ExamAccessType;
 import com.examportal.common.domain.entity.ExamSession;
 import com.examportal.exam.exception.ExamException;
 import com.examportal.exam.repository.ExamRepository;
+import com.examportal.exam.repository.ExamSessionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -18,9 +19,10 @@ import java.util.UUID;
  * The one place that decides who may see and take an exam. Every endpoint asks here; nothing else
  * compares access types, audience groups or session owners.
  *
- * Rule: ADMIN and the INSTRUCTOR who owns the exam always; a PUBLIC exam every authenticated user;
- * a GROUP exam only members of at least one of its active audience groups.
- * An exam the caller may not access is answered as 404, exactly like one that does not exist.
+ * Rule: ADMIN and the INSTRUCTOR who owns the exam always; an INSTRUCTOR nothing else (B13: teachers are
+ * isolated, so no PUBLIC exam and no audience of another teacher, OwnershipPolicy); for everybody else a
+ * PUBLIC exam every authenticated user and a GROUP exam only members of at least one of its active audience
+ * groups. An exam the caller may not access or manage is answered as 404, exactly like one that does not exist.
  *
  * Losing access (removed from the group, audience changed) blocks new starts only: a session belongs
  * to the user who opened it and can be continued, submitted and read without a new access check.
@@ -29,16 +31,20 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ExamAccessPolicy {
 
-    private static final String ADMIN = "ADMIN";
-    private static final String INSTRUCTOR = "INSTRUCTOR";
-
     private final ExamRepository examRepository;
+    private final ExamSessionRepository sessionRepository;
 
     /**
      * Whether the user may see and start this exam
      */
     public Mono<Boolean> canAccess(UUID userId, String role, Exam exam) {
-        if (canManage(userId, role, exam) || exam.getAccessType() == ExamAccessType.PUBLIC) {
+        if (canManage(userId, role, exam)) {
+            return Mono.just(true);
+        }
+        if (OwnershipPolicy.isInstructor(role)) {
+            return Mono.just(false);
+        }
+        if (exam.getAccessType() == ExamAccessType.PUBLIC) {
             return Mono.just(true);
         }
         // GROUP, and anything unknown, is closed unless a membership says otherwise
@@ -59,22 +65,41 @@ public class ExamAccessPolicy {
      * ADMIN, or the INSTRUCTOR who owns the exam: sees the answer key and the results
      */
     public boolean canManage(UUID userId, String role, Exam exam) {
-        return ADMIN.equals(role) || (INSTRUCTOR.equals(role) && userId.equals(exam.getCreatedBy()));
+        return OwnershipPolicy.owns(userId, role, exam.getCreatedBy());
     }
 
     /**
-     * The exam when the caller may manage it (results, grading, review): ADMIN every exam, an
-     * INSTRUCTOR the own ones. An exam that does not exist, was deleted or is outside the caller's
-     * audience is a 404; one the caller can see but did not create is a 403 (EXAM_NOT_OWNER).
+     * The exam when the caller may manage it (results, grading, review, monitoring, analytics, readiness):
+     * ADMIN every exam, an INSTRUCTOR the own ones, the ownership in the SQL condition. An exam that does not
+     * exist, was deleted or belongs to someone else is the same 404 EXAM_NOT_FOUND (B13: before, another
+     * owner's PUBLIC exam was a 403 EXAM_NOT_OWNER, which told that it exists).
      */
     public Mono<Exam> findManageableExam(Long examId, UUID userId, String role) {
-        return examRepository.findById(examId)
-                .filter(exam -> !Boolean.FALSE.equals(exam.getActive()))
-                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
-                .flatMap(exam -> requireAccess(userId, role, exam))
-                .flatMap(exam -> canManage(userId, role, exam)
-                        ? Mono.just(exam)
-                        : Mono.<Exam>error(ExamException.notOwner()));
+        return examRepository.findManageableById(examId, OwnershipPolicy.isAdmin(role), owner(userId, role))
+                .switchIfEmpty(Mono.error(ExamException.notFound(examId)));
+    }
+
+    /**
+     * The session when the caller may manage its exam, the ownership in the SQL condition; a session of
+     * another owner's exam is the same 404 SESSION_NOT_FOUND as one that does not exist
+     */
+    public Mono<ExamSession> findManageableSession(String sessionId, UUID userId, String role) {
+        return sessionRepository.findManageableBySessionId(sessionId, OwnershipPolicy.isAdmin(role), owner(userId, role))
+                .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)));
+    }
+
+    /**
+     * The 404 every change of an exam answers when the caller may see it but not manage it: the same as for
+     * an exam that does not exist (B13, replaces 403 EXAM_NOT_OWNER)
+     */
+    public static ExamException notManageable(Long examId) {
+        return ExamException.notFound(examId);
+    }
+
+    // The owner bound to the SQL condition; never null (ADMIN's condition does not look at it)
+    private static UUID owner(UUID userId, String role) {
+        UUID owner = OwnershipPolicy.ownerFilter(userId, role);
+        return owner == null ? OwnershipPolicy.NOBODY : owner;
     }
 
     /**
@@ -92,12 +117,12 @@ public class ExamAccessPolicy {
      * The filter runs in SQL (ExamRepository.ACCESS_CONDITION), so paging and totals are exact.
      */
     public Flux<Exam> findAvailableExams(UUID userId, String role, int limit, long offset) {
-        return examRepository.findAvailableExams(userId, ADMIN.equals(role), INSTRUCTOR.equals(role),
+        return examRepository.findAvailableExams(userId, OwnershipPolicy.isAdmin(role), OwnershipPolicy.isInstructor(role),
                 LocalDateTime.now(), limit, offset);
     }
 
     public Mono<Long> countAvailableExams(UUID userId, String role) {
-        return examRepository.countAvailableExams(userId, ADMIN.equals(role), INSTRUCTOR.equals(role),
+        return examRepository.countAvailableExams(userId, OwnershipPolicy.isAdmin(role), OwnershipPolicy.isInstructor(role),
                 LocalDateTime.now());
     }
 }

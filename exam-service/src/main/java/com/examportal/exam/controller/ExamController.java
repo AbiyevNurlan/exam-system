@@ -131,7 +131,7 @@ public class ExamController {
     @Operation(summary = "Copy an exam", description = "B12a: a new DRAFT owned by the caller with the blocks, questions, options, "
             + "answer key, settings and media (the same media files; a media used by two exams cannot be deleted, 409 MEDIA_IN_USE), "
             + "titled '<title> (nüsxə)'. Not copied: audience groups (a GROUP copy starts with none), sessions, results, history. "
-            + "The copy's history starts with CLONED_FROM. ADMIN or the owning INSTRUCTOR (403 EXAM_NOT_OWNER otherwise).")
+            + "The copy's history starts with CLONED_FROM. ADMIN or the owning INSTRUCTOR (404 EXAM_NOT_FOUND otherwise, as for an exam that does not exist).")
     public Mono<ApiResponse<ExamResponse>> cloneExam(
             @PathVariable Long id,
             ServerHttpRequest httpRequest,

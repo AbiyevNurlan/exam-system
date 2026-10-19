@@ -225,10 +225,8 @@ public class GradingService {
      * The session when the caller may manage its exam; an unknown session is a 404
      */
     private Mono<ExamSession> findManageableSession(String sessionId, UUID userId, String role) {
-        return sessionRepository.findBySessionId(sessionId)
-                .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
-                .flatMap(session -> accessPolicy.findManageableExam(session.getExamId(), userId, role)
-                        .thenReturn(session));
+        // A session of another owner's exam is the same 404 SESSION_NOT_FOUND as a missing one (B13)
+        return accessPolicy.findManageableSession(sessionId, userId, role);
     }
 
     private Mono<SessionGradingResponse> toSessionGrading(ExamSession session) {

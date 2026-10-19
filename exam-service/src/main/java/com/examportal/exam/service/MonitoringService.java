@@ -129,10 +129,8 @@ public class MonitoringService {
     public Mono<List<ViolationResponse>> getViolations(String sessionId, Long sinceId, int limit, UUID userId, String role) {
         int rows = Math.min(Math.max(limit, 1), MAX_VIOLATIONS);
         long after = sinceId == null ? 0 : Math.max(sinceId, 0);
-        return sessionRepository.findBySessionId(sessionId)
-                .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
-                .flatMap(session -> accessPolicy.findManageableExam(session.getExamId(), userId, role)
-                        .thenReturn(session))
+        // A session of another owner's exam is the same 404 SESSION_NOT_FOUND as a missing one (B13)
+        return accessPolicy.findManageableSession(sessionId, userId, role)
                 .flatMap(session -> monitoringRepository.findViolations(session.getId(), after, rows)
                         .map(event -> ViolationResponse.builder()
                                 .id(event.id())

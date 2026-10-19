@@ -451,7 +451,7 @@ $zIds = @(@($zGroups.data.content) | ForEach-Object { $_.id })
 $yGroups = Api 'GET' '/api/admin/groups?size=50' $insY.token $null
 Check 'permissions: instructor z lists only the own group on /api/admin/groups, none of the admin' ($zGroups.status -eq 200 -and $zGroups.data.totalElements -eq 1 -and ($zIds -join ',') -eq "$gz" -and $yGroups.status -eq 200 -and $yGroups.data.totalElements -eq 0) "z: status $($zGroups.status), ids $($zIds -join ','); y: status $($yGroups.status), total $($yGroups.data.totalElements)"
 Check 'permissions: a group of someone else is 404 for an instructor (admin g1 for z, gz for y), the own one 200' ((Api 'GET' "/api/admin/groups/$g1" $insZ.token $null).status -eq 404 -and (Api 'GET' "/api/admin/groups/$g1/members" $insZ.token $null).status -eq 404 -and (Api 'GET' "/api/admin/groups/$gz" $insY.token $null).status -eq 404 -and (Api 'GET' "/api/admin/groups/$gz" $insZ.token $null).status -eq 200)
-Check 'permissions: instructor results of an exam outside the audience 404, of a PUBLIC exam of someone else 403 EXAM_NOT_OWNER' ((Api 'GET' "/api/exams/$e1/results" $insY.token $null).status -eq 404 -and (Api 'GET' "/api/exams/$e2/results" $insY.token $null).code -eq 'EXAM_NOT_OWNER')
+Check 'permissions: instructor results of an exam outside the audience 404, of a PUBLIC exam of someone else the same 404 EXAM_NOT_FOUND (B13)' ((Api 'GET' "/api/exams/$e1/results" $insY.token $null).status -eq 404 -and (Api 'GET' "/api/exams/$e2/results" $insY.token $null).code -eq 'EXAM_NOT_FOUND')
 
 # ---------- 9. export limit (422) ----------
 if (-not $SkipExportLimit) {

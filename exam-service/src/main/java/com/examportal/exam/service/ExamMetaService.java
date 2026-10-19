@@ -22,7 +22,7 @@ import java.util.UUID;
 /**
  * PATCH /api/exams/{id}/meta: title and description only, in every status and also when the exam has
  * attempts (they decide no result). Who may: the ADMIN and the INSTRUCTOR who created the exam, by the
- * rules of every other change (outside the audience 404, someone else's exam 403 EXAM_NOT_OWNER).
+ * rules of every other change (outside the audience 404, someone else's exam the same 404, B13).
  * The change and one audit row commit together; the cached exam is dropped afterwards.
  */
 @Slf4j
@@ -72,7 +72,7 @@ public class ExamMetaService {
                 .flatMap(exam -> accessPolicy.requireAccess(userId, role, exam))
                 .flatMap(exam -> accessPolicy.canManage(userId, role, exam)
                         ? Mono.just(exam)
-                        : Mono.<Exam>error(ExamException.notOwner()))
+                        : Mono.<Exam>error(ExamAccessPolicy.notManageable(examId)))
                 .flatMap(exam -> metaRepository.update(examId, request.isTitlePresent(), title,
                                 request.isDescriptionPresent(), description)
                         .flatMap(rows -> rows == 1 ? Mono.just(exam) : Mono.<Exam>error(ExamException.notFound(examId))))

@@ -145,8 +145,9 @@ class ExamCloneTest {
         UUID admin = UUID.randomUUID();
         assertThat(service.cloneExam(source.getId(), ChangeContext.of(admin, "ADMIN")).block().getCreatedBy()).isEqualTo(admin);
         stack.db.sql("UPDATE exams SET access_type = 'PUBLIC' WHERE id = " + source.getId()).then().block();
+        // B13: the same 404 as an exam that does not exist, also for a PUBLIC exam
         assertThatThrownBy(() -> service.cloneExam(source.getId(), ChangeContext.of(UUID.randomUUID(), "INSTRUCTOR")).block())
-                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_OWNER"));
+                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_FOUND"));
     }
 
     @Test

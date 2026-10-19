@@ -168,7 +168,7 @@ public class ExamService {
                 .flatMap(exam -> {
                     // ADMIN: every exam; INSTRUCTOR: only the own one
                     if (!accessPolicy.canManage(userId, role, exam)) {
-                        return Mono.error(ExamException.notOwner());
+                        return Mono.error(ExamAccessPolicy.notManageable(examId));
                     }
                     return Mono.just(exam);
                 })
@@ -241,7 +241,7 @@ public class ExamService {
                 .flatMap(exam -> {
                     // ADMIN: every exam; INSTRUCTOR: only the own one
                     if (!accessPolicy.canManage(userId, role, exam)) {
-                        return Mono.error(ExamException.notOwner());
+                        return Mono.error(ExamAccessPolicy.notManageable(examId));
                     }
                     return Mono.just(exam);
                 })
@@ -277,7 +277,7 @@ public class ExamService {
         Mono<ExamResponse> cloning = findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> accessPolicy.canManage(userId, role, exam)
                         ? Mono.just(exam)
-                        : Mono.<Exam>error(ExamException.notOwner()))
+                        : Mono.<Exam>error(ExamAccessPolicy.notManageable(examId)))
                 .flatMap(exam -> stateRepository.load(examId))
                 .flatMap(source -> examRepository.save(copyRow(source, userId))
                         .flatMap(copy -> stateRepository.load(copy.getId())
@@ -524,7 +524,7 @@ public class ExamService {
                 .flatMap(exam -> {
                     // Publishing and archiving: ADMIN every exam, INSTRUCTOR only the own one
                     if (!accessPolicy.canManage(userId, role, exam)) {
-                        return Mono.error(ExamException.notOwner());
+                        return Mono.error(ExamAccessPolicy.notManageable(examId));
                     }
                     // Publishing an exam whose window is over would only be undone by the scheduler
                     // within a minute: it needs a new end time first (reschedule)
@@ -574,7 +574,7 @@ public class ExamService {
         Mono<Exam> rescheduling = findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> accessPolicy.canManage(userId, role, exam)
                         ? Mono.just(exam)
-                        : Mono.<Exam>error(ExamException.notOwner()))
+                        : Mono.<Exam>error(ExamAccessPolicy.notManageable(examId)))
                 // Decided on the locked row, so two reschedules of the same exam take turns
                 .flatMap(checked -> examRepository.lockById(examId))
                 .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
@@ -659,7 +659,7 @@ public class ExamService {
         Mono<ExamAudienceResponse> audienceChange = findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
                     if (!"ADMIN".equals(role) && !exam.getCreatedBy().equals(userId)) {
-                        return Mono.error(ExamException.notOwner());
+                        return Mono.error(ExamAccessPolicy.notManageable(examId));
                     }
                     return audienceRepository.findGroupIdsByExamId(examId).collectList()
                             .flatMap(stored -> requireValidAudience(accessType, groupIds, userId, role, stored))

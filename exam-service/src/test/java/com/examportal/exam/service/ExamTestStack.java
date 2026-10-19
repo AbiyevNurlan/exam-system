@@ -66,7 +66,7 @@ final class ExamTestStack implements AutoCloseable {
         groups = repositories.getRepository(UserGroupRepository.class);
         audience = repositories.getRepository(ExamAudienceRepository.class);
         groupAudit = new GroupAuditService(repositories.getRepository(GroupAuditLogRepository.class));
-        accessPolicy = new ExamAccessPolicy(exams);
+        accessPolicy = new ExamAccessPolicy(exams, sessions);
         MediaLinkRepository links = new MediaLinkRepository(db);
         examMedia = new ExamMediaService(repositories.getRepository(MediaAssetRepository.class), links, new MediaStorage());
         states = new ExamStateRepository(db);

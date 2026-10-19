@@ -180,7 +180,7 @@ Check 'PATCH meta on an exam with attempts: 200, title and description changed' 
 $metaMore = Api 'PATCH' "/api/exams/$($shown.data.id)/meta" $ins.token @{ title = "$T-x"; durationMinutes = 90 }
 Check 'PATCH meta with another field (durationMinutes): 400, nothing changed' ($metaMore.status -eq 400 -and (Sql 'exam_db' "select title from exams where id=$($shown.data.id)") -eq "$T-shown renamed") (Answer $metaMore)
 $metaOther = Api 'PATCH' "/api/exams/$($shown.data.id)/meta" $other.token @{ title = "$T-hijack" }
-Check 'PATCH meta by another instructor: 403 EXAM_NOT_OWNER' ($metaOther.status -eq 403 -and $metaOther.code -eq 'EXAM_NOT_OWNER') (Answer $metaOther)
+Check 'PATCH meta by another instructor: 404 EXAM_NOT_FOUND (B13: the same as a missing exam)' ($metaOther.status -eq 404 -and $metaOther.code -eq 'EXAM_NOT_FOUND') (Answer $metaOther)
 Check 'PATCH meta by a participant: 403' ((Api 'PATCH' "/api/exams/$($shown.data.id)/meta" $p1.token @{ title = "$T-p" }).status -eq 403)
 $shapeAfter = Sql 'exam_db' "select e.duration_minutes || '|' || (select string_agg(q.question_text || ':' || q.points, ';' order by q.order_index) from questions q where q.exam_id = e.id) || '|' || (select string_agg(s.percentage::text, ',' order by s.id) from exam_sessions s where s.exam_id = e.id) from exams e where e.id = $($shown.data.id)"
 Check 'questions, points, duration and results are as before' ($shapeAfter -eq $shapeBefore) $shapeAfter

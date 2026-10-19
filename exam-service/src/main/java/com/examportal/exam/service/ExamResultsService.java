@@ -254,8 +254,8 @@ public class ExamResultsService {
      * Everything about one session, with the answer key: for the managers of its exam only
      */
     public Mono<SessionReviewResponse> getReview(String sessionId, UUID userId, String role) {
-        return sessionRepository.findBySessionId(sessionId)
-                .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
+        // A session of another owner's exam is the same 404 SESSION_NOT_FOUND as a missing one (B13)
+        return accessPolicy.findManageableSession(sessionId, userId, role)
                 .flatMap(session -> accessPolicy.findManageableExam(session.getExamId(), userId, role)
                         .flatMap(exam -> review(session, exam)));
     }

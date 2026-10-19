@@ -27,9 +27,6 @@ public class ExamException extends ApplicationException {
         return new ExamException("Exam not found with ID: " + examId, HttpStatus.NOT_FOUND, "EXAM_NOT_FOUND");
     }
 
-    public static ExamException notOwner() {
-        return new ExamException("You don't have permission to modify this exam", HttpStatus.FORBIDDEN, "EXAM_NOT_OWNER");
-    }
 
     public static ExamException cannotModify() {
         return new ExamException("Cannot modify exam after it has started", HttpStatus.BAD_REQUEST, "EXAM_CANNOT_MODIFY");
