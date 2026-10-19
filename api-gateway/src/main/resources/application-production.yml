@@ -134,6 +134,16 @@ spring:
                 redis-rate-limiter.replenishRate: ${GATEWAY_PASSWORD_REPLENISH:1}
                 redis-rate-limiter.burstCapacity: ${GATEWAY_PASSWORD_BURST:25}
                 redis-rate-limiter.requestedTokens: 5
+        # B13: teachers made and managed by administrators (auth-service); rate limited, a reset hands out a new password
+        - id: auth-admin-instructors
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/admin/instructors/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_ADMIN_INSTRUCTORS_REPLENISH:2}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_ADMIN_INSTRUCTORS_BURST:60}
         # AUTH SERVICE
         - id: auth-service
           uri: lb://auth-service
@@ -154,7 +164,7 @@ spring:
         - id: exam-service
           uri: lb://exam-service
           predicates:
-            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/sessions/**, /api/admin/groups/**, /api/admin/participants/**, /api/groups/**, /api/join/**, /api/media/**, /api/analytics/**, /api/admin/audit/**, /api/grading/**, /api/me/**
+            - Path=/api/exams/**, /api/questions/**, /api/results/**, /api/sessions/**, /api/admin/groups/**, /api/admin/participants/**, /api/groups/**, /api/join/**, /api/media/**, /api/analytics/**, /api/admin/audit/**, /api/admin/instructor-limits/**, /api/grading/**, /api/me/**
           filters:
             - name: CircuitBreaker
               args:

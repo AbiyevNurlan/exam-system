@@ -50,6 +50,8 @@ public class SecurityConfig {
                         .pathMatchers("/internal/**").permitAll()
                         // Admin API: enforced here by path so it does not depend on method security
                         .pathMatchers("/auth/admin/**").hasRole("ADMIN")
+                        // B13: teachers made and managed by administrators (InstructorAdminController)
+                        .pathMatchers("/api/admin/**").hasRole("ADMIN")
                         // All other requests require authentication
                         .anyExchange().authenticated()
                 )

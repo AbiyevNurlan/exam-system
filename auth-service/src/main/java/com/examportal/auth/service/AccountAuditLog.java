@@ -40,12 +40,12 @@ public class AccountAuditLog {
      * transaction. Profile details only: never a password, a hash or a token.
      */
     public Mono<Void> record(UUID actorId, String action, UUID targetUserId, String details) {
-        return databaseClient.sql("INSERT INTO admin_audit_log (admin_user_id, action, target_user_id, details) "
+        DatabaseClient.GenericExecuteSpec insert = databaseClient.sql("INSERT INTO admin_audit_log (admin_user_id, action, target_user_id, details) "
                         + "VALUES (:actorId, :action, :targetUserId, :details)")
                 .bind("actorId", actorId)
                 .bind("action", action)
-                .bind("targetUserId", targetUserId)
-                .bind("details", details)
-                .then();
+                .bind("targetUserId", targetUserId);
+        // B13: a row without details (a password reset by an administrator writes none)
+        return (details != null ? insert.bind("details", details) : insert.bindNull("details", String.class)).then();
     }
 }
