@@ -84,7 +84,11 @@ final class ExamTestStack implements AutoCloseable {
                 new ExamManageRepository(db), new GroupMembershipRepository(db), new ExamDayClock("Asia/Baku"), cache,
                 mock(AnswerSubmissionService.class), accessPolicy, groups, audience, groupAudit, examMedia,
                 new ExamValidator(), new ExamMapper(), tx, states, new StructurePlanner(), writer, blocks, features,
-                history(features), new ExamSnapshotService(states, new ExamSnapshotRepository(db)));
+                history(features), new ExamSnapshotService(states, new ExamSnapshotRepository(db)), readiness(features));
+    }
+
+    ExamReadinessService readiness(ExamFeatures features) {
+        return new ExamReadinessService(states, db, features);
     }
 
     ExamHistoryService history(ExamFeatures features) {

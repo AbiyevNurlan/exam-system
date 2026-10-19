@@ -71,6 +71,8 @@ public class ExamService {
     private final ExamHistoryService history;
     // B12a: every publication stores the whole exam as a new version with its SHA-256
     private final ExamSnapshotService snapshots;
+    // B12a: the same check for GET /readiness and for publishing
+    private final ExamReadinessService readiness;
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
@@ -531,11 +533,11 @@ public class ExamService {
                     }
                     return Mono.just(exam);
                 })
-                // B12a: nothing is published that needs block rules participants cannot get yet
-                .flatMap(exam -> newStatus == ExamStatus.ACTIVE
-                        ? stateRepository.load(examId).flatMap(this::requireBlockRulesAvailable).thenReturn(exam)
-                        : Mono.just(exam))
-                .flatMap(exam -> transactionalOperator.transactional(examRepository.updateStatus(examId, newStatus.name())
+                // B12a: publishing runs the readiness check on the locked exam row, so no edit slips in between
+                .flatMap(exam -> transactionalOperator.transactional((newStatus == ExamStatus.ACTIVE
+                                        ? editLock.lockForEdit(examId).then(readiness.check(examId)).flatMap(ExamService::requireReady)
+                                        : Mono.<Void>empty())
+                                .then(examRepository.updateStatus(examId, newStatus.name()))
                                 .then(auditForeignExam(userId, exam, statusAuditAction(newStatus)))
                                 .then(statusHistory(exam, newStatus, change)))
                         .then(examRepository.findById(examId)))
@@ -937,6 +939,21 @@ public class ExamService {
                     .toList();
         }
         return questions != null ? questions : List.of();
+    }
+
+    /**
+     * B12a: what the readiness check blocks stops a publication. Block rules before B12b are 409
+     * FEATURE_NOT_AVAILABLE, anything else 409 EXAM_NOT_READY; details carry the list.
+     */
+    static Mono<Void> requireReady(ExamReadinessResponse readiness) {
+        if (readiness.isReady()) {
+            return Mono.empty();
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("blocking", readiness.getBlocking());
+        details.put("warnings", readiness.getWarnings());
+        boolean onlyBlockRules = readiness.getBlocking().stream().anyMatch(item -> "FEATURE_NOT_AVAILABLE".equals(item.getCode()));
+        return Mono.error(onlyBlockRules ? ExamException.featureNotAvailable(details) : ExamException.notReady(details));
     }
 
     /**

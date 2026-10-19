@@ -71,7 +71,8 @@ class ExamRescheduleIntegrityTest {
                 mock(ExamAudienceRepository.class), auditService, mock(ExamMediaService.class), mock(ExamValidator.class),
                 mapper, transactionalOperator, stateRepository,
                 new com.examportal.exam.structure.StructurePlanner(), mock(com.examportal.exam.structure.ExamStructureWriter.class),
-                mock(ExamBlockRepository.class), new ExamFeatures(false, false), history, mock(com.examportal.exam.history.ExamSnapshotService.class));
+                mock(ExamBlockRepository.class), new ExamFeatures(false, false), history, mock(com.examportal.exam.history.ExamSnapshotService.class),
+                mock(ExamReadinessService.class));
         // A plain exam (one block, exam timer): the B12a publish gate lets it through
         when(stateRepository.load(EXAM_ID)).thenReturn(Mono.just(new com.examportal.exam.structure.ExamState(EXAM_ID, OWNER,
                 "T", null, ExamStatus.ACTIVE, 30, LocalDateTime.now(), LocalDateTime.now().plusDays(1), null, false, false,
