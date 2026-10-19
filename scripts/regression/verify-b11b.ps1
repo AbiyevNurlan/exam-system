@@ -37,8 +37,8 @@ function Api($method, $path, $token, $body) {
     }
     try {
         $r = Invoke-WebRequest @params
-        $raw = $r.Content
-        if ($raw -is [byte[]]) { $raw = [Text.Encoding]::UTF8.GetString($raw) }
+        # Always UTF-8 from the raw bytes: without a charset in the content type PowerShell 5.1 decodes as ISO-8859-1
+        $raw = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
         $status = [int]$r.StatusCode
     } catch {
         $resp = $_.Exception.Response
@@ -107,6 +107,11 @@ $ins.token = (Login $ins.email $password).data.accessToken
 
 # ---------- 1. Azerbaijani order, both directions ----------
 $asc = Page 'sortBy=firstName'
+# Əli and əli are equal ignoring case, so they come by participant code, and codes are random: the pair in $expected
+# follows the codes they really got (the check below makes sure the smaller one is first)
+$upperCode = @(@($asc.data.content) | Where-Object { "$($_.firstName)" -ceq 'Əli' } | ForEach-Object { [int]$_.participantCode })[0]
+$lowerCode = @(@($asc.data.content) | Where-Object { "$($_.firstName)" -ceq 'əli' } | ForEach-Object { [int]$_.participantCode })[0]
+if ($lowerCode -lt $upperCode) { $expected = $expected.Replace('Əli əli', 'əli Əli') }
 Check 'sortBy=firstName: Azerbaijani alphabet, case ignored, spaces trimmed' ($asc.status -eq 200 -and (FirstNames $asc) -ceq $expected) (FirstNames $asc)
 $desc = Page 'sortBy=firstName&dir=desc'
 $reversed = (@($expected -split ' ') | Select-Object -Last 100)
