@@ -340,7 +340,7 @@ $text = [Text.Encoding]::UTF8.GetString($csv.bytes)
 $lines = @($text.TrimStart([char]0xFEFF) -split "`r`n" | Where-Object { $_ -ne '' })
 $bom = $csv.bytes.Length -ge 3 -and $csv.bytes[0] -eq 0xEF -and $csv.bytes[1] -eq 0xBB -and $csv.bytes[2] -eq 0xBF
 $listed = Api 'GET' "/api/exams/$e1/results" $adm.token $null
-Check 'CSV: UTF-8 with BOM, text/csv, attachment, Azerbaijani headers' ($csv.status -eq 200 -and $bom -and $csv.type -like 'text/csv*' -and $csv.disposition -like 'attachment*' -and $lines[0] -like 'Sessiya ID,Ad Soyad,E-poçt,Cəhd,*Risk səviyyəsi') "$($csv.type); $($csv.disposition); $($lines[0])"
+Check 'CSV: UTF-8 with BOM, text/csv, attachment, Azerbaijani headers' ($csv.status -eq 200 -and $bom -and $csv.type -like 'text/csv*' -and $csv.disposition -like 'attachment*' -and $lines[0] -like 'Sessiya ID,Ad Soyad,E-poçt,Cəhd,*Risk səviyyəsi,İştirakçı kodu') "$($csv.type); $($csv.disposition); $($lines[0])"
 Check 'CSV: rows = results total (same default filters)' (($lines.Count - 1) -eq $listed.data.totalElements -and [int]$csv.total -eq $listed.data.totalElements -and $listed.data.totalElements -eq 4) "csv $($lines.Count - 1), X-Total-Count $($csv.total), api $($listed.data.totalElements)"
 $dLine = $lines | Where-Object { $_ -like "*$($pD.email)*" }
 Check "CSV: a cell starting with = gets a leading apostrophe" ($dLine -like "*,'=SUM(1+1) Dd$stamp,*") $dLine
