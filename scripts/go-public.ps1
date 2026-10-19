@@ -365,8 +365,19 @@ switch ($Command) {
         $rows | Format-Table -AutoSize | Out-String -Width 160 | Write-Host
         $url = Get-TunnelUrl
         Write-Host "Tunnel address:      $(if ($url) { $url } else { 'none (tunnel not running)' })"
+        # There is one tunnel: media links are signed for the address exam-service got at the last start
+        # (PUBLIC_URL). The tunnel gets a new address whenever its container starts again (a restart,
+        # a reboot, Cloudflare dropping it); exam-service keeps the old one until it is recreated.
         $media = Get-MediaEndpoint
-        Write-Host "Media address:       $media$(if ($url -and $media -and $media -ne $url) { '  <- differs from the tunnel: run start again' })"
+        Write-Host "Media address:       $media"
+        if ($url -and $media -and $media -ne $url) {
+            Write-Host '  WARNING: exam-service still signs media links (exam images, audio) for an older tunnel address,'
+            Write-Host '  so they do not load in the browser; the site itself works. Fix: .\scripts\go-public.ps1 start'
+            Write-Host '  (recreates the services with the current tunnel address; the address stays unless the'
+            Write-Host '  cloudflared settings changed, then the tunnel and its address are new)'
+        }
+        $startedWith = if (Test-Path -LiteralPath $urlFile) { (Get-Content -LiteralPath $urlFile -TotalCount 1) } else { $null }
+        if ($startedWith -and $url -and $startedWith.Trim() -ne $url) { Write-Host "Last start used:     $($startedWith.Trim())  (the tunnel address changed since)" }
         $local = Invoke-Http 'GET' "$localEdge/"
         Write-Host "Local check ($localEdge): $(if ($local.status) { $local.status } else { 'no answer' })"
         $last = Get-LastBackup
