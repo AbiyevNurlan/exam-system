@@ -25,6 +25,30 @@ public class MyStatsRepository {
      * visible: what the result endpoint would show the user now (AnswerSubmissionService.resultsWithheld):
      * no open answer waits for a grader, and the exam shows results at once or has ended at :now
      */
+    /** B13: what a teacher has already (ADMIN: anybody on the platform), in one statement on owner indexes */
+    public record Teaching(boolean hasGroups, boolean hasExams, boolean hasMembers) {
+    }
+
+    /**
+     * Whether owner (null = anybody) has an active group, an exam that is not deleted, and a member in an active group
+     */
+    public Mono<Teaching> teaching(UUID owner) {
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql("""
+                SELECT EXISTS (SELECT 1 FROM user_groups g WHERE g.active = true
+                               AND (CAST(:owner AS uuid) IS NULL OR g.owner_id = CAST(:owner AS uuid))) AS has_groups,
+                       EXISTS (SELECT 1 FROM exams e WHERE e.active = true
+                               AND (CAST(:owner AS uuid) IS NULL OR e.created_by = CAST(:owner AS uuid))) AS has_exams,
+                       EXISTS (SELECT 1 FROM user_groups g JOIN user_group_members m ON m.group_id = g.id
+                               WHERE g.active = true
+                               AND (CAST(:owner AS uuid) IS NULL OR g.owner_id = CAST(:owner AS uuid))) AS has_members
+                """);
+        return (owner != null ? spec.bind("owner", owner) : spec.bindNull("owner", UUID.class))
+                .map(row -> new Teaching(Boolean.TRUE.equals(row.get("has_groups", Boolean.class)),
+                        Boolean.TRUE.equals(row.get("has_exams", Boolean.class)),
+                        Boolean.TRUE.equals(row.get("has_members", Boolean.class))))
+                .one();
+    }
+
     public Mono<MyStatsResponse> forUser(UUID userId, LocalDateTime now) {
         return forUser(userId, null, now);
     }

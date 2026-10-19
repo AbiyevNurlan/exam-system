@@ -39,6 +39,12 @@ public class MyStatsResponse {
     /** Submitted attempts whose open answers still wait for a grader */
     private long pendingGradingCount;
 
+    /** B13, the dashboard of a teacher: whether the teacher has a group, an exam, a member in a group (ADMIN: anybody
+     * on the platform; false for a participant), so a new teacher's screen can say where to start */
+    private boolean hasGroups;
+    private boolean hasExams;
+    private boolean hasMembers;
+
     @Data
     @Builder
     @NoArgsConstructor

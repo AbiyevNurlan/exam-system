@@ -87,6 +87,30 @@ class MyStatsRepositoryTest {
     }
 
     @Test
+    void whatATeacherHasAlready() {
+        UUID teacher = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        // A new teacher has nothing, whatever other teachers have
+        long foreign = db.sql("INSERT INTO user_groups (name, created_by, owner_id) VALUES ('T-b13 foreign', :o, :o) RETURNING id")
+                .bind("o", other).map(row -> row.get("id", Long.class)).one().block();
+        db.sql("INSERT INTO user_group_members (group_id, user_id, source, added_by) VALUES (:g, :u, 'ADMIN', :u)").bind("g", foreign).bind("u", UUID.randomUUID()).then().block();
+        assertThat(stats.teaching(teacher).block()).isEqualTo(new MyStatsRepository.Teaching(false, false, false));
+
+        long own = db.sql("INSERT INTO user_groups (name, created_by, owner_id) VALUES ('T-b13 own', :o, :o) RETURNING id")
+                .bind("o", teacher).map(row -> row.get("id", Long.class)).one().block();
+        assertThat(stats.teaching(teacher).block()).isEqualTo(new MyStatsRepository.Teaching(true, false, false));
+        db.sql("INSERT INTO user_group_members (group_id, user_id, source, added_by) VALUES (:g, :u, 'ADMIN', :u)").bind("g", own).bind("u", UUID.randomUUID()).then().block();
+        db.sql("INSERT INTO exams (title, start_time, end_time, status, created_by) VALUES ('T-b13 exam', :s, :e, 'DRAFT', :o)")
+                .bind("s", NOW).bind("e", NOW.plusHours(1)).bind("o", teacher).then().block();
+        assertThat(stats.teaching(teacher).block()).isEqualTo(new MyStatsRepository.Teaching(true, true, true));
+        // A deleted group no longer counts
+        db.sql("UPDATE user_groups SET active = false WHERE id = :g").bind("g", own).then().block();
+        assertThat(stats.teaching(teacher).block()).isEqualTo(new MyStatsRepository.Teaching(false, true, false));
+        // ADMIN (null owner): anybody on the platform
+        assertThat(stats.teaching(null).block()).isEqualTo(new MyStatsRepository.Teaching(true, true, true));
+    }
+
+    @Test
     void noAttemptsAtAll() {
         MyStatsResponse none = of(UUID.randomUUID());
         assertThat(none.getExamsTaken()).isZero();

@@ -40,9 +40,21 @@ public class MeController {
             + "examsGraded (different exams with a final, visible result), averagePercent and bestPercent over the best "
             + "visible attempt per exam (null when there is none), lastResult (examId, examTitle, percentage, passed, "
             + "submittedAt), pendingGradingCount (submitted attempts waiting for a grader). A result that is withheld "
-            + "(open answers not graded yet, or not shown before the exam ends) counts only in examsTaken.")
+            + "(open answers not graded yet, or not shown before the exam ends) counts only in examsTaken. B13: hasGroups, hasExams, "
+            + "hasMembers: whether a teacher has an own group, exam, member (ADMIN: anybody; always false for a participant).")
     public Mono<ApiResponse<MyStatsResponse>> myStats(@AuthenticationPrincipal UserPrincipal principal) {
-        return statsRepository.forUser(principal.getId(), LocalDateTime.now())
+        Mono<MyStatsResponse> stats = statsRepository.forUser(principal.getId(), LocalDateTime.now());
+        String role = principal.getRole();
+        if (!"ADMIN".equals(role) && !"INSTRUCTOR".equals(role)) {
+            return stats.map(ApiResponse::success);
+        }
+        // B13: what the teacher has already (ADMIN: anybody), for the first steps of a new teacher
+        return stats.zipWith(statsRepository.teaching("ADMIN".equals(role) ? null : principal.getId()), (figures, teaching) -> {
+                    figures.setHasGroups(teaching.hasGroups());
+                    figures.setHasExams(teaching.hasExams());
+                    figures.setHasMembers(teaching.hasMembers());
+                    return figures;
+                })
                 .map(ApiResponse::success);
     }
 
