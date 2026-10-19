@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Continue'
 Set-Location F:\exam-system
 Add-Type -AssemblyName System.Net.Http
 $GW = 'http://127.0.0.1:8080'
+. "$PSScriptRoot\_common.ps1"
+Wait-Gateway $GW
 $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString('x')
 $script:results = @()
 function Check($name, $ok, $detail = '') { $script:results += [bool]$ok; Write-Output ("$(if ($ok) { 'PASS' } else { 'FAIL' })  $name" + $(if ($detail) { "  ($detail)" } else { '' })) }

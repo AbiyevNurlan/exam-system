@@ -8,6 +8,8 @@ $ErrorActionPreference = 'Continue'
 [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::InvariantCulture
 Set-Location F:\exam-system
 $GW = 'http://127.0.0.1:8080'
+. "$PSScriptRoot\_common.ps1"
+Wait-Gateway $GW
 $MAIL = 'http://127.0.0.1:8025'
 $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString('x')
 $T = "T-b10-$stamp"

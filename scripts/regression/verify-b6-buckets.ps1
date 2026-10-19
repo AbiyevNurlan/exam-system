@@ -1,6 +1,8 @@
 # B6 step 1 live: rate limit buckets per route and address. Creates t-b6-<stamp>-*@x.test accounts.
 $ErrorActionPreference = 'Continue'
 $GW = 'http://127.0.0.1:8080'
+. "$PSScriptRoot\_common.ps1"
+Wait-Gateway $GW
 $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString('x')
 $script:results = @()
 function Check($name, $ok, $detail = '') {

@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Continue'
 Set-Location F:\exam-system
 Add-Type -AssemblyName System.Net.Http
 $GW = 'http://127.0.0.1:8080'
+. "$PSScriptRoot\_common.ps1"
+Wait-Gateway $GW
 $MAIL = 'http://127.0.0.1:8025'
 $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString('x')
 $script:results = @()
