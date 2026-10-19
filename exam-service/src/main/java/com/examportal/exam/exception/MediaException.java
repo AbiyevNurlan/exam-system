@@ -58,6 +58,14 @@ public class MediaException extends ApplicationException {
         return new MediaException("The media is used by a published exam", HttpStatus.CONFLICT, "MEDIA_IN_USE");
     }
 
+    /**
+     * B12a: a clone shares the media of its source; deleting it would take it from the other exam too
+     */
+    public static MediaException sharedByExams() {
+        return new MediaException("The media is used by more than one exam (a copy shares the media of its source): "
+                + "remove it from the other exams first", HttpStatus.CONFLICT, "MEDIA_IN_USE");
+    }
+
     public static MediaException storageUnavailable(Throwable cause) {
         return new MediaException("Media storage is currently unavailable", HttpStatus.SERVICE_UNAVAILABLE,
                 "MEDIA_STORAGE_UNAVAILABLE", cause);

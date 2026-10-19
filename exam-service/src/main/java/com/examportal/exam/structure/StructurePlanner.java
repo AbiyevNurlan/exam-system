@@ -90,6 +90,53 @@ public class StructurePlanner {
         return new StructurePlan(plan);
     }
 
+    /**
+     * A copy of a stored exam (B12a clone): every block, question and option as new rows, the first block into
+     * the block the database made with the copy. Media links point at the same media assets; a link to a media
+     * that is no longer ACTIVE is left out (it could not be attached any more).
+     */
+    public StructurePlan copyOf(ExamState source, Long firstBlockId) {
+        List<BlockPlan> plan = new java.util.ArrayList<>();
+        for (int i = 0; i < source.blocks().size(); i++) {
+            BlockState block = source.blocks().get(i);
+            List<QuestionDTO> questions = new java.util.ArrayList<>();
+            for (QuestionState question : block.questions()) {
+                questions.add(copy(question));
+            }
+            plan.add(new BlockPlan(i == 0 ? firstBlockId : null, block.title(), block.instructions(), block.timeLimitMinutes(),
+                    block.breakAfterMinutes(), block.freeNavigation(), block.shuffleQuestions(), block.showResultToParticipant(),
+                    questions));
+        }
+        return new StructurePlan(plan);
+    }
+
+    private static QuestionDTO copy(QuestionState question) {
+        List<OptionDTO> options = new java.util.ArrayList<>();
+        for (OptionState option : question.options()) {
+            options.add(OptionDTO.builder()
+                    .optionText(option.optionText())
+                    .isCorrect(option.correct())
+                    .orderIndex(option.orderIndex())
+                    .mediaIds(option.media().stream().filter(ref -> "ACTIVE".equals(ref.status()))
+                            .map(ExamState.MediaRef::mediaId).toList())
+                    .build());
+        }
+        return QuestionDTO.builder()
+                .questionText(question.questionText())
+                .questionType(question.questionType())
+                .points(question.points())
+                .orderIndex(question.orderIndex())
+                .allowMultipleAnswers(question.allowMultipleAnswers())
+                .isRequired(question.required())
+                .explanation(question.explanation())
+                .options(options)
+                .media(question.media().stream().filter(ref -> "ACTIVE".equals(ref.status()))
+                        .map(ref -> com.examportal.common.domain.dto.media.QuestionMediaRef.builder()
+                                .mediaId(ref.mediaId()).position(ref.position()).maxPlays(ref.maxPlays()).build())
+                        .toList())
+                .build();
+    }
+
     private static BlockPlan toPlan(Long id, ExamBlockDTO block, List<QuestionDTO> questions, boolean last, boolean shuffle) {
         String title = block.getTitle() == null || block.getTitle().isBlank() ? MAIN_BLOCK_TITLE : block.getTitle().trim();
         String instructions = block.getInstructions() == null || block.getInstructions().isBlank() ? null : block.getInstructions();

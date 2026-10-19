@@ -95,6 +95,8 @@ public class SecurityConfig {
                         // instructor to the own exams, anybody else's is 404)
                         .pathMatchers("/api/exams/*/history", "/api/exams/*/history/**",
                                 "/api/exams/*/versions", "/api/exams/*/versions/**").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // B12a: copying an exam - admin and the owning instructor (checked by the service)
+                        .pathMatchers(HttpMethod.POST, "/api/exams/*/clone").hasAnyRole("ADMIN", "INSTRUCTOR")
                         // Live monitoring and exam analytics - admin and instructors (the service then
                         // limits an instructor to the own exams); platform analytics - admin only
                         .pathMatchers("/api/exams/monitoring/**", "/api/exams/*/monitoring",

@@ -148,9 +148,12 @@ public class MediaService {
                 .flatMap(asset -> linkRepository.isAttachedToPublishedExam(mediaId)
                         .flatMap(inUse -> inUse
                                 ? Mono.<MediaAsset>error(MediaException.inUse())
-                                : linkRepository.detachEverywhere(mediaId)
-                                        .then(assetRepository.markDeleted(mediaId))
-                                        .thenReturn(asset)));
+                                // B12a: a copy of an exam shares its media; one exam's delete must not empty the other
+                                : linkRepository.countExamsUsing(mediaId).flatMap(exams -> exams > 1
+                                        ? Mono.<MediaAsset>error(MediaException.sharedByExams())
+                                        : linkRepository.detachEverywhere(mediaId)
+                                                .then(assetRepository.markDeleted(mediaId))
+                                                .thenReturn(asset))));
 
         // The row is committed as DELETED first; a failed object removal leaves an unreferenced object, never a usable asset
         return transactionalOperator.transactional(removal)

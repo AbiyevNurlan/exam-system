@@ -264,6 +264,75 @@ public class ExamService {
     }
 
     /**
+     * B12a: a new DRAFT copy of an exam for the caller: blocks, questions, options, the answer key, settings and
+     * media links (the same media assets), titled "<title> (nüsxə)". Not copied: the audience groups (a GROUP copy
+     * starts with none, so nobody but its owner and ADMIN can take it until groups are set), sessions, results and
+     * the history of the source. The copy's history starts with CLONED_FROM. ADMIN or the owning INSTRUCTOR.
+     */
+    public Mono<ExamResponse> cloneExam(Long examId, ChangeContext change) {
+        UUID userId = change.actorId();
+        String role = change.role();
+        Mono<ExamResponse> cloning = findAccessibleExam(examId, userId, role)
+                .flatMap(exam -> accessPolicy.canManage(userId, role, exam)
+                        ? Mono.just(exam)
+                        : Mono.<Exam>error(ExamException.notOwner()))
+                .flatMap(exam -> stateRepository.load(examId))
+                .flatMap(source -> examRepository.save(copyRow(source, userId))
+                        .flatMap(copy -> stateRepository.load(copy.getId())
+                                .flatMap(created -> structureWriter.apply(copy.getId(), created,
+                                        planner.copyOf(source, created.blocks().get(0).id())))
+                                .then(Mono.defer(() -> stateRepository.load(copy.getId())))
+                                .flatMap(copied -> history.record(copy.getId(), userId, null, change,
+                                        List.of(ExamDiff.clonedFrom(source, copied))))
+                                .thenReturn(copy)))
+                .flatMap(this::loadExamWithQuestions);
+
+        return transactionalOperator.transactional(cloning)
+                .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))
+                .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits)
+                .doOnSuccess(copy -> log.info("Exam {} cloned into {} by {}", examId, copy.getId(), userId));
+    }
+
+    private static final String COPY_SUFFIX = " (nüsxə)";
+
+    /**
+     * The exam row of a copy: everything of the source's row except id, status (DRAFT), owner and audience groups
+     */
+    private static Exam copyRow(ExamState source, UUID owner) {
+        String title = source.title() == null ? "" : source.title();
+        if (title.length() + COPY_SUFFIX.length() > 255) {
+            title = title.substring(0, 255 - COPY_SUFFIX.length());
+        }
+        LocalDateTime now = LocalDateTime.now();
+        return Exam.builder()
+                .title(title + COPY_SUFFIX)
+                .description(source.description())
+                .durationMinutes(source.durationMinutes())
+                .startTime(source.startTime())
+                .endTime(source.endTime())
+                .status(ExamStatus.DRAFT)
+                .totalQuestions(source.questions().size())
+                .passingScore(source.passingScore())
+                .shuffleQuestions(source.shuffleQuestions())
+                .shuffleOptions(source.shuffleOptions())
+                .showResultsImmediately(source.showResultsImmediately())
+                .maxAttempts(source.maxAttempts())
+                .maxAttemptsPerDay(source.maxAttemptsPerDay())
+                .categoryId(source.categoryId())
+                .createdBy(owner)
+                .accessType(source.accessType())
+                .timingMode(source.timingMode())
+                .allowReturnToPreviousBlocks(source.allowReturnToPreviousBlocks())
+                .allowSkipBreak(source.allowSkipBreak())
+                .showBlockBreakdown(source.showBlockBreakdown())
+                .active(true)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+    }
+
+    /**
      * Get exam by ID with questions
      */
     public Mono<ExamResponse> getExamById(Long examId, UUID userId, String role) {
