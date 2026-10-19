@@ -47,6 +47,8 @@ class AuthServiceAccountTest {
     private final JwtTokenProvider jwt = mock(JwtTokenProvider.class);
     private final TransactionalOperator transactionalOperator = mock(TransactionalOperator.class);
     private final AccountAuditLog auditLog = mock(AccountAuditLog.class);
+    private final com.examportal.common.security.TokenRevocationStore revocations =
+            mock(com.examportal.common.security.TokenRevocationStore.class);
 
     private AuthService service;
     private User user;
@@ -66,9 +68,11 @@ class AuthServiceAccountTest {
         when(tokenService.revokeAllUserTokens(USER)).thenReturn(Mono.empty());
         when(tokenService.createRefreshToken(USER)).thenReturn(Mono.just(RefreshToken.builder().token("new-refresh").userId(USER).build()));
         when(jwt.generateAccessToken(eq(USER), anyString(), anyString())).thenReturn("new-access");
+        when(jwt.generateAccessToken(eq(USER), anyString(), anyString(), org.mockito.ArgumentMatchers.anyBoolean())).thenReturn("new-access");
+        when(revocations.revokeAllIssuedBefore(eq(USER), any())).thenReturn(Mono.empty());
         when(auditLog.record(eq(USER), anyString())).thenReturn(Mono.empty());
         service = new AuthService(userRepository, tokenService, encoder, jwt, transactionalOperator,
-                mock(GroupInviteClient.class), mock(OtpService.class), mock(VerificationMailer.class), auditLog);
+                mock(GroupInviteClient.class), mock(OtpService.class), mock(VerificationMailer.class), auditLog, revocations);
     }
 
     private static ChangePasswordRequest change(String current, String next) {

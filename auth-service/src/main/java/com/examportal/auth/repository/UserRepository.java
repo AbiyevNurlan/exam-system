@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.UUID;
 
@@ -141,7 +142,9 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
      * Update password hash
      */
     @Modifying
-    @Query("UPDATE users SET password_hash = :passwordHash, updated_at = CURRENT_TIMESTAMP WHERE id = :userId")
+    // The owner sets an own password (change, reset with a code): a temporary password set by an administrator ends (B13)
+    @Query("UPDATE users SET password_hash = :passwordHash, must_change_password = false, temp_password_expires_at = NULL, "
+            + "updated_at = CURRENT_TIMESTAMP WHERE id = :userId")
     Mono<Integer> updatePasswordHash(UUID userId, String passwordHash);
 
     /**
@@ -196,4 +199,46 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
     @Modifying
     @Query("UPDATE users SET email_verified = true, updated_at = CURRENT_TIMESTAMP WHERE id = :userId")
     Mono<Integer> verifyEmail(UUID userId);
+
+    // ==================== B13: teachers made by an administrator ====================
+
+    /**
+     * The moment of a successful sign-in, for the administrator's list of teachers
+     */
+    @Modifying
+    @Query("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :userId")
+    Mono<Integer> touchLastLogin(UUID userId);
+
+    /**
+     * A temporary password set by an administrator for a teacher: the owner must change it before anything else
+     * and it works until expiresAt. Only an INSTRUCTOR account is changed.
+     */
+    @Modifying
+    @Query("""
+            UPDATE users SET password_hash = :passwordHash, must_change_password = true, temp_password_expires_at = :expiresAt,
+                             updated_at = CURRENT_TIMESTAMP
+            WHERE id = :userId AND role = 'INSTRUCTOR'
+            """)
+    Mono<Integer> setTemporaryPassword(@Param("userId") UUID userId, @Param("passwordHash") String passwordHash,
+                                       @Param("expiresAt") LocalDateTime expiresAt);
+
+    /**
+     * Name and active state of a teacher; only an INSTRUCTOR account is changed
+     */
+    @Modifying
+    @Query("""
+            UPDATE users SET first_name = :firstName, last_name = :lastName, active = :active, updated_at = CURRENT_TIMESTAMP
+            WHERE id = :userId AND role = 'INSTRUCTOR'
+            """)
+    Mono<Integer> updateInstructor(@Param("userId") UUID userId, @Param("firstName") String firstName,
+                                   @Param("lastName") String lastName, @Param("active") boolean active);
+
+    /**
+     * One teacher, locked for the change in the caller's transaction
+     */
+    @Query("SELECT * FROM users WHERE id = :userId AND role = 'INSTRUCTOR' FOR UPDATE")
+    Mono<User> findInstructorForUpdate(@Param("userId") UUID userId);
+
+    @Query("SELECT * FROM users WHERE id = :userId AND role = 'INSTRUCTOR'")
+    Mono<User> findInstructor(@Param("userId") UUID userId);
 }

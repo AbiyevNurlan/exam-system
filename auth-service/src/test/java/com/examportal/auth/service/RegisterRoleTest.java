@@ -54,7 +54,7 @@ class RegisterRoleTest {
         when(otp.issue(any(UUID.class), anyString())).thenReturn(Mono.just("123456"));
         AuthService service = new AuthService(users, mock(TokenService.class), new BCryptPasswordEncoder(4),
                 mock(JwtTokenProvider.class), tx, mock(GroupInviteClient.class), otp, mock(VerificationMailer.class),
-                mock(AccountAuditLog.class));
+                mock(AccountAuditLog.class), mock(com.examportal.common.security.TokenRevocationStore.class));
 
         StepVerifier.create(service.register(request)).verifyComplete();
 

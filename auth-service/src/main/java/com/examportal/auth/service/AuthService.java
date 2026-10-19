@@ -8,6 +8,7 @@ import com.examportal.auth.exception.InvalidCredentialsException;
 import com.examportal.auth.exception.InvalidOtpException;
 import com.examportal.auth.exception.InvalidTokenException;
 import com.examportal.auth.exception.PasswordChangeRejectedException;
+import com.examportal.auth.exception.TemporaryPasswordExpiredException;
 import com.examportal.auth.mail.VerificationMailer;
 import com.examportal.auth.repository.UserRepository;
 import com.examportal.common.domain.PhoneNumbers;
@@ -17,6 +18,7 @@ import com.examportal.common.domain.entity.UserRole;
 import com.examportal.common.exception.ApplicationException;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.common.security.JwtTokenProvider;
+import com.examportal.common.security.TokenRevocationStore;
 import com.examportal.common.utils.LogMaskUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +52,7 @@ public class AuthService {
     private final OtpService otpService;
     private final VerificationMailer verificationMailer;
     private final AccountAuditLog accountAuditLog;
+    private final TokenRevocationStore tokenRevocationStore;
 
     @Value("${auth.lockout.max-attempts:5}")
     private int lockoutMaxAttempts;
@@ -169,6 +172,11 @@ public class AuthService {
                 .flatMap(user -> user.isEmailVerified()
                         ? Mono.just(user)
                         : Mono.<User>error(new EmailNotVerifiedException()))
+                // B13: a temporary password set by an administrator works for 7 days (only after it was accepted)
+                .flatMap(user -> temporaryPasswordExpired(user)
+                        ? Mono.<User>error(new TemporaryPasswordExpiredException())
+                        : Mono.just(user))
+                .flatMap(user -> userRepository.touchLastLogin(user.getId()).thenReturn(user))
                 // Group invites imported for this (verified) email become memberships; never fails the login
                 .flatMap(user -> groupInviteClient.applyForVerifiedUser(user).thenReturn(user))
                 .flatMap(this::generateAuthResponse)
@@ -185,13 +193,20 @@ public class AuthService {
 
         return tokenService.validateRefreshToken(request.getRefreshToken())
                 .flatMap(refreshToken -> userRepository.findById(refreshToken.getUserId())
+                        // B13: a deactivated account gets no new token, whatever refresh token it holds
+                        .filter(User::isActive)
                         .switchIfEmpty(Mono.error(new InvalidTokenException("User not found")))
+                        .flatMap(user -> temporaryPasswordExpired(user)
+                                ? Mono.<User>error(new TemporaryPasswordExpiredException())
+                                : Mono.just(user))
                         .flatMap(user -> {
-                            // Generate new access token
+                            // Generate new access token; the role and the temporary-password claim come from the
+                            // database, never from the old token (B13)
                             String accessToken = jwtTokenProvider.generateAccessToken(
                                     user.getId(),
                                     user.getEmail(),
-                                    user.getRole().name()
+                                    user.getRole().name(),
+                                    user.isMustChangePassword()
                             );
 
                             // Rotate refresh token for security
@@ -257,7 +272,9 @@ public class AuthService {
                         // Code consumption, password update and session revocation succeed or fail together.
                         // A wrong code is not an error at this point, so its attempt counter is committed as well.
                         .as(transactionalOperator::transactional)
-                        .filter(valid -> valid))
+                        .filter(valid -> valid)
+                        // B13: the access tokens end as well, not only the refresh tokens
+                        .flatMap(valid -> revokeAccessTokens(user.getId()).thenReturn(valid)))
                 .switchIfEmpty(Mono.error(new InvalidOtpException()))
                 .doOnNext(valid -> log.info("Password reset successful for: {}", maskEmail(email)))
                 .then();
@@ -327,6 +344,14 @@ public class AuthService {
 
         // New password, revoked sessions and the audit row commit together; the new pair comes after the commit
         return transactionalOperator.transactional(change)
+                // B13: the access tokens of every other session end at once too; the flag of a temporary password is
+                // gone (UserRepository.updatePasswordHash), so the new pair is a normal one
+                .flatMap(user -> revokeAccessTokens(userId).thenReturn(user))
+                .map(user -> {
+                    user.setMustChangePassword(false);
+                    user.setTempPasswordExpiresAt(null);
+                    return user;
+                })
                 .flatMap(this::generateAuthResponse)
                 .doOnSuccess(response -> log.info("Password changed by user {}; every refresh token revoked", userId))
                 .doOnError(PasswordChangeRejectedException.class,
@@ -488,7 +513,8 @@ public class AuthService {
         String accessToken = jwtTokenProvider.generateAccessToken(
                 user.getId(),
                 user.getEmail(),
-                user.getRole().name()
+                user.getRole().name(),
+                user.isMustChangePassword()
         );
 
         return tokenService.createRefreshToken(user.getId())
@@ -504,6 +530,7 @@ public class AuthService {
                 .refreshToken(refreshToken)
                 .tokenType("Bearer")
                 .expiresIn(jwtTokenProvider.getAccessTokenExpiration())
+                .mustChangePassword(user.isMustChangePassword())
                 .user(AuthResponse.UserInfo.builder()
                         .id(user.getId())
                         .email(user.getEmail())
@@ -511,7 +538,29 @@ public class AuthService {
                         .lastName(user.getLastName())
                         .role(user.getRole().name())
                         .emailVerified(user.isEmailVerified())
+                        .mustChangePassword(user.isMustChangePassword())
                         .build())
                 .build();
+    }
+
+    /**
+     * B13: a temporary password set by an administrator whose 7 days are over
+     */
+    static boolean temporaryPasswordExpired(User user) {
+        return user.isMustChangePassword() && user.getTempPasswordExpiresAt() != null
+                && !user.getTempPasswordExpiresAt().isAfter(LocalDateTime.now());
+    }
+
+    /**
+     * After the user changed or reset the own password: every access token issued before now ends (the refresh
+     * tokens were revoked in the transaction). The password is changed already, so a failure here is logged, not
+     * answered: those tokens end with their 15 minutes anyway.
+     */
+    private Mono<Void> revokeAccessTokens(UUID userId) {
+        return tokenRevocationStore.revokeAllIssuedBefore(userId, java.time.Instant.now())
+                .onErrorResume(e -> {
+                    log.warn("Access tokens of user {} could not be revoked: {}", userId, e.getClass().getSimpleName());
+                    return Mono.empty();
+                });
     }
 }

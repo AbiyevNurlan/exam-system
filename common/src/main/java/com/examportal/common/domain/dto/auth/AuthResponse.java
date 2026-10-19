@@ -22,6 +22,9 @@ public class AuthResponse {
     private String tokenType = "Bearer";
     private Long expiresIn;
     private UserInfo user;
+    /** B13: the password was set by an administrator; until it is changed the tokens reach only
+     *  POST /auth/change-password and POST /auth/logout (403 PASSWORD_CHANGE_REQUIRED elsewhere) */
+    private boolean mustChangePassword;
 
     @Data
     @Builder
@@ -34,5 +37,7 @@ public class AuthResponse {
         private String lastName;
         private String role;
         private boolean emailVerified;
+        /** B13: the same as AuthResponse.mustChangePassword */
+        private boolean mustChangePassword;
     }
 }

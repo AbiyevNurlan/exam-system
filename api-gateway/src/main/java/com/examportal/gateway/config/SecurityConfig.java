@@ -2,6 +2,7 @@ package com.examportal.gateway.config;
 
 import com.examportal.common.security.JwtAuthenticationFilter;
 import com.examportal.common.security.JwtTokenProvider;
+import com.examportal.common.security.TokenRevocationStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,7 +23,7 @@ import reactor.core.publisher.Mono;
  */
 @Configuration
 @EnableWebFluxSecurity
-@Import({JwtTokenProvider.class, JwtAuthenticationFilter.class})
+@Import({JwtTokenProvider.class, JwtAuthenticationFilter.class, TokenRevocationStore.class})
 @RequiredArgsConstructor
 public class SecurityConfig {
 

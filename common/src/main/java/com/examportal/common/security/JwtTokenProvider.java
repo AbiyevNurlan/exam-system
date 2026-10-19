@@ -60,8 +60,38 @@ public class JwtTokenProvider {
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
+    /** B13: claim of an access token that only allows changing the password and signing out */
+    public static final String PASSWORD_CHANGE_CLAIM = "pwc";
+
     public String generateAccessToken(UUID userId, String email, String role) {
-        return generateToken(userId, email, role, accessTokenExpiration, "ACCESS");
+        return generateAccessToken(userId, email, role, false);
+    }
+
+    /**
+     * An access token; passwordChangeRequired adds the claim "pwc": true (B13: a temporary password set by an
+     * administrator), with which JwtAuthenticationFilter lets only the password change and the sign-out through
+     */
+    public String generateAccessToken(UUID userId, String email, String role, boolean passwordChangeRequired) {
+        Map<String, Object> claims = passwordChangeRequired
+                ? Map.of("email", email, "role", role, "type", "ACCESS", PASSWORD_CHANGE_CLAIM, true)
+                : Map.of("email", email, "role", role, "type", "ACCESS");
+        Date now = new Date();
+        return Jwts.builder()
+                .subject(userId.toString())
+                .issuer(issuer)
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + accessTokenExpiration))
+                .claims(claims)
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    /**
+     * Every claim of a valid token (signature and expiry checked); JwtException or IllegalArgumentException otherwise.
+     * One parse for everything the filter needs.
+     */
+    public Claims parseClaims(String token) {
+        return getAllClaimsFromToken(token);
     }
 
     public String generateRefreshToken(UUID userId, String email, String role) {

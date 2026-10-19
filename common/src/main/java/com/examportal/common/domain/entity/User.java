@@ -59,6 +59,19 @@ public class User extends BaseEntity {
     @Column("participant_code")
     private Integer participantCode;
 
+    // B13 (auth-service V8): a password set by an administrator must be changed before anything else
+    @Column("must_change_password")
+    private boolean mustChangePassword;
+
+    // B13: until when a temporary password works; null for an own password
+    @Column("temp_password_expires_at")
+    private LocalDateTime tempPasswordExpiresAt;
+
+    // B13: the last successful sign-in; written by its own statement (UserRepository.touchLastLogin), never by save
+    @ReadOnlyProperty
+    @Column("last_login_at")
+    private LocalDateTime lastLoginAt;
+
     public String getFullName() {
         return firstName + " " + lastName;
     }
