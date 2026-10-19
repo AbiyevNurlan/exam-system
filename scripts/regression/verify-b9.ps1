@@ -178,7 +178,7 @@ Check 'GET /auth/me without a token: 401' ((Api 'GET' '/auth/me' $null $null).st
 $me = Api 'GET' '/auth/me' $p2.token $null
 Check 'GET /auth/me: the user of the token and nothing secret' ($me.status -eq 200 -and $me.data.id -eq $p2.id -and $me.data.email -eq $p2.email -and $me.data.role -eq 'STUDENT' -and $me.data.emailVerified -eq $true -and $me.raw -notmatch 'password') "status $($me.status), $($me.data.email)"
 $prof = Api 'PUT' '/auth/profile' $p2.token @{ firstName = ' Leyla '; lastName = 'Mammadova'; phone = '+994 50 123 45 67' }
-Check 'PUT /auth/profile: names trimmed, phone stored, audit row' ($prof.status -eq 200 -and $prof.data.firstName -eq 'Leyla' -and $prof.data.phoneNumber -eq '+994 50 123 45 67' -and (Sql 'exam_auth' "select count(*) from admin_audit_log where action='PROFILE_UPDATED' and target_user_id='$($p2.id)'") -eq '1') (Answer $prof)
+Check 'PUT /auth/profile: names trimmed, phone stored, audit row' ($prof.status -eq 200 -and $prof.data.firstName -eq 'Leyla' -and $prof.data.phoneNumber -eq '+994501234567' -and (Sql 'exam_auth' "select phone_number from users where id='$($p2.id)'") -eq '+994501234567' -and (Sql 'exam_auth' "select count(*) from admin_audit_log where action='PROFILE_UPDATED' and target_user_id='$($p2.id)'") -eq '1') (Answer $prof)
 $alias = Api 'PUT' '/auth/profile' $p2.token @{ firstName = 'Leyla'; lastName = 'Mammadova'; phoneNumber = '' }
 Check 'PUT /auth/profile: phoneNumber is accepted too, empty removes the phone' ($alias.status -eq 200 -and -not $alias.data.phoneNumber) (Answer $alias)
 $badProfile = Api 'PUT' '/auth/profile' $p2.token @{ firstName = 'L'; lastName = 'M'; phone = 'abc' }
