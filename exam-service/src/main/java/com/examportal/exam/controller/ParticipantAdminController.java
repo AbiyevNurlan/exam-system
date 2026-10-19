@@ -55,8 +55,14 @@ public class ParticipantAdminController {
             @RequestParam(required = false) @Parameter(description = "Last day, yyyy-MM-dd") String registeredTo,
             @RequestParam(required = false) @Parameter(description = "Profile category, e.g. UNIVERSITY_STUDENT") String category,
             @RequestParam(required = false) @Parameter(description = "Start of the profile institution (at least 2 characters)") String institution,
-            @RequestParam(required = false) @Parameter(description = "createdAt (default), name or email") String sort,
-            @RequestParam(required = false) @Parameter(description = "asc or desc (default: desc for createdAt, asc otherwise)") String order,
+            @RequestParam(required = false) @Parameter(description = "code, firstName, lastName, email or registeredAt "
+                    + "(anything else is 400 VALIDATION_ERROR); names in Azerbaijani alphabetical order, ignoring case, "
+                    + "ties by participant code. Without it: newest registrations first") String sortBy,
+            @RequestParam(required = false) @Parameter(description = "asc (default) or desc") String dir,
+            @RequestParam(required = false) @Parameter(description = "Older form, used when sortBy is not given: "
+                    + "createdAt (default), name or email") String sort,
+            @RequestParam(required = false) @Parameter(description = "Older form: asc or desc (default: desc for "
+                    + "createdAt, asc otherwise)") String order,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
             @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
 
@@ -65,7 +71,7 @@ public class ParticipantAdminController {
                 .registeredFrom(registeredFrom).registeredTo(registeredTo)
                 .category(category).institution(institution)
                 .build();
-        return Mono.defer(() -> participantService.getParticipants(filter, sort, order, page, size))
+        return Mono.defer(() -> participantService.getParticipants(filter, sortBy, dir, sort, order, page, size))
                 .map(ApiResponse::success);
     }
 

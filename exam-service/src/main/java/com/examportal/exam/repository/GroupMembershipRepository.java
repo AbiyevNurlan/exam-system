@@ -37,7 +37,7 @@ public class GroupMembershipRepository {
                         FROM user_group_members m
                         JOIN user_groups g ON g.id = m.group_id AND g.active = true
                         WHERE m.user_id = ANY(:userIds)
-                        ORDER BY m.user_id, lower(g.name), g.id
+                        ORDER BY m.user_id, btrim(g.name) COLLATE az_ci, g.id
                         """)
                 .bind("userIds", userIds.toArray(new UUID[0]))
                 .map(row -> new UserGroupName(
@@ -115,7 +115,7 @@ public class GroupMembershipRepository {
                         LEFT JOIN user_group_members m ON m.group_id = g.id
                         WHERE g.id = ANY(:groupIds) AND g.active = true
                         GROUP BY g.id
-                        ORDER BY lower(g.name), g.id
+                        ORDER BY btrim(g.name) COLLATE az_ci, g.id
                         """)
                 .bind("groupIds", groupIds.toArray(new Long[0]))
                 .map(row -> new GroupMembers(

@@ -59,8 +59,8 @@ public class GroupOverviewRepository {
                         SELECT * FROM user_groups
                         WHERE active = true AND lower(name) LIKE :pattern ESCAPE '\\'
                           AND (CAST(:ownerId AS uuid) IS NULL OR owner_id = CAST(:ownerId AS uuid))
-                        ORDER BY lower(name), id
-                        LIMIT :limit OFFSET :offset""") + " ORDER BY lower(g.name), g.id")
+                        ORDER BY btrim(name) COLLATE az_ci, id
+                        LIMIT :limit OFFSET :offset""") + " ORDER BY btrim(g.name) COLLATE az_ci, g.id")
                 .bind("pattern", pattern)
                 .bind("limit", limit)
                 .bind("offset", offset);

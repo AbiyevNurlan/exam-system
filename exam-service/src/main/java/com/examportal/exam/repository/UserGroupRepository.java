@@ -29,7 +29,7 @@ public interface UserGroupRepository extends R2dbcRepository<UserGroup, Long> {
         SELECT * FROM user_groups
         WHERE active = true AND lower(name) LIKE :pattern ESCAPE '\\'
           AND (CAST(:ownerId AS uuid) IS NULL OR owner_id = CAST(:ownerId AS uuid))
-        ORDER BY lower(name), id
+        ORDER BY btrim(name) COLLATE az_ci, id
         LIMIT :limit OFFSET :offset
     """)
     Flux<UserGroup> findPageByNamePattern(String pattern, UUID ownerId, int limit, long offset);

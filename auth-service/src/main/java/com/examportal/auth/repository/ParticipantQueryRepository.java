@@ -36,14 +36,7 @@ public class ParticipantQueryRepository {
         String where = where(request.getFilter(), params);
         int pageNumber = Math.max(request.getPage(), 0);
         int pageSize = Math.min(Math.max(request.getSize(), 1), ParticipantQuery.MAX_PAGE_SIZE);
-        String direction = request.isAscending() ? "ASC" : "DESC";
-        String sort = request.getSort() == null ? "createdat" : request.getSort().trim().toLowerCase(Locale.ROOT);
-        String order = switch (sort) {
-            case "name" -> "lower(last_name) " + direction + ", lower(first_name) " + direction + ", id";
-            case "email" -> "lower(email) " + direction;
-            case "createdat", "" -> "created_at " + direction + ", id";
-            default -> throw new ValidationException("sort", "must be createdAt, name or email");
-        };
+        String order = orderBy(request.getSort(), request.isAscending());
 
         DatabaseClient.GenericExecuteSpec count = bindAll(databaseClient.sql("SELECT COUNT(*) FROM users" + where), params);
         DatabaseClient.GenericExecuteSpec page = bindAll(databaseClient.sql(
@@ -118,6 +111,32 @@ public class ParticipantQueryRepository {
     }
 
     // ==================== Private Helper Methods ====================
+
+    // Names in Azerbaijani alphabetical order, ignoring case and the spaces around them (az_ci, V6)
+    private static final String FIRST_NAME = "btrim(first_name) COLLATE az_ci";
+    private static final String LAST_NAME = "btrim(last_name) COLLATE az_ci";
+
+    /**
+     * The ORDER BY of a page. Only fixed text from this switch is put into the statement (the key is a
+     * whitelist, the direction one of two words); an unknown key is a 400.
+     * Every order ends with participant_code (unique, never changes), so rows equal in the sort key keep one
+     * place and no row repeats or goes missing between pages. Each order has its partial index (V7); names and
+     * email are NOT NULL, a registration time without a value comes last in both directions.
+     */
+    static String orderBy(String sortKey, boolean ascending) {
+        String d = ascending ? "ASC" : "DESC";
+        String code = "participant_code " + d;
+        String sort = sortKey == null ? "registeredat" : sortKey.trim().toLowerCase(Locale.ROOT);
+        return switch (sort) {
+            case "code" -> code;
+            case "firstname" -> FIRST_NAME + " " + d + ", " + LAST_NAME + " " + d + ", " + code;
+            case "lastname", "name" -> LAST_NAME + " " + d + ", " + FIRST_NAME + " " + d + ", " + code;
+            // Addresses are ASCII: byte order of the lower-case text, the same on every platform
+            case "email" -> "lower(email) COLLATE \"C\" " + d + ", " + code;
+            case "registeredat", "createdat", "" -> "created_at " + d + " NULLS LAST, " + code;
+            default -> throw new ValidationException("sortBy", "must be code, firstName, lastName, email or registeredAt");
+        };
+    }
 
     private String where(ParticipantQuery.Filter filter, Map<String, Object> params) {
         StringBuilder where = new StringBuilder(" WHERE role = 'STUDENT'");

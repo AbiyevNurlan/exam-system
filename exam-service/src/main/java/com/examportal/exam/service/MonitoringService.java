@@ -1,5 +1,6 @@
 package com.examportal.exam.service;
 
+import com.examportal.common.domain.AzerbaijaniOrder;
 import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.internal.UserLookupResponse.UserRef;
 import com.examportal.common.domain.dto.monitoring.ActiveExamResponse;
@@ -192,10 +193,10 @@ public class MonitoringService {
                             long matching = list.isEmpty() ? 0 : list.get(0).matching();
                             List<LiveSession> pageRows = list;
                             if (byName) {
-                                Comparator<String> text = ascending ? Comparator.naturalOrder() : Comparator.reverseOrder();
+                                // Azerbaijani alphabetical order ignoring case (B11b); unknown names last
                                 pageRows = list.stream()
                                         .sorted(Comparator.comparing((LiveSession row) -> sortName(users.get(row.userId())),
-                                                Comparator.nullsLast(text)).thenComparing(LiveSession::sessionId))
+                                                AzerbaijaniOrder.names(ascending)).thenComparing(LiveSession::sessionId))
                                         .skip((long) pageNumber * pageSize)
                                         .limit(pageSize)
                                         .toList();
@@ -243,8 +244,9 @@ public class MonitoringService {
         if (user == null) {
             return null;
         }
+        // The case is left to the comparator (lower() would turn I into i instead of ı)
         String name = ((user.getLastName() == null ? "" : user.getLastName().trim()) + " "
-                + (user.getFirstName() == null ? "" : user.getFirstName().trim())).trim().toLowerCase(Locale.ROOT);
+                + (user.getFirstName() == null ? "" : user.getFirstName().trim())).trim();
         return name.isEmpty() ? null : name;
     }
 

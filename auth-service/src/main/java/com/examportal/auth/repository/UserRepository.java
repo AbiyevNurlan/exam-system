@@ -62,7 +62,7 @@ public interface UserRepository extends R2dbcRepository<User, UUID> {
                    OR lower(email) LIKE :pattern ESCAPE '\\'
                    OR id = :id
                    OR participant_code = :code)
-            ORDER BY lower(last_name), lower(first_name), id
+            ORDER BY btrim(last_name) COLLATE az_ci, btrim(first_name) COLLATE az_ci, participant_code
             LIMIT :limit
             """)
     Flux<User> searchActive(@Param("pattern") String pattern, @Param("id") UUID id, @Param("code") Integer code,

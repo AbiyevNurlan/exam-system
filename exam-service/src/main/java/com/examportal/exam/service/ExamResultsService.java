@@ -1,5 +1,6 @@
 package com.examportal.exam.service;
 
+import com.examportal.common.domain.AzerbaijaniOrder;
 import com.examportal.common.config.UtcDateTimeModule;
 import com.examportal.common.domain.dto.ExamResultsSummaryResponse;
 import com.examportal.common.domain.dto.PageResponse;
@@ -291,20 +292,20 @@ public class ExamResultsService {
     }
 
     private List<ResultRow> sortedByName(List<ResultRow> rows, Map<UUID, UserRef> users, boolean ascending) {
-        Comparator<String> text = ascending ? Comparator.naturalOrder() : Comparator.reverseOrder();
+        // Azerbaijani alphabetical order ignoring case (B11b); rows without a known name last
         Comparator<ResultRow> byName = Comparator.comparing(
                 (ResultRow row) -> sortName(users.get(row.userId())),
-                Comparator.nullsLast(text));
+                AzerbaijaniOrder.names(ascending));
         return rows.stream().sorted(byName.thenComparing(ResultRow::sessionId)).toList();
     }
 
-    // Last name first, ignoring case
+    // Last name first; the case is left to the comparator (lower() would turn I into i instead of ı)
     private String sortName(UserRef user) {
         if (user == null) {
             return null;
         }
         String name = ((user.getLastName() == null ? "" : user.getLastName().trim()) + " "
-                + (user.getFirstName() == null ? "" : user.getFirstName().trim())).trim().toLowerCase(Locale.ROOT);
+                + (user.getFirstName() == null ? "" : user.getFirstName().trim())).trim();
         return name.isEmpty() ? null : name;
     }
 

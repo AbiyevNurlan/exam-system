@@ -49,7 +49,7 @@ public class ParticipantCardRepository {
                         JOIN user_groups g ON g.id = m.group_id AND g.active = true
                         WHERE m.user_id = :userId
                         """ + (owner == null ? "" : " AND g.owner_id = :owner") + """
-                         ORDER BY lower(g.name), g.id
+                         ORDER BY btrim(g.name) COLLATE az_ci, g.id
                         """)
                 .bind("userId", userId);
         if (owner != null) {

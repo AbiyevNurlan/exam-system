@@ -173,6 +173,10 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
   the set of member ids, and the group names of the page come from one statement in exam-service.
   Day filters are calendar days of `EXAM_DAY_ZONE` turned into UTC moments. Participant means a
   user with the role STUDENT; the email is not masked here, because the list is for admins only.
+- **Names sort in the Azerbaijani alphabet, on the server.** A paged list can only be sorted where
+  it is paged: in SQL by `btrim(name) COLLATE az_ci` (auth V6, exam V15; never `lower()`, which turns
+  I into i), in Java by `AzerbaijaniOrder`. Every ORDER BY of a page ends with a unique key
+  (`participant_code`, an id), and a sort key comes from a whitelist, never from the request text.
 - **Mass membership is explicit and idempotent** (`GroupBulkService`): a dry run reports
   `{matched, alreadyMembers, willAdd, cap}` and writes nothing; a real run by filter must carry the
   `expectedCount` the dry run reported (409 `FILTER_COUNT_CHANGED` otherwise) and refuses more than
