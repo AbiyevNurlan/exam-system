@@ -124,11 +124,13 @@ $edited = Api 'PUT' "/api/exams/$draftId" $ins.token (ExamBody "$T-draft" $now.A
 Check 'an exam without attempts: PUT 200, questions, points and duration replaced' ($draft.status -eq 201 -and $edited.status -eq 200 -and (ExamShape $draftId) -like "45|*$T q1 edited:3.00:*;$T q2:1.00:*") "create $(Answer $draft), put $(Answer $edited)"
 
 # ---------- 2. an exam with attempts keeps what decided their results ----------
-$live = Api 'POST' '/api/exams' $ins.token (ExamBody "$T-live" $now.AddMinutes(-1) $now.AddHours(3) 30 @((Question "$T a1" 2), (Question "$T a2" 3)))
+# POST /api/exams refuses a start in the past (@Future): New-ActiveExam creates ahead, publishes and reschedules to an open window
+$live = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-live" $s $e 30 @((Question "$T a1" 2), (Question "$T a2" 3)) }
 $liveId = $live.data.id
-$published = Api 'POST' "/api/exams/$liveId/publish" $ins.token $null
-$started = Api 'POST' "/api/exams/$liveId/start" $p1.token @{}
-Check 'setup: a published exam with one attempt' ($live.status -eq 201 -and $published.status -eq 200 -and $started.status -eq 200 -and $started.data.sessionId) "create $(Answer $live), publish $(Answer $published), start $(Answer $started)"
+$published = $live.published
+$started = if ($liveId) { Api 'POST' "/api/exams/$liveId/start" $p1.token @{} } else { @{ status = 0; code = 'no exam'; data = $null } }
+Check 'setup: a published exam with one attempt' ($live.status -eq 201 -and $published.status -eq 200 -and $live.rescheduled.status -eq 200 -and $started.status -eq 200 -and $started.data.sessionId) "create $(Answer $live), publish $(Answer $published), open window $(Answer $live.rescheduled), start $(Answer $started)"
+if (-not $started.data.sessionId) { throw "setup failed, the checks below need the exam with an attempt" }
 $shapeBefore = ExamShape $liveId
 # Back to SCHEDULED (an exam with attempts may be postponed): the status would allow editing, the attempts do not
 $postponed = Api 'POST' "/api/exams/$liveId/reschedule" $ins.token @{ startTime = (Utc $now.AddDays(1)); endTime = (Utc $now.AddDays(2)) }
@@ -166,8 +168,7 @@ $laterCompleted = Api 'POST' "/api/exams/$liveId/reschedule" $ins.token @{ start
 Check 'a completed exam with attempts to a later start: 409 EXAM_HAS_SESSIONS' ($laterCompleted.status -eq 409 -and $laterCompleted.code -eq 'EXAM_HAS_SESSIONS') (Answer $laterCompleted)
 $atOnce = Api 'POST' "/api/exams/$liveId/reschedule" $ins.token @{ startTime = (Utc $now.AddMinutes(-1)); endTime = (Utc $now.AddDays(1)) }
 Check 'reopening it at once: 200 ACTIVE, the attempt kept' ($atOnce.status -eq 200 -and $atOnce.data.status -eq 'ACTIVE' -and (Sql 'exam_db' "select count(*) from exam_sessions where exam_id=$liveId") -eq '1') (Answer $atOnce)
-$empty = Api 'POST' '/api/exams' $ins.token (ExamBody "$T-empty" $now.AddMinutes(-1) $now.AddHours(3) 30 @((Question "$T e1" 1)))
-$null = Api 'POST' "/api/exams/$($empty.data.id)/publish" $ins.token $null
+$empty = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-empty" $s $e 30 @((Question "$T e1" 1)) }
 $null = Api 'POST' "/api/exams/$($empty.data.id)/archive" $ins.token $null
 $emptyLater = Api 'POST' "/api/exams/$($empty.data.id)/reschedule" $ins.token @{ startTime = (Utc $now.AddDays(1)); endTime = (Utc $now.AddDays(2)) }
 Check 'an archived exam without attempts to a later start: 200 SCHEDULED (unchanged)' ($emptyLater.status -eq 200 -and $emptyLater.data.status -eq 'SCHEDULED') (Answer $emptyLater)
