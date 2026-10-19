@@ -138,6 +138,10 @@ $examTables = @(
     @('user_groups', 'id IN (SELECT id FROM tg)'),
     @('exams', 'id IN (SELECT id FROM te)')
 )
+# B13: the own limits of test teachers; the table exists from exam V19 on (an older database has none)
+if ((Invoke-Psql $ExamDb "SELECT to_regclass('public.instructor_limits') IS NOT NULL;" 'Looking for instructor_limits') -contains 't') {
+    $examTables = @(, @('instructor_limits', 'instructor_id IN (SELECT id FROM tu)')) + $examTables
+}
 $authTables = @(
     @('admin_audit_log', 'admin_user_id IN (SELECT id FROM tu) OR target_user_id IN (SELECT id FROM tu)'),
     @('refresh_tokens', 'user_id IN (SELECT id FROM tu)'),
