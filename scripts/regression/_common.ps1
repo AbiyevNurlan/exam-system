@@ -35,3 +35,21 @@ function Wait-Gateway {
         Start-Sleep -Seconds $IntervalSeconds
     }
 }
+
+# An ACTIVE exam whose window is already open, for scripts that need to start an attempt at once. POST /api/exams
+# refuses a start time in the past (@Future), so the exam is created ahead, published, and only then moved to
+# [now - 1 minute, now + 3 hours] with POST /reschedule (which accepts a start in the past and makes the exam
+# ACTIVE). Uses Api and Utc of the calling script. Returns the answer of the create call (status, data.id) with
+# 'published' and 'rescheduled' answers added; check them (status 200) before relying on the exam.
+function New-ActiveExam {
+    param($Token, [scriptblock]$BodyFor)
+    $now = [DateTime]::UtcNow
+    $created = Api 'POST' '/api/exams' $Token (& $BodyFor $now.AddHours(1) $now.AddHours(3))
+    $created['published'] = $null
+    $created['rescheduled'] = $null
+    if ($created.status -eq 201 -and $created.data.id) {
+        $created['published'] = Api 'POST' "/api/exams/$($created.data.id)/publish" $Token $null
+        $created['rescheduled'] = Api 'POST' "/api/exams/$($created.data.id)/reschedule" $Token @{ startTime = (Utc $now.AddMinutes(-1)); endTime = (Utc $now.AddHours(3)) }
+    }
+    return $created
+}

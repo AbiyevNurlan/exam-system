@@ -154,10 +154,13 @@ $zero = Api 'GET' '/api/me/stats' $p2.token $null
 Check 'stats with no attempt: zeros and nulls' ($zero.status -eq 200 -and $zero.data.examsTaken -eq 0 -and $zero.data.examsGraded -eq 0 -and $null -eq $zero.data.averagePercent -and $null -eq $zero.data.bestPercent -and $null -eq $zero.data.lastResult -and $zero.data.pendingGradingCount -eq 0) $zero.raw
 
 $now = [DateTime]::UtcNow
-$shown = Api 'POST' '/api/exams' $ins.token (ExamBody "$T-shown" $now.AddMinutes(-1) $now.AddHours(3) $true @((Mc "$T s1"), (Mc "$T s2"), (Mc "$T s3"), (Mc "$T s4")))
-$hidden = Api 'POST' '/api/exams' $ins.token (ExamBody "$T-hidden" $now.AddMinutes(-1) $now.AddHours(3) $false @((Mc "$T h1"), (Mc "$T h2")))
-$essay = Api 'POST' '/api/exams' $ins.token (ExamBody "$T-essay" $now.AddMinutes(-1) $now.AddHours(3) $true @((Open "$T e1")))
-foreach ($e in $shown, $hidden, $essay) { $null = Api 'POST' "/api/exams/$($e.data.id)/publish" $ins.token $null }
+# POST /api/exams refuses a start in the past (@Future): New-ActiveExam creates ahead, publishes and reschedules to an open window
+$shown = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-shown" $s $e $true @((Mc "$T s1"), (Mc "$T s2"), (Mc "$T s3"), (Mc "$T s4")) }
+$hidden = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-hidden" $s $e $false @((Mc "$T h1"), (Mc "$T h2")) }
+$essay = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-essay" $s $e $true @((Open "$T e1")) }
+foreach ($e in $shown, $hidden, $essay) {
+    if ($e.status -ne 201 -or $e.published.status -ne 200 -or $e.rescheduled.status -ne 200) { throw "setup: an active exam was not made (create $(Answer $e), publish $(Answer $e.published), open window $(Answer $e.rescheduled))" }
+}
 $a1 = Attempt $shown.data.id $p1 1      # 1 of 4 right: 25 %
 $a2 = Attempt $shown.data.id $p1 3      # 3 of 4 right: 75 %, the best of this exam
 $a3 = Attempt $hidden.data.id $p1 2     # 100 %, but withheld until the exam ends
