@@ -5,6 +5,7 @@ import com.examportal.common.domain.dto.*;
 import com.examportal.common.domain.dto.group.ExamAudiencePreviewResponse;
 import com.examportal.common.domain.dto.group.ExamAudienceRequest;
 import com.examportal.common.domain.dto.group.ExamAudienceResponse;
+import com.examportal.common.domain.dto.history.ExamHistoryDtos;
 import com.examportal.common.domain.entity.*;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.exam.exception.ExamException;
@@ -138,6 +139,7 @@ public class ExamService {
         return transactionalOperator.transactional(creation)
                 .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))
                 .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits)
                 .doOnSuccess(exam -> log.info("Exam created successfully: {}", exam.getId()));
     }
 
@@ -210,6 +212,7 @@ public class ExamService {
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
                 .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits)
                 .doOnSuccess(exam -> log.info("Exam updated successfully: {}", examId));
     }
 
@@ -283,7 +286,8 @@ public class ExamService {
                                         .accessType(exam.getAccessType())
                                         .audienceGroupCount(groupIds.size())
                                         .groupIds(groupIds)
-                                        .build(), true));
+                                        .build(), true))
+                                        .flatMap(this::withLastEdits);
                             }
                             if (exam.getStatus() == ExamStatus.DRAFT) {
                                 return Mono.error(ExamException.notFound(examId));
@@ -304,7 +308,8 @@ public class ExamService {
                 : examRepository.findByCreatedBy(userId);
 
         return exams.flatMap(exam -> loadExamWithQuestions(exam))
-                .flatMap(response -> examMedia.withMedia(response, true));
+                .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits);
     }
 
     /**
@@ -470,6 +475,7 @@ public class ExamService {
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
                 .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits)
                 .doOnSuccess(exam -> log.info("Exam {} status updated to {}", examId, newStatus));
     }
 
@@ -816,6 +822,29 @@ public class ExamService {
 
     private int maxAttempts(Exam exam) {
         return exam.getMaxAttempts() != null ? exam.getMaxAttempts() : 1;
+    }
+
+    /**
+     * B12a, for ADMIN and the owner: who changed each question last and when. A copy: the given response may be the
+     * cached instance, which never carries it (participants never get it).
+     */
+    private Mono<ExamResponse> withLastEdits(ExamResponse exam) {
+        if (exam.getQuestions() == null || exam.getQuestions().isEmpty()) {
+            return Mono.just(exam);
+        }
+        return history.lastQuestionEdits(exam.getId())
+                .map(edits -> edits.isEmpty() ? exam : exam.toBuilder()
+                        .questions(exam.getQuestions().stream()
+                                .map(question -> {
+                                    var edit = edits.get(question.getId());
+                                    return edit == null ? question : question.toBuilder()
+                                            .lastEditedBy(ExamHistoryDtos.Actor.builder().userId(edit.actorId())
+                                                    .name(edit.actorName()).code(edit.actorCode()).build())
+                                            .lastEditedAt(edit.at())
+                                            .build();
+                                })
+                                .toList())
+                        .build());
     }
 
     /**

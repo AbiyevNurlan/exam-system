@@ -1,6 +1,7 @@
 package com.examportal.exam.repository;
 
 import com.examportal.common.domain.dto.ManagedExamResponse;
+import com.examportal.common.domain.dto.history.ExamHistoryDtos;
 import com.examportal.common.domain.entity.ExamAccessType;
 import com.examportal.common.domain.entity.ExamStatus;
 import lombok.RequiredArgsConstructor;
@@ -46,9 +47,15 @@ public class ExamManageRepository {
                                COALESCE(p.total_points, 0) AS total_points,
                                COALESCE(s.session_count, 0) AS session_count,
                                COALESCE(s.participant_count, 0) AS participant_count,
-                               aud.group_ids
+                               aud.group_ids,
+                               lm.actor_user_id AS modified_by, lm.actor_name AS modified_by_name,
+                               lm.actor_code AS modified_by_code, lm.actor_role AS modified_by_role,
+                               COALESCE(lm.created_at, e.updated_at) AS modified_at
                         FROM (SELECT e.* FROM exams e WHERE %s
                               ORDER BY e.created_at DESC, e.id DESC LIMIT :limit OFFSET :offset) e
+                        LEFT JOIN LATERAL (SELECT r.actor_user_id, r.actor_name, r.actor_code, r.actor_role, r.created_at
+                                           FROM exam_revisions r WHERE r.exam_id = e.id
+                                           ORDER BY r.revision_no DESC LIMIT 1) lm ON true
                         LEFT JOIN LATERAL (SELECT SUM(q.points) AS total_points
                                            FROM questions q WHERE q.exam_id = e.id AND q.active = true) p ON true
                         LEFT JOIN LATERAL (SELECT COUNT(*) AS session_count,
@@ -85,6 +92,13 @@ public class ExamManageRepository {
                         .createdAt(row.get("created_at", LocalDateTime.class))
                         .audienceGroupCount(audience.size())
                         .groupIds(audience)
+                        .lastModifiedBy(row.get("modified_by", UUID.class) == null ? null : ExamHistoryDtos.Actor.builder()
+                                .userId(row.get("modified_by", UUID.class))
+                                .name(row.get("modified_by_name", String.class))
+                                .code(row.get("modified_by_code", Integer.class))
+                                .role(row.get("modified_by_role", String.class))
+                                .build())
+                        .lastModifiedAt(row.get("modified_at", LocalDateTime.class))
                         .build();
                 })
                 .all();

@@ -74,6 +74,7 @@ class ExamUpdateIntegrityTest {
     void setUp() {
         when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(call -> call.getArgument(0));
         when(history.record(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyList())).thenReturn(Mono.empty());
+        when(history.lastQuestionEdits(any())).thenReturn(Mono.just(java.util.Map.of()));
         when(accessPolicy.requireAccess(any(), anyString(), any(Exam.class))).thenAnswer(call -> Mono.just(call.getArgument(2)));
         when(accessPolicy.canManage(any(), anyString(), any(Exam.class))).thenReturn(true);
         when(editLock.lockForEdit(EXAM_ID)).thenReturn(Mono.just(EXAM_ID));

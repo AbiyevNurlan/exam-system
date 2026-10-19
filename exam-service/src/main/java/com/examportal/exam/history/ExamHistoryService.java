@@ -31,6 +31,14 @@ public class ExamHistoryService {
 
     private final ExamRevisionRepository revisions;
     private final ExamFeatures features;
+    private final ExamHistoryQueryRepository queries;
+
+    /**
+     * Who edited each question of the exam last, and when (question id -> its newest history row)
+     */
+    public Mono<Map<Long, ExamHistoryQueryRepository.LastEdit>> lastQuestionEdits(Long examId) {
+        return queries.lastQuestionEdits(examId);
+    }
 
     /**
      * statusBefore: the exam's status before this change (null for a new exam); ownerId: who owns the exam

@@ -1,5 +1,6 @@
 package com.examportal.exam.service;
 
+import com.examportal.exam.history.ExamHistoryQueryRepository;
 import com.examportal.exam.history.ExamHistoryService;
 import com.examportal.exam.history.ExamRevisionRepository;
 import com.examportal.exam.history.ExamSnapshotRepository;
@@ -87,7 +88,7 @@ final class ExamTestStack implements AutoCloseable {
     }
 
     ExamHistoryService history(ExamFeatures features) {
-        return new ExamHistoryService(new ExamRevisionRepository(db), features);
+        return new ExamHistoryService(new ExamRevisionRepository(db), features, new ExamHistoryQueryRepository(db));
     }
 
     ExamMetaService metaService(ExamFeatures features) {
