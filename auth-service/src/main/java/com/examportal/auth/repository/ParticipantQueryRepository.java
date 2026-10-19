@@ -112,6 +112,10 @@ public class ParticipantQueryRepository {
 
     // ==================== Private Helper Methods ====================
 
+    // Names in Azerbaijani alphabetical order, ignoring case and the spaces around them (az_ci, V6)
+    private static final String FIRST_NAME = "btrim(first_name) COLLATE az_ci";
+    private static final String LAST_NAME = "btrim(last_name) COLLATE az_ci";
+
     /**
      * The ORDER BY of a page. Only fixed text from this switch is put into the statement (the key is a
      * whitelist, the direction one of two words); an unknown key is a 400.
@@ -121,8 +125,8 @@ public class ParticipantQueryRepository {
         String sort = sortKey == null ? "registeredat" : sortKey.trim().toLowerCase(Locale.ROOT);
         return switch (sort) {
             case "code" -> "participant_code " + d;
-            case "firstname" -> "lower(first_name) " + d + ", lower(last_name) " + d + ", id";
-            case "lastname", "name" -> "lower(last_name) " + d + ", lower(first_name) " + d + ", id";
+            case "firstname" -> FIRST_NAME + " " + d + ", " + LAST_NAME + " " + d + ", id";
+            case "lastname", "name" -> LAST_NAME + " " + d + ", " + FIRST_NAME + " " + d + ", id";
             case "email" -> "lower(email) " + d;
             case "registeredat", "createdat", "" -> "created_at " + d + ", id";
             default -> throw new ValidationException("sortBy", "must be code, firstName, lastName, email or registeredAt");

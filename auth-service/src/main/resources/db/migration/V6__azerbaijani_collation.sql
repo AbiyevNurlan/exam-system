@@ -1,0 +1,21 @@
+-- =====================================================
+-- V6 (B11b): Azerbaijani alphabetical order for names
+-- Additive only: one collation, no data is changed.
+--
+-- The database collation is en_US.utf8 from libc on Alpine (musl), which compares by code point: every letter
+-- of Ç Ə Ğ İ Ö Ş Ü comes after Z, X sits after W instead of after H, Q after P instead of after K, and lower()
+-- turns I into i instead of ı. ICU knows the Azerbaijani alphabet
+-- (A B C Ç D E Ə F G Ğ H X I İ J K Q L M N O Ö P R S Ş T U Ü V Y Z) and ı/I, i/İ as pairs.
+--
+-- az_ci: ICU "az" at strength 2 (ks-level2), so a capital and a small letter are the same letter (Əli = əli,
+-- İlqar = ilqar) while ı and i, e and ə, s and ş stay different letters. Not deterministic: names equal under
+-- the collation are told apart by the second key of every ORDER BY (participant_code). Used only for sorting;
+-- searches keep lower(...) LIKE on their own indexes (LIKE does not work on a nondeterministic collation).
+--
+-- The collation records the ICU version it was created with. When an image upgrade brings another ICU,
+-- PostgreSQL warns ("version mismatch"); the indexes on az_ci (V7) are then rebuilt with REINDEX and the
+-- collation marked with ALTER COLLATION az_ci REFRESH VERSION.
+-- Applied by Flyway. NEVER edit this file once applied anywhere.
+-- =====================================================
+
+CREATE COLLATION IF NOT EXISTS az_ci (provider = icu, locale = 'az-u-ks-level2', deterministic = false);
