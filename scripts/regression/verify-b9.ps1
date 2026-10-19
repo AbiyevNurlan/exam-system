@@ -151,8 +151,20 @@ foreach ($kind in $changes.Keys) {
     $r = Api 'PUT' "/api/exams/$liveId" $ins.token (WithId $liveId (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) 30 $changes[$kind]))
     Check "an exam with attempts, changed ${kind}: 409 EXAM_HAS_SESSIONS" ($r.status -eq 409 -and $r.code -eq 'EXAM_HAS_SESSIONS') (Answer $r)
 }
-$durationOnly = Api 'PUT' "/api/exams/$liveId" $ins.token (WithId $liveId (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) 90 @((Question "$T a1" 2), (Question "$T a2" 3))))
-Check 'an exam with attempts, only the duration changed: 409 EXAM_HAS_SESSIONS' ($durationOnly.status -eq 409 -and $durationOnly.code -eq 'EXAM_HAS_SESSIONS') (Answer $durationOnly)
+# Only the duration: the exam as GET shows it (same block, question and option ids, same texts, points and answer key),
+# so the 409 can only come from the duration. B9 keeps the duration of an exam with attempts on purpose
+# (ExamException.hasSessions): who already started had the old one
+$current = (Api 'GET' "/api/exams/$liveId" $ins.token $null).data
+$sameQuestions = @(@($current.questions) | ForEach-Object {
+    @{ id = $_.id; questionText = $_.questionText; questionType = $_.questionType; points = $_.points; orderIndex = $_.orderIndex
+       allowMultipleAnswers = [bool]$_.allowMultipleAnswers
+       options = @(@($_.options) | ForEach-Object { @{ id = $_.id; optionText = $_.optionText; isCorrect = [bool]$_.isCorrect; orderIndex = $_.orderIndex } }) } })
+$idsBefore = (@($current.questions) | ForEach-Object { "$($_.id):" + ((@($_.options) | ForEach-Object { $_.id }) -join '/') }) -join ','
+$durationOnly = Api 'PUT' "/api/exams/$liveId" $ins.token (WithId $liveId (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) ([int]$current.durationMinutes + 15) $sameQuestions))
+$afterGet = (Api 'GET' "/api/exams/$liveId" $ins.token $null).data
+$idsAfter = (@($afterGet.questions) | ForEach-Object { "$($_.id):" + ((@($_.options) | ForEach-Object { $_.id }) -join '/') }) -join ','
+Check 'an exam with attempts, only the duration changed (same ids): 409 EXAM_HAS_SESSIONS, ids and duration unchanged' ($durationOnly.status -eq 409 -and $durationOnly.code -eq 'EXAM_HAS_SESSIONS' -and
+    $idsBefore -ne '' -and $idsAfter -eq $idsBefore -and [int]$afterGet.durationMinutes -eq [int]$current.durationMinutes) "$(Answer $durationOnly), ids $idsBefore -> $idsAfter"
 $adminTry = Api 'PUT' "/api/exams/$liveId" $adm.token (WithId $liveId (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) 30 @((Question "$T a1" 9))))
 Check 'an ADMIN gets the same 409' ($adminTry.status -eq 409 -and $adminTry.code -eq 'EXAM_HAS_SESSIONS') (Answer $adminTry)
 Check 'after all of that the questions, points, answer key and duration are exactly as before' ((ExamShape $liveId) -eq $shapeBefore) $shapeBefore
