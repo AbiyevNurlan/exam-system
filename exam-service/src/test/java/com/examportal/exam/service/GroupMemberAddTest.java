@@ -54,7 +54,15 @@ class GroupMemberAddTest {
     private final UserDirectoryClient userDirectory = mock(UserDirectoryClient.class);
     private final TransactionalOperator transactionalOperator = mock(TransactionalOperator.class);
     private final GroupMembershipRepository membershipRepository = mock(GroupMembershipRepository.class);
+    private final InstructorLimitsService limits = unlimited();
     private GroupService service;
+
+    /** A limits service that never refuses (the limits have their own tests) */
+    static InstructorLimitsService unlimited() {
+        InstructorLimitsService limits = mock(InstructorLimitsService.class);
+        when(limits.requireRoom(any(), any(), anyString(), org.mockito.ArgumentMatchers.anyLong())).thenReturn(Mono.empty());
+        return limits;
+    }
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -64,13 +72,14 @@ class GroupMemberAddTest {
                 UserGroup.builder().id(GROUP_ID).name("11A").ownerId(TEACHER).createdBy(TEACHER).active(true).build()));
         when(inviteRepository.addInvite(eq(GROUP_ID), anyString(), any())).thenReturn(Mono.just(1));
         when(inviteRepository.removeInvite(eq(GROUP_ID), anyString())).thenReturn(Mono.just(0));
+        when(membershipRepository.isMemberOfOwner(any(), eq(TEACHER))).thenReturn(Mono.just(false));
         when(memberRepository.addMember(eq(GROUP_ID), any(), anyString(), any())).thenReturn(Mono.just(1));
         when(auditService.record(any(), anyString(), any(), any(), any())).thenReturn(Mono.empty());
         when(userDirectory.findByEmail(anyString())).thenReturn(Mono.just(
                 UserRef.builder().id(KNOWN).email("known@x.test").emailVerified(true).build()));
         service = new GroupService(groupRepository, memberRepository, inviteRepository, auditService, userDirectory,
                 transactionalOperator, mock(GroupOverviewRepository.class), membershipRepository,
-                new GroupAccessPolicy(groupRepository), new ActionRateLimiter(mock(ObjectProvider.class)));
+                new GroupAccessPolicy(groupRepository), new ActionRateLimiter(mock(ObjectProvider.class)), limits);
     }
 
     private static UserPrincipal teacher() {
@@ -170,6 +179,16 @@ class GroupMemberAddTest {
         StepVerifier.create(service.addMember(GROUP_ID, AddGroupMemberRequest.builder().email("a@x.test").participantCode(4141592).build(), teacher()))
                 .expectErrorSatisfies(e -> assertCode(e, HttpStatus.BAD_REQUEST, "GROUP_MEMBER_REFERENCE_REQUIRED"))
                 .verify();
+    }
+
+    @Test
+    void a_teacher_at_the_limit_of_members_cannot_invite_and_nothing_is_stored() {
+        when(limits.requireRoom(eq(TEACHER), eq("INSTRUCTOR"), eq(InstructorLimitsService.MEMBERS), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(Mono.error(InstructorLimitsService.reached(InstructorLimitsService.MEMBERS, 2000, 2000)));
+        StepVerifier.create(service.addMember(GROUP_ID, byEmail("new@x.test"), teacher()))
+                .expectErrorSatisfies(e -> assertCode(e, HttpStatus.CONFLICT, "TEACHER_LIMIT_REACHED"))
+                .verify();
+        verify(inviteRepository, never()).addInvite(anyLong(), anyString(), any());
     }
 
     @Test

@@ -56,6 +56,8 @@ public class GroupAuditService {
     public static final String LINK_UPDATED = "LINK_UPDATED";
     public static final String JOIN_VIA_LINK = "JOIN_VIA_LINK";
     public static final String JOIN_REQUESTED = "JOIN_REQUESTED";
+    // B13: an administrator set the limits of a teacher (target = the teacher)
+    public static final String INSTRUCTOR_LIMITS_CHANGED = "INSTRUCTOR_LIMITS_CHANGED";
     // JOIN_APPROVED and JOIN_REJECTED are written in SQL by GroupJoinRepository.decide
     // INVITE_APPLIED is written in SQL by GroupImportRepository.applyPendingInvites
 

@@ -7,6 +7,7 @@ import com.examportal.common.domain.dto.media.MediaUploadResponse;
 import com.examportal.common.domain.dto.media.MediaUrlResponse;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.service.MediaService;
+import com.examportal.exam.service.InstructorLimitsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -34,6 +35,7 @@ import java.util.UUID;
 public class MediaController {
 
     private final MediaService mediaService;
+    private final InstructorLimitsService limitsService;
 
     @PostMapping("/upload-url")
     @Operation(summary = "Get an upload URL", description = "Registers a PENDING asset and returns a presigned URL (valid 10 minutes). "
@@ -44,7 +46,10 @@ public class MediaController {
             @Valid @RequestBody MediaUploadRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return mediaService.createUpload(request, principal.getId())
+        // B13: a teacher's limit of media bytes (ADMIN has none)
+        long size = request.getSizeBytes() == null ? 0 : request.getSizeBytes();
+        return limitsService.requireRoom(principal.getId(), principal.getRole(), InstructorLimitsService.MEDIA_BYTES, size)
+                .then(Mono.defer(() -> mediaService.createUpload(request, principal.getId())))
                 .map(ApiResponse::success);
     }
 

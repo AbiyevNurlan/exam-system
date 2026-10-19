@@ -66,6 +66,7 @@ public class GroupImportService {
     private final UserDirectoryClient userDirectory;
     private final TransactionalOperator transactionalOperator;
     private final GroupAccessPolicy accessPolicy;
+    private final InstructorLimitsService limits;
 
     private record ParsedCsv(List<String> emails, int totalRows, int invalid, int duplicates,
                              List<InvalidRow> invalidRows) {
@@ -105,9 +106,13 @@ public class GroupImportService {
                             // Nothing new (e.g. the same file again): no write and no audit row either
                             boolean nothingToStore = classification.newMembers().isEmpty()
                                     && classification.newInvites().isEmpty();
+                            // B13: a teacher's new invites count against the teacher's limit of members
                             return dryRun || nothingToStore
                                     ? Mono.just(response)
-                                    : apply(groupId, classification, response, actorId).thenReturn(response);
+                                    : limits.requireRoom(actorId, actor.getRole(), InstructorLimitsService.MEMBERS,
+                                                    classification.newMembers().size() + classification.newInvites().size())
+                                            .then(Mono.defer(() -> apply(groupId, classification, response, actorId)))
+                                            .thenReturn(response);
                         }))
                 .doOnSuccess(r -> log.info("CSV import for group {} by {} (dryRun={}): rows={} matched={} "
                                 + "pendingInvite={} alreadyMember={} alreadyInvited={} invalid={} duplicates={}",

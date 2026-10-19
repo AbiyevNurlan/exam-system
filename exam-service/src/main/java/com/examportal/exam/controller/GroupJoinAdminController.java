@@ -5,6 +5,7 @@ import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.group.JoinDtos;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.service.GroupJoinService;
+import com.examportal.exam.service.InstructorLimitsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -38,6 +39,7 @@ import reactor.core.publisher.Mono;
 public class GroupJoinAdminController {
 
     private final GroupJoinService joinService;
+    private final InstructorLimitsService limitsService;
 
     @GetMapping("/join-link")
     @Operation(summary = "Get the join link", description = "Code, settings, uses and open requests; 404 JOIN_LINK_NOT_FOUND when the group has none")
@@ -92,7 +94,10 @@ public class GroupJoinAdminController {
             @Valid @RequestBody JoinDtos.Decision request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return joinService.decide(id, request.getRequestIds(), true, principal)
+        // B13: approved people become members of the teacher's group (at most one new member per request)
+        int adding = request.getRequestIds() == null ? 0 : request.getRequestIds().size();
+        return limitsService.requireRoom(principal.getId(), principal.getRole(), InstructorLimitsService.MEMBERS, adding)
+                .then(Mono.defer(() -> joinService.decide(id, request.getRequestIds(), true, principal)))
                 .map(ApiResponse::success);
     }
 
@@ -114,7 +119,8 @@ public class GroupJoinAdminController {
             @PathVariable Long requestId,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return joinService.decideOne(id, requestId, true, principal)
+        return limitsService.requireRoom(principal.getId(), principal.getRole(), InstructorLimitsService.MEMBERS, 1)
+                .then(Mono.defer(() -> joinService.decideOne(id, requestId, true, principal)))
                 .map(ApiResponse::success);
     }
 

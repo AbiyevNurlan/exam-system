@@ -97,6 +97,13 @@ exam:
     # blocks) is B12b. Until it is in place this stays false and an exam that needs it cannot be
     # published (409 FEATURE_NOT_AVAILABLE). B12b turns it on.
     rules-enabled: ${EXAM_BLOCK_RULES_ENABLED:false}
+  # B13: what one teacher may own unless an administrator sets other limits (PUT /api/admin/instructor-limits/{id});
+  # members are distinct people in the own groups, pending invites included; ADMIN has no limits
+  instructor-limits:
+    max-groups: ${EXAM_TEACHER_MAX_GROUPS:50}
+    max-members: ${EXAM_TEACHER_MAX_MEMBERS:2000}
+    max-exams: ${EXAM_TEACHER_MAX_EXAMS:200}
+    max-media-bytes: ${EXAM_TEACHER_MAX_MEDIA_BYTES:1073741824}
   history:
     # B12a: changeReason (3-500 characters) is optional on every change of an exam. With this on, a sensitive
     # change (answer key, points, duration, window, block timers and rules, publish, archive) of a SCHEDULED

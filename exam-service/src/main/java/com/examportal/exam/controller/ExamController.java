@@ -13,6 +13,7 @@ import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.history.ChangeContextFactory;
 import com.examportal.exam.service.AnswerSubmissionService;
+import com.examportal.exam.service.InstructorLimitsService;
 import com.examportal.exam.service.ExamAccessPolicy;
 import com.examportal.exam.service.ExamReadinessService;
 import com.examportal.exam.service.ExamMetaService;
@@ -58,6 +59,7 @@ import java.util.UUID;
 public class ExamController {
 
     private final ExamService examService;
+    private final InstructorLimitsService limitsService;
     private final ExamMetaService examMetaService;
     private final AnswerSubmissionService answerService;
     private final SessionMediaService sessionMediaService;
@@ -84,7 +86,9 @@ public class ExamController {
 
         log.info("Creating exam: {} by user: {}", request.getTitle(), principal.getId());
 
-        return changes.create(principal, httpRequest)
+        // B13: a teacher's limit of exams (ADMIN has none)
+        return limitsService.requireRoom(principal.getId(), principal.getRole(), InstructorLimitsService.EXAMS, 1)
+                .then(Mono.defer(() -> changes.create(principal, httpRequest)))
                 .flatMap(change -> examService.createExam(request, change))
                 .map(exam -> ApiResponse.success(exam, "Exam created successfully"));
     }
@@ -136,7 +140,9 @@ public class ExamController {
             @PathVariable Long id,
             ServerHttpRequest httpRequest,
             @AuthenticationPrincipal UserPrincipal principal) {
-        return changes.create(principal, httpRequest)
+        // B13: a copy is a new exam of the teacher
+        return limitsService.requireRoom(principal.getId(), principal.getRole(), InstructorLimitsService.EXAMS, 1)
+                .then(Mono.defer(() -> changes.create(principal, httpRequest)))
                 .flatMap(change -> examService.cloneExam(id, change))
                 .map(exam -> ApiResponse.success(exam, "Exam copied"));
     }

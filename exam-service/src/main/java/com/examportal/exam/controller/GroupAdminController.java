@@ -12,6 +12,7 @@ import com.examportal.common.domain.dto.group.GroupRequest;
 import com.examportal.common.domain.dto.group.GroupResponse;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.service.GroupImportService;
+import com.examportal.exam.service.InstructorLimitsService;
 import com.examportal.exam.service.GroupService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -46,6 +47,7 @@ import java.util.UUID;
 public class GroupAdminController {
 
     private final GroupService groupService;
+    private final InstructorLimitsService limitsService;
     private final GroupImportService importService;
 
     @PostMapping
@@ -55,7 +57,9 @@ public class GroupAdminController {
             @Valid @RequestBody GroupRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
 
-        return groupService.createGroup(request, principal)
+        // B13: a teacher's limit of groups (ADMIN has none)
+        return limitsService.requireRoom(principal.getId(), principal.getRole(), InstructorLimitsService.GROUPS, 1)
+                .then(Mono.defer(() -> groupService.createGroup(request, principal)))
                 .map(group -> ApiResponse.success(group, "Group created successfully"));
     }
 

@@ -69,6 +69,7 @@ public class GroupService {
     private final GroupMembershipRepository membershipRepository;
     private final GroupAccessPolicy accessPolicy;
     private final ActionRateLimiter rateLimiter;
+    private final InstructorLimitsService limits;
 
     /**
      * The creator owns the new group
@@ -343,7 +344,7 @@ public class GroupService {
 
         return findGroup(groupId, actor).flatMap(group -> {
             if (hasCode) {
-                return addByCode(groupId, request.getParticipantCode(), actorId);
+                return addByCode(groupId, request.getParticipantCode(), actorId, actor.getRole());
             }
             if (hasId) {
                 Mono<Boolean> known = owner == null ? Mono.just(true)
@@ -355,7 +356,9 @@ public class GroupService {
             }
             String email = request.getEmail().trim().toLowerCase(Locale.ROOT);
             if (owner != null) {
-                return invite(groupId, email, actorId);
+                // An invite counts as a member to come (InstructorLimitsService)
+                return limits.requireRoom(actorId, actor.getRole(), InstructorLimitsService.MEMBERS, 1)
+                        .then(Mono.defer(() -> invite(groupId, email, actorId)));
             }
             return userDirectory.findByEmail(email)
                     .filter(user -> user.isEmailVerified())
@@ -367,7 +370,7 @@ public class GroupService {
     /**
      * B13: a verified participant by the exact 7-digit code, within the caller's rate limit
      */
-    private Mono<AddGroupMemberResponse> addByCode(Long groupId, int code, UUID actorId) {
+    private Mono<AddGroupMemberResponse> addByCode(Long groupId, int code, UUID actorId, String role) {
         return rateLimiter.tryAcquire("member-by-code:" + actorId, CODE_ADDITIONS_PER_MINUTE, Duration.ofMinutes(1))
                 .flatMap(allowed -> allowed ? Mono.just(code) : Mono.<Integer>error(GroupException.codeLookupLimited()))
                 .flatMap(wanted -> userDirectory.participants(ParticipantQuery.PageRequest.builder()
@@ -382,6 +385,12 @@ public class GroupService {
                         .filter(user -> Integer.valueOf(code).equals(user.getParticipantCode()))
                         .findFirst()))
                 .switchIfEmpty(Mono.error(GroupException.participantNotFound()))
+                // B13: somebody new to the teacher's groups is one more member of the teacher's limit
+                .flatMap(user -> (OwnershipPolicy.isInstructor(role)
+                        ? membershipRepository.isMemberOfOwner(user.getId(), actorId)
+                                .flatMap(known -> known ? Mono.<Void>empty()
+                                        : limits.requireRoom(actorId, role, InstructorLimitsService.MEMBERS, 1))
+                        : Mono.<Void>empty()).thenReturn(user))
                 .flatMap(user -> addExistingUser(groupId, user.getId(), null, actorId)
                         .map(added -> added.toBuilder().maskedName(maskName(user.getFirstName(), user.getLastName())).build()));
     }
