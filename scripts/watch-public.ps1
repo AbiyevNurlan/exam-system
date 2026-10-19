@@ -8,10 +8,13 @@
       - the address in the tunnel log is the one the stack was started with (deploy\public\state\url.txt):
         after a reboot Docker starts the old containers again and the tunnel gets a new address that
         exam-service does not know;
-      - <address>/ answers 200 (3 tries, 10 s apart: one lost request is no outage).
+      - <address>/ answers 200 from outside, through Cloudflare (3 tries, 10 s apart: one lost request
+        is no outage); the log names what each try got (502, 530, timeout/no answer).
     When a check fails it runs .\scripts\go-public.ps1 start -NewTunnel -SkipBackup -SkipFrontendBuild
     (no data is touched; the served frontend stays; the nightly backup is separate) and writes the new
-    address to deploy\public\CURRENT_URL.txt and to deploy\public\state\watch.log.
+    address to deploy\public\CURRENT_URL.txt and to deploy\public\state\watch.log, with an
+    "ADDRESS CHANGED: old -> new" line. Not a bare restart of exam-cloudflared: that would give a new
+    address that exam-service does not know (media links of exams would point at the old one).
 
     It does nothing while the site was stopped on purpose (.\scripts\go-public.ps1 stop leaves
     deploy\public\state\stopped-on-purpose; the next start removes it), and it waits 5 minutes
@@ -58,14 +61,20 @@ function Get-Problem {
     $current = "$current".Trim()
     if ($current -notmatch '^https://') { return 'the tunnel has no address' }
     if ($expected -and $current -ne $expected) { return "the tunnel address changed ($expected -> $current): the services do not know it" }
+    # From outside, through Cloudflare: a tunnel that is reconnecting answers 502/530 or nothing at all
+    $answers = @()
     for ($try = 1; $try -le 3; $try++) {
         try {
             $status = [int](Invoke-WebRequest -Uri "$current/" -UseBasicParsing -TimeoutSec 15).StatusCode
             if ($status -eq 200) { return $null }
-        } catch { $status = 0 }
+            $answers += "$status"
+        } catch {
+            $response = $_.Exception.Response
+            $answers += $(if ($response) { "$([int]$response.StatusCode)" } else { 'timeout/no answer' })
+        }
         if ($try -lt 3) { Start-Sleep -Seconds 10 }
     }
-    return "$current/ does not answer 200 (last status $status)"
+    return "$current/ does not answer 200 (tries: $($answers -join ', '))"
 }
 
 function Invoke-Check {
@@ -76,12 +85,19 @@ function Invoke-Check {
         Write-Log "PROBLEM: $problem (restarted less than $CooldownSeconds s ago, waiting)"
         return
     }
-    Write-Log "PROBLEM: $problem -> go-public.ps1 start -NewTunnel"
+    # Not a bare restart of exam-cloudflared: a new tunnel has a new address, and exam-service must get
+    # it too (signed media links), which only go-public.ps1 start does
+    $before = if (Test-Path -LiteralPath $urlFile) { (Get-Content -LiteralPath $urlFile -TotalCount 1).Trim() } else { '' }
+    Write-Log "PROBLEM: $problem -> go-public.ps1 start -NewTunnel (the tunnel container is replaced: the address WILL change)"
     $script:lastRestart = Get-Date
     $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $goPublic start -NewTunnel -SkipBackup -SkipFrontendBuild 2>&1 | ForEach-Object { "$_" }
     $code = $LASTEXITCODE
     $address = ($out | Select-String -Pattern '^PUBLIC ADDRESS: (\S+)' | Select-Object -Last 1)
-    if ($code -eq 0 -and $address) { Write-Log "STARTED: new public address $($address.Matches[0].Groups[1].Value) (send it to the participants)" }
+    if ($code -eq 0 -and $address) {
+        $after = $address.Matches[0].Groups[1].Value
+        if ($before -and $before -ne $after) { Write-Log "ADDRESS CHANGED: $before -> $after" }
+        Write-Log "STARTED: new public address $after (send it to the participants)"
+    }
     else {
         Write-Log "START FAILED (exit $code):"
         $out | Select-Object -Last 8 | ForEach-Object { Write-Log "  $_" }

@@ -155,12 +155,18 @@ services:
       retries: 6
 
   # Cloudflare quick tunnel (no account): a random https://*.trycloudflare.com address per start,
-  # read from this container's log (scripts\go-public.ps1 url)
+  # read from this container's log (scripts\go-public.ps1 url). The only tunnel: the site and the
+  # signed media links (/exam-media/) both go through edge.
+  # --protocol http2: the edge connection over TCP 443 instead of QUIC (UDP 7844). On this network
+  # QUIC kept dropping ("failed to dial a quic connection: timeout: no recent network activity",
+  # "datagram manager error") and every reconnect gave the browser a 502 for a moment.
+  # --edge-ip-version 4: the Docker network of the tunnel has IPv4 only; pinned so that cloudflared
+  # never spends a connection attempt on an IPv6 edge address it cannot reach.
   cloudflared:
     image: cloudflare/cloudflared:2026.9.3
     container_name: exam-cloudflared
     restart: unless-stopped
-    command: ["tunnel", "--no-autoupdate", "--url", "http://edge:80"]
+    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "--edge-ip-version", "4", "--url", "http://edge:80"]
     environment:
       TZ: UTC
     networks:
