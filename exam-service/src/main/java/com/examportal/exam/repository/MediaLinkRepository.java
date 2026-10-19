@@ -162,6 +162,23 @@ public class MediaLinkRepository {
     }
 
     /**
+     * How many different exams use the media on a question or an option (B12a: a clone shares its source's media)
+     */
+    public Mono<Long> countExamsUsing(UUID mediaId) {
+        return databaseClient.sql("""
+                        SELECT COUNT(DISTINCT exam_id) FROM (
+                            SELECT q.exam_id FROM question_media qm JOIN questions q ON q.id = qm.question_id
+                            WHERE qm.media_id = :mediaId
+                            UNION ALL
+                            SELECT q.exam_id FROM option_media om JOIN question_options o ON o.id = om.option_id
+                            JOIN questions q ON q.id = o.question_id WHERE om.media_id = :mediaId) used
+                        """)
+                .bind("mediaId", mediaId)
+                .map(row -> row.get(0, Long.class))
+                .one();
+    }
+
+    /**
      * Remove the media from every question and option (drafts only: the caller has refused published exams)
      */
     public Mono<Void> detachEverywhere(UUID mediaId) {

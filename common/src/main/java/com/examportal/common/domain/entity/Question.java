@@ -31,6 +31,10 @@ public class Question {
     @Column("exam_id")
     private Long examId;
 
+    // B12a: the block of the same exam the question belongs to (never null in the database)
+    @Column("block_id")
+    private Long blockId;
+
     @Column("question_text")
     private String questionText;
 

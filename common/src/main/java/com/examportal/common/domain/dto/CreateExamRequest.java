@@ -1,6 +1,7 @@
 package com.examportal.common.domain.dto;
 
 import com.examportal.common.domain.entity.ExamAccessType;
+import com.examportal.common.domain.entity.TimingMode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
@@ -74,8 +75,22 @@ public class CreateExamRequest {
     @Size(max = 50, message = "An exam can have at most 50 audience groups")
     private List<@NotNull(message = "Group id must not be null") Long> groupIds;
 
-    @NotEmpty(message = "At least one question is required")
+    // The questions of an exam without blocks (the format before B12a): they make one block "Əsas blok".
+    // Either questions or blocks; at least one question in all (ExamValidator).
     @Size(max = 200, message = "An exam cannot have more than 200 questions")
     @Valid
     private List<QuestionDTO> questions;
+
+    // B12a: 1..20 blocks in order, each with its questions (at most 200 questions in all)
+    @Size(max = 20, message = "An exam has at most 20 blocks")
+    @Valid
+    private List<ExamBlockDTO> blocks;
+
+    // EXAM_TIMER (default: durationMinutes) or BLOCK_TIMERS (every block needs a time limit; the
+    // duration becomes the block limits plus the breaks)
+    private TimingMode timingMode;
+    // Defaults: false, true, true
+    private Boolean allowReturnToPreviousBlocks;
+    private Boolean allowSkipBreak;
+    private Boolean showBlockBreakdown;
 }

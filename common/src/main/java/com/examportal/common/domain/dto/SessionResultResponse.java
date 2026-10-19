@@ -41,4 +41,8 @@ public class SessionResultResponse {
     private BigDecimal percentageScore;
     private Boolean passed;
     private BigDecimal passingScore;
+
+    // B12a: the result per block, only while the result itself is shown, only when the exam shows a breakdown,
+    // and only the blocks shown to participants: a hidden block is not here at all (score, percentage, answers)
+    private java.util.List<BlockResultResponse> blocks;
 }

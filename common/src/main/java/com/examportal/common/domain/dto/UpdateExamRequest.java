@@ -1,6 +1,7 @@
 package com.examportal.common.domain.dto;
 
 import com.examportal.common.domain.entity.ExamAccessType;
+import com.examportal.common.domain.entity.TimingMode;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -86,8 +87,25 @@ public class UpdateExamRequest {
     @Size(max = 50, message = "An exam can have at most 50 audience groups")
     private List<@NotNull(message = "Group id must not be null") Long> groupIds;
 
-    @NotEmpty(message = "At least one question is required")
+    // The questions of an exam without blocks (the format before B12a): the exam's only block. Either
+    // questions or blocks; at least one question in all (ExamValidator). Question and option ids of this
+    // exam keep their rows (changed in place); without an id a question or option is new.
     @Size(max = 200, message = "An exam cannot have more than 200 questions")
     @Valid
     private List<QuestionDTO> questions;
+
+    // B12a: 1..20 blocks in order, each with its questions; a block id of this exam keeps the block
+    @Size(max = 20, message = "An exam has at most 20 blocks")
+    @Valid
+    private List<ExamBlockDTO> blocks;
+
+    // B12a: why (optional, 3-500 characters), written to the exam's history; required for a sensitive change of a
+    // published exam only when REQUIRE_CHANGE_REASON_AFTER_PUBLISH is on
+    private String changeReason;
+
+    // Omitted = unchanged
+    private TimingMode timingMode;
+    private Boolean allowReturnToPreviousBlocks;
+    private Boolean allowSkipBreak;
+    private Boolean showBlockBreakdown;
 }

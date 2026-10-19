@@ -59,6 +59,52 @@ public class ExamException extends ApplicationException {
                 + "reopen it with a start time now or in the past", HttpStatus.CONFLICT, "EXAM_HAS_SESSIONS");
     }
 
+    // ==================== B12a: blocks, history, readiness ====================
+
+    /**
+     * A request without blocks (the older format) for an exam that has more than one: the questions
+     * cannot be put into one block without losing the others
+     */
+    public static ExamException blocksRequired() {
+        return new ExamException("This exam has more than one block: send the questions inside blocks",
+                HttpStatus.BAD_REQUEST, "BLOCKS_REQUIRED");
+    }
+
+    /**
+     * Block timers and breaks add up to more than the exam window (start..end)
+     */
+    public static ExamException durationExceedsWindow(int totalMinutes, long windowMinutes) {
+        return (ExamException) new ExamException("The blocks take " + totalMinutes + " min with their breaks, the window is "
+                + windowMinutes + " min", HttpStatus.BAD_REQUEST, "EXAM_DURATION_EXCEEDS_WINDOW")
+                .withDetails(java.util.Map.of("totalMinutes", totalMinutes, "windowMinutes", windowMinutes));
+    }
+
+    /**
+     * Block timers, a block without free navigation or returning to earlier blocks need the participant
+     * side of blocks (B12b); until it is switched on such an exam cannot be published
+     */
+    public static ExamException featureNotAvailable(Object details) {
+        return (ExamException) new ExamException("Block timers, fixed navigation and returning to earlier blocks are not "
+                + "available yet: the exam cannot be published with them", HttpStatus.CONFLICT, "FEATURE_NOT_AVAILABLE")
+                .withDetails(details);
+    }
+
+    /**
+     * Publishing an exam the readiness check blocks; details lists what is missing
+     */
+    public static ExamException notReady(Object details) {
+        return (ExamException) new ExamException("The exam is not ready to be published", HttpStatus.CONFLICT, "EXAM_NOT_READY")
+                .withDetails(details);
+    }
+
+    /**
+     * A sensitive change of a published exam without a reason, while REQUIRE_CHANGE_REASON_AFTER_PUBLISH is on
+     */
+    public static ExamException changeReasonRequired(Object details) {
+        return (ExamException) new ExamException("A reason (changeReason, 3-500 characters) is required for this change "
+                + "of a published exam", HttpStatus.BAD_REQUEST, "CHANGE_REASON_REQUIRED").withDetails(details);
+    }
+
     public static ExamException cannotDelete() {
         return new ExamException("Cannot delete an exam that has attempts; archive it instead",
                 HttpStatus.CONFLICT, "EXAM_CANNOT_DELETE");

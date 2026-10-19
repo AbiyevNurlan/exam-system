@@ -81,6 +81,20 @@ public class Exam {
     @Column("active")
     private Boolean active;
 
+    // B12a: blocks (exam_blocks). Defaults are the behaviour before blocks.
+    @Column("timing_mode")
+    private TimingMode timingMode;
+
+    @Column("allow_return_to_previous_blocks")
+    private Boolean allowReturnToPreviousBlocks;
+
+    @Column("allow_skip_break")
+    private Boolean allowSkipBreak;
+
+    // false: participants never get a result per block, whatever the blocks say
+    @Column("show_block_breakdown")
+    private Boolean showBlockBreakdown;
+
     @CreatedDate
     @Column("created_at")
     private LocalDateTime createdAt;

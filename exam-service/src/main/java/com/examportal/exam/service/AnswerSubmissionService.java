@@ -1,5 +1,6 @@
 package com.examportal.exam.service;
 
+import com.examportal.common.domain.dto.BlockResultResponse;
 import com.examportal.common.domain.dto.SubmitAnswerRequest;
 import com.examportal.common.domain.dto.SubmitAnswerResponse;
 import com.examportal.common.domain.dto.ExamResultResponse;
@@ -55,6 +56,8 @@ public class AnswerSubmissionService {
     private final ExamCacheService cacheService;
     private final ExamAccessPolicy accessPolicy;
     private final TransactionalOperator transactionalOperator;
+    // B12a: results per block
+    private final BlockResultRepository blockResults;
 
     private static final int MAX_PAGE_SIZE = 50;
 
@@ -251,19 +254,38 @@ public class AnswerSubmissionService {
                                 .build());
                     }
                     return storedResult(session)
-                            .map(result -> summary
-                                    .resultsAvailable(true)
-                                    .totalQuestions(result.getTotalQuestions())
-                                    .correctAnswers(result.getCorrectAnswers())
-                                    .incorrectAnswers(result.getIncorrectAnswers())
-                                    .unansweredQuestions(result.getUnansweredQuestions())
-                                    .totalScore(result.getTotalScore())
-                                    .maxScore(result.getMaxScore())
-                                    .percentageScore(result.getPercentageScore())
-                                    .passed(result.getPassed())
-                                    .passingScore(result.getPassingScore())
-                                    .build());
+                            .flatMap(result -> participantBlocks(exam, session)
+                                    .map(blocks -> summary
+                                            .resultsAvailable(true)
+                                            .totalQuestions(result.getTotalQuestions())
+                                            .correctAnswers(result.getCorrectAnswers())
+                                            .incorrectAnswers(result.getIncorrectAnswers())
+                                            .unansweredQuestions(result.getUnansweredQuestions())
+                                            .totalScore(result.getTotalScore())
+                                            .maxScore(result.getMaxScore())
+                                            .percentageScore(result.getPercentageScore())
+                                            .passed(result.getPassed())
+                                            .passingScore(result.getPassingScore())
+                                            .blocks(blocks.orElse(null))
+                                            .build()));
                 });
+    }
+
+    /**
+     * B12a: the blocks a participant may see of a finished session. Only when the exam shows a breakdown
+     * (show_block_breakdown), and only the blocks shown to participants (show_result_to_participant): the others
+     * are not in the answer at all, decided here on the server. Empty Optional = no breakdown for this exam.
+     */
+    private Mono<java.util.Optional<List<BlockResultResponse>>> participantBlocks(Exam exam, ExamSession session) {
+        if (Boolean.FALSE.equals(exam.getShowBlockBreakdown())) {
+            return Mono.just(java.util.Optional.empty());
+        }
+        return blockResults.forSession(exam.getId(), session.getId())
+                .filter(block -> Boolean.TRUE.equals(block.getShowResultToParticipant()))
+                // The flag itself is for the people who manage the exam
+                .map(block -> block.toBuilder().showResultToParticipant(null).build())
+                .collectList()
+                .map(java.util.Optional::of);
     }
 
     /**

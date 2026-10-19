@@ -39,6 +39,9 @@ public class RescheduleExamRequest {
     @JsonIgnore
     private boolean maxAttemptsPerDayPresent;
 
+    // B12a: why (optional, 3-500 characters), written to the exam's history
+    private String changeReason;
+
     public void setMaxAttemptsPerDay(Integer maxAttemptsPerDay) {
         this.maxAttemptsPerDay = maxAttemptsPerDay;
         this.maxAttemptsPerDayPresent = true;

@@ -92,6 +92,16 @@ exam:
   results:
     # Most rows a CSV export of an exam's results may have; more is refused with 422 RESULTS_EXPORT_TOO_LARGE
     export-max-rows: ${EXAM_RESULTS_EXPORT_MAX_ROWS:50000}
+  blocks:
+    # B12a: the participant side of blocks (block timers, breaks, fixed navigation, returning to earlier
+    # blocks) is B12b. Until it is in place this stays false and an exam that needs it cannot be
+    # published (409 FEATURE_NOT_AVAILABLE). B12b turns it on.
+    rules-enabled: ${EXAM_BLOCK_RULES_ENABLED:false}
+  history:
+    # B12a: changeReason (3-500 characters) is optional on every change of an exam. With this on, a sensitive
+    # change (answer key, points, duration, window, block timers and rules, publish, archive) of a SCHEDULED
+    # or ACTIVE exam needs one: 400 CHANGE_REASON_REQUIRED.
+    require-change-reason-after-publish: ${REQUIRE_CHANGE_REASON_AFTER_PUBLISH:false}
   media:
     # Allowed uploads: IMAGE jpeg/png/webp, AUDIO mp3/ogg/m4a, VIDEO mp4 (MediaTypePolicy)
     image-max-bytes: 5242880          # 5 MB

@@ -46,12 +46,14 @@ class ExamMetaServiceTest {
     private final ExamCacheService cacheService = mock(ExamCacheService.class);
     private final ExamMapper mapper = mock(ExamMapper.class);
     private final TransactionalOperator transactionalOperator = mock(TransactionalOperator.class);
+    private final com.examportal.exam.history.ExamHistoryService history = mock(com.examportal.exam.history.ExamHistoryService.class);
     private ExamMetaService service;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
         when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(call -> call.getArgument(0));
+        when(history.record(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyList())).thenReturn(Mono.empty());
         // An ACTIVE exam that has attempts: the meta change does not even ask, it touches nothing that decides a result
         when(examRepository.findById(EXAM_ID)).thenReturn(Mono.just(Exam.builder().id(EXAM_ID).title("Old title")
                 .status(ExamStatus.ACTIVE).createdBy(OWNER).active(true).build()));
@@ -62,7 +64,7 @@ class ExamMetaServiceTest {
         when(cacheService.invalidateExamCache(EXAM_ID)).thenReturn(Mono.empty());
         when(mapper.toResponse(any(Exam.class))).thenReturn(ExamResponse.builder().id(EXAM_ID).build());
         service = new ExamMetaService(examRepository, metaRepository, accessPolicy, auditService, cacheService, mapper,
-                transactionalOperator);
+                transactionalOperator, history);
     }
 
     private static ExamMetaRequest body(String json) throws Exception {

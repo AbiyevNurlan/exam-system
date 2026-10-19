@@ -5,12 +5,21 @@ import com.examportal.common.domain.dto.*;
 import com.examportal.common.domain.dto.group.ExamAudiencePreviewResponse;
 import com.examportal.common.domain.dto.group.ExamAudienceRequest;
 import com.examportal.common.domain.dto.group.ExamAudienceResponse;
+import com.examportal.common.domain.dto.history.ExamHistoryDtos;
 import com.examportal.common.domain.entity.*;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.exam.exception.ExamException;
 import com.examportal.exam.exception.GroupException;
 import com.examportal.exam.mapper.ExamMapper;
 import com.examportal.exam.repository.*;
+import com.examportal.exam.history.ChangeContext;
+import com.examportal.exam.history.ExamDiff;
+import com.examportal.exam.history.ExamHistoryService;
+import com.examportal.exam.history.ExamSnapshotService;
+import com.examportal.exam.structure.ExamState;
+import com.examportal.exam.structure.ExamStateRepository;
+import com.examportal.exam.structure.ExamStructureWriter;
+import com.examportal.exam.structure.StructurePlanner;
 import com.examportal.exam.validator.ExamValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +61,18 @@ public class ExamService {
     private final ExamValidator validator;
     private final ExamMapper mapper;
     private final TransactionalOperator transactionalOperator;
+    // B12a: blocks and questions are read and written in place
+    private final ExamStateRepository stateRepository;
+    private final StructurePlanner planner;
+    private final ExamStructureWriter structureWriter;
+    private final ExamBlockRepository blockRepository;
+    private final ExamFeatures features;
+    // B12a: every change of an exam is written to its history in the transaction of the change
+    private final ExamHistoryService history;
+    // B12a: every publication stores the whole exam as a new version with its SHA-256
+    private final ExamSnapshotService snapshots;
+    // B12a: the same check for GET /readiness and for publishing
+    private final ExamReadinessService readiness;
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
@@ -67,26 +88,51 @@ public class ExamService {
      * Create a new exam with questions and options
      */
     public Mono<ExamResponse> createExam(CreateExamRequest request, UUID userId, String role) {
+        return createExam(request, ChangeContext.of(userId, role));
+    }
+
+    /**
+     * Create a new exam; the history gets EXAM_CREATED in the same transaction
+     */
+    public Mono<ExamResponse> createExam(CreateExamRequest request, ChangeContext change) {
+        UUID userId = change.actorId();
+        String role = change.role();
         log.info("Creating exam '{}' for user {}", request.getTitle(), userId);
 
         // PUBLIC unless the request says otherwise; a GROUP exam gets its audience in the same call
         ExamAccessType accessType = request.getAccessType() != null ? request.getAccessType() : ExamAccessType.PUBLIC;
         List<Long> groupIds = audienceGroupIds(accessType, request.getGroupIds());
 
+        TimingMode mode = request.getTimingMode() != null ? request.getTimingMode() : TimingMode.EXAM_TIMER;
+        List<QuestionDTO> questions = request.getQuestions() != null ? request.getQuestions() : List.of();
+
         Mono<ExamResponse> creation = validator.validateCreateRequest(request)
-                .then(requireValidAudience(accessType, groupIds, userId, role, List.of()))
-                .then(examMedia.validate(request.getQuestions(), userId, role, null))
-                .then(Mono.defer(() -> {
-                    Exam exam = mapper.toEntity(request, userId);
-                    exam.setAccessType(accessType);
-                    return examRepository.save(exam);
-                }))
-                .flatMap(savedExam -> saveQuestionsAndOptions(savedExam.getId(), request.getQuestions())
-                        .then(groupIds.isEmpty()
-                                ? Mono.<Void>empty()
-                                : writeAudience(savedExam.getId(), savedExam.getStatus(), ExamAccessType.PUBLIC,
-                                        accessType, List.of(), groupIds, userId))
-                        .then(Mono.just(savedExam)))
+                .then(Mono.fromCallable(() -> planner.forCreate(request.getBlocks(), questions, null,
+                        Boolean.TRUE.equals(request.getShuffleQuestions()))))
+                .flatMap(plan -> validator.validateTiming(mode, request.getDurationMinutes(), request.getStartTime(),
+                                request.getEndTime(), plan)
+                        .flatMap(duration -> requireValidAudience(accessType, groupIds, userId, role, List.of())
+                                .then(examMedia.validate(plan.questions(), userId, role, null))
+                                .then(Mono.defer(() -> {
+                                    Exam exam = mapper.toEntity(request, userId);
+                                    exam.setAccessType(accessType);
+                                    // With block timers: the block limits plus the breaks
+                                    exam.setDurationMinutes(duration);
+                                    exam.setTotalQuestions(plan.questionCount());
+                                    return examRepository.save(exam);
+                                })))
+                        // The database gave the new exam its first block; the first block of the plan takes it
+                        .flatMap(savedExam -> stateRepository.load(savedExam.getId())
+                                .flatMap(created -> structureWriter.apply(savedExam.getId(), created,
+                                        plan.withFirstBlockId(created.blocks().get(0).id())))
+                                .then(groupIds.isEmpty()
+                                        ? Mono.<Void>empty()
+                                        : writeAudience(savedExam.getId(), savedExam.getStatus(), ExamAccessType.PUBLIC,
+                                                accessType, List.of(), groupIds, userId))
+                                .then(Mono.defer(() -> stateRepository.load(savedExam.getId())
+                                        .flatMap(created -> history.record(savedExam.getId(), userId, null, change,
+                                                ExamDiff.created(created)))))
+                                .then(Mono.just(savedExam))))
                 .flatMap(this::loadExamWithQuestions);
 
         // @Transactional is not applied at runtime in this service, so the TransactionalOperator is the real
@@ -95,6 +141,7 @@ public class ExamService {
         return transactionalOperator.transactional(creation)
                 .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))
                 .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits)
                 .doOnSuccess(exam -> log.info("Exam created successfully: {}", exam.getId()));
     }
 
@@ -102,6 +149,15 @@ public class ExamService {
      * Update an existing exam
      */
     public Mono<ExamResponse> updateExam(Long examId, UpdateExamRequest request, UUID userId, String role) {
+        return updateExam(examId, request, ChangeContext.of(userId, role));
+    }
+
+    /**
+     * Update an existing exam in place; every change is a history row of one save (saveId), in the same transaction
+     */
+    public Mono<ExamResponse> updateExam(Long examId, UpdateExamRequest request, ChangeContext change) {
+        UUID userId = change.actorId();
+        String role = change.role();
         log.info("Updating exam {} for user {}", examId, userId);
 
         // No accessType in the request = the audience stays as it is
@@ -124,32 +180,32 @@ public class ExamService {
                 .flatMap(locked -> editLock.hasSessions(examId))
                 .flatMap(taken -> taken ? Mono.<Exam>error(ExamException.hasSessions()) : findExistingExam(examId))
                 .flatMap(exam -> exam.canModify() ? Mono.just(exam) : Mono.<Exam>error(ExamException.cannotModify()))
-                .flatMap(exam -> validator.validateUpdateRequest(request)
+                .flatMap(exam -> validator.validateUpdateRequest(request, timingModeAfter(exam, request))
                         .then(newAccessType == null ? Mono.<Void>empty() : audienceRepository.findGroupIdsByExamId(examId).collectList()
                                 .flatMap(stored -> requireValidAudience(newAccessType, groupIds, userId, role, stored)))
-                        .then(examMedia.validate(request.getQuestions(), userId, role, examId))
+                        .then(examMedia.validate(requestQuestions(request.getBlocks(), request.getQuestions()), userId, role, examId))
                         .thenReturn(exam))
-                .flatMap(exam -> {
-                    ExamAccessType oldAccessType = exam.getAccessType();
-                    mapper.updateEntity(exam, request);
-                    if (newAccessType == null) {
-                        return examRepository.save(exam);
-                    }
-                    exam.setAccessType(newAccessType);
-                    return examRepository.save(exam)
-                            .flatMap(saved -> audienceRepository.findGroupIdsByExamId(examId).collectList()
-                                    // An unchanged audience writes nothing, so it leaves no audit entry either
-                                    .flatMap(oldGroupIds -> oldAccessType == newAccessType && oldGroupIds.equals(groupIds)
-                                            ? Mono.<Void>empty()
-                                            : writeAudience(examId, saved.getStatus(), oldAccessType, newAccessType,
-                                                    oldGroupIds, groupIds, userId))
-                                    .thenReturn(saved));
-                })
-                .flatMap(exam -> deleteExistingQuestionsAndOptions(examId)
-                        .then(saveQuestionsAndOptions(examId, request.getQuestions()))
-                        .then(examRepository.updateTotalQuestions(examId, request.getQuestions().size()))
-                        .then(auditForeignExam(userId, exam, GroupAuditService.EXAM_UPDATED_BY_ADMIN))
-                        .thenReturn(exam))
+                // The stored structure, read under the row lock: questions, options and blocks are changed in
+                // place (ids stay), not deleted and created again
+                .flatMap(exam -> stateRepository.load(examId)
+                        .flatMap(before -> Mono.fromCallable(() -> planner.forUpdate(request.getBlocks(),
+                                        request.getQuestions() != null ? request.getQuestions() : List.of(), before,
+                                        Boolean.TRUE.equals(request.getShuffleQuestions())))
+                                .flatMap(plan -> validator.validateTiming(timingModeAfter(exam, request), request.getDurationMinutes(),
+                                                request.getStartTime(), request.getEndTime(), plan)
+                                        .flatMap(duration -> saveExamRow(exam, request, newAccessType, groupIds, userId, duration))
+                                        .flatMap(saved -> structureWriter.apply(examId, before, plan)
+                                                .then(examRepository.updateTotalQuestions(examId, plan.questionCount()))
+                                                // The exam as it is now, compared with how it was: the history of this save
+                                                .then(Mono.defer(() -> stateRepository.load(examId)))
+                                                .flatMap(after -> (saved.getStatus() == ExamStatus.SCHEDULED
+                                                        // A SCHEDULED exam is published: it may not get rules participants cannot get yet
+                                                        ? requireBlockRulesAvailable(after)
+                                                        : Mono.<Void>empty())
+                                                        .then(history.record(examId, before.createdBy(), before.status(), change,
+                                                                ExamDiff.update(before, after))))
+                                                .then(auditForeignExam(userId, saved, GroupAuditService.EXAM_UPDATED_BY_ADMIN))
+                                                .thenReturn(saved)))))
                 .flatMap(this::loadExamWithQuestions);
 
         // One transaction for the exam row and the replaced questions/options; the cache is refreshed after commit
@@ -158,6 +214,7 @@ public class ExamService {
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
                 .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits)
                 .doOnSuccess(exam -> log.info("Exam updated successfully: {}", examId));
     }
 
@@ -167,6 +224,17 @@ public class ExamService {
      * keeps every attempt and result.
      */
     public Mono<Void> deleteExam(Long examId, UUID userId, String role) {
+        return deleteExam(examId, ChangeContext.of(userId, role));
+    }
+
+    /**
+     * Delete an exam; the history keeps a DELETE_ATTEMPTED row either way: with the whole exam when it went (in
+     * the delete's own transaction), or REFUSED_HAS_SESSIONS when it had attempts (in a transaction of its own,
+     * because the refusal rolls the delete back). The history itself is never deleted.
+     */
+    public Mono<Void> deleteExam(Long examId, ChangeContext change) {
+        UUID userId = change.actorId();
+        String role = change.role();
         log.info("Deleting exam {} for user {}", examId, userId);
 
         return findAccessibleExam(examId, userId, role)
@@ -179,14 +247,91 @@ public class ExamService {
                 })
                 // "No session" is decided by the DELETE itself. The exam, everything that belongs to it
                 // and the audit entry go together or not at all.
-                .flatMap(exam -> transactionalOperator.transactional(examRepository.deleteIfNoSessions(examId)
-                                .flatMap(deleted -> deleted == 1
-                                        ? auditDeletedExam(userId, exam)
-                                        : Mono.<Void>error(ExamException.cannotDelete())))
+                .flatMap(exam -> stateRepository.load(examId).flatMap(state -> transactionalOperator.transactional(
+                                examRepository.deleteIfNoSessions(examId)
+                                        .flatMap(deleted -> deleted == 1
+                                                ? auditDeletedExam(userId, exam)
+                                                        .then(history.record(examId, exam.getCreatedBy(), exam.getStatus(), change,
+                                                                List.of(ExamDiff.deleteAttempt(state, "DELETED"))))
+                                                : Mono.<Void>error(ExamException.cannotDelete())))
                         // A session opened while the delete ran: the foreign key refused it
                         .onErrorMap(DataIntegrityViolationException.class, e -> ExamException.cannotDelete())
-                        .then(cacheService.invalidateExamCache(examId)))
+                        .onErrorResume(error -> error instanceof ExamException refused && "EXAM_CANNOT_DELETE".equals(refused.getErrorCode())
+                                ? transactionalOperator.transactional(history.record(examId, exam.getCreatedBy(), exam.getStatus(),
+                                                change, List.of(ExamDiff.deleteAttempt(state, "REFUSED_HAS_SESSIONS"))))
+                                        .then(Mono.error(error))
+                                : Mono.error(error))
+                        .then(cacheService.invalidateExamCache(examId))))
                 .doOnSuccess(v -> log.info("Exam deleted successfully: {}", examId));
+    }
+
+    /**
+     * B12a: a new DRAFT copy of an exam for the caller: blocks, questions, options, the answer key, settings and
+     * media links (the same media assets), titled "<title> (nüsxə)". Not copied: the audience groups (a GROUP copy
+     * starts with none, so nobody but its owner and ADMIN can take it until groups are set), sessions, results and
+     * the history of the source. The copy's history starts with CLONED_FROM. ADMIN or the owning INSTRUCTOR.
+     */
+    public Mono<ExamResponse> cloneExam(Long examId, ChangeContext change) {
+        UUID userId = change.actorId();
+        String role = change.role();
+        Mono<ExamResponse> cloning = findAccessibleExam(examId, userId, role)
+                .flatMap(exam -> accessPolicy.canManage(userId, role, exam)
+                        ? Mono.just(exam)
+                        : Mono.<Exam>error(ExamException.notOwner()))
+                .flatMap(exam -> stateRepository.load(examId))
+                .flatMap(source -> examRepository.save(copyRow(source, userId))
+                        .flatMap(copy -> stateRepository.load(copy.getId())
+                                .flatMap(created -> structureWriter.apply(copy.getId(), created,
+                                        planner.copyOf(source, created.blocks().get(0).id())))
+                                .then(Mono.defer(() -> stateRepository.load(copy.getId())))
+                                .flatMap(copied -> history.record(copy.getId(), userId, null, change,
+                                        List.of(ExamDiff.clonedFrom(source, copied))))
+                                .thenReturn(copy)))
+                .flatMap(this::loadExamWithQuestions);
+
+        return transactionalOperator.transactional(cloning)
+                .flatMap(response -> cacheService.cacheExam(response).thenReturn(response))
+                .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits)
+                .doOnSuccess(copy -> log.info("Exam {} cloned into {} by {}", examId, copy.getId(), userId));
+    }
+
+    private static final String COPY_SUFFIX = " (nüsxə)";
+
+    /**
+     * The exam row of a copy: everything of the source's row except id, status (DRAFT), owner and audience groups
+     */
+    private static Exam copyRow(ExamState source, UUID owner) {
+        String title = source.title() == null ? "" : source.title();
+        if (title.length() + COPY_SUFFIX.length() > 255) {
+            title = title.substring(0, 255 - COPY_SUFFIX.length());
+        }
+        LocalDateTime now = LocalDateTime.now();
+        return Exam.builder()
+                .title(title + COPY_SUFFIX)
+                .description(source.description())
+                .durationMinutes(source.durationMinutes())
+                .startTime(source.startTime())
+                .endTime(source.endTime())
+                .status(ExamStatus.DRAFT)
+                .totalQuestions(source.questions().size())
+                .passingScore(source.passingScore())
+                .shuffleQuestions(source.shuffleQuestions())
+                .shuffleOptions(source.shuffleOptions())
+                .showResultsImmediately(source.showResultsImmediately())
+                .maxAttempts(source.maxAttempts())
+                .maxAttemptsPerDay(source.maxAttemptsPerDay())
+                .categoryId(source.categoryId())
+                .createdBy(owner)
+                .accessType(source.accessType())
+                .timingMode(source.timingMode())
+                .allowReturnToPreviousBlocks(source.allowReturnToPreviousBlocks())
+                .allowSkipBreak(source.allowSkipBreak())
+                .showBlockBreakdown(source.showBlockBreakdown())
+                .active(true)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
     }
 
     /**
@@ -212,7 +357,8 @@ public class ExamService {
                                         .accessType(exam.getAccessType())
                                         .audienceGroupCount(groupIds.size())
                                         .groupIds(groupIds)
-                                        .build(), true));
+                                        .build(), true))
+                                        .flatMap(this::withLastEdits);
                             }
                             if (exam.getStatus() == ExamStatus.DRAFT) {
                                 return Mono.error(ExamException.notFound(examId));
@@ -233,7 +379,8 @@ public class ExamService {
                 : examRepository.findByCreatedBy(userId);
 
         return exams.flatMap(exam -> loadExamWithQuestions(exam))
-                .flatMap(response -> examMedia.withMedia(response, true));
+                .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits);
     }
 
     /**
@@ -362,6 +509,15 @@ public class ExamService {
      * Update exam status
      */
     public Mono<ExamResponse> updateExamStatus(Long examId, ExamStatus newStatus, UUID userId, String role) {
+        return updateExamStatus(examId, newStatus, ChangeContext.of(userId, role));
+    }
+
+    /**
+     * Publish (ACTIVE) or archive; the history gets PUBLISHED or ARCHIVED (sensitive) in the same transaction
+     */
+    public Mono<ExamResponse> updateExamStatus(Long examId, ExamStatus newStatus, ChangeContext change) {
+        UUID userId = change.actorId();
+        String role = change.role();
         log.info("Updating exam {} status to {} by user {}", examId, newStatus, userId);
 
         return findAccessibleExam(examId, userId, role)
@@ -377,14 +533,20 @@ public class ExamService {
                     }
                     return Mono.just(exam);
                 })
-                .flatMap(exam -> transactionalOperator.transactional(examRepository.updateStatus(examId, newStatus.name())
-                                .then(auditForeignExam(userId, exam, statusAuditAction(newStatus))))
+                // B12a: publishing runs the readiness check on the locked exam row, so no edit slips in between
+                .flatMap(exam -> transactionalOperator.transactional((newStatus == ExamStatus.ACTIVE
+                                        ? editLock.lockForEdit(examId).then(readiness.check(examId)).flatMap(ExamService::requireReady)
+                                        : Mono.<Void>empty())
+                                .then(examRepository.updateStatus(examId, newStatus.name()))
+                                .then(auditForeignExam(userId, exam, statusAuditAction(newStatus)))
+                                .then(statusHistory(exam, newStatus, change)))
                         .then(examRepository.findById(examId)))
                 .flatMap(this::loadExamWithQuestions)
                 .flatMap(response -> cacheService.invalidateExamCache(examId)
                         .then(cacheService.cacheExam(response))
                         .thenReturn(response))
                 .flatMap(response -> examMedia.withMedia(response, true))
+                .flatMap(this::withLastEdits)
                 .doOnSuccess(exam -> log.info("Exam {} status updated to {}", examId, newStatus));
     }
 
@@ -398,9 +560,18 @@ public class ExamService {
      * reopened with a start time now or in the past (ACTIVE).
      */
     public Mono<ExamResponse> rescheduleExam(Long examId, RescheduleExamRequest request, UUID userId, String role) {
+        return rescheduleExam(examId, request, ChangeContext.of(userId, role));
+    }
+
+    /**
+     * Reschedule; the history gets RESCHEDULED (sensitive when the window changes) in the same transaction
+     */
+    public Mono<ExamResponse> rescheduleExam(Long examId, RescheduleExamRequest request, ChangeContext change) {
+        UUID userId = change.actorId();
+        String role = change.role();
         log.info("Rescheduling exam {} by user {}", examId, userId);
 
-        Mono<Exam> change = findAccessibleExam(examId, userId, role)
+        Mono<Exam> rescheduling = findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> accessPolicy.canManage(userId, role, exam)
                         ? Mono.just(exam)
                         : Mono.<Exam>error(ExamException.notOwner()))
@@ -436,7 +607,10 @@ public class ExamService {
                                     : Mono.<Void>empty())
                             : Mono.empty();
 
-                    return attemptsGuard.then(Mono.defer(() -> examRepository.reschedule(examId, startTime, endTime, newStatus.name(),
+                    // Reschedule always leaves the exam SCHEDULED or ACTIVE, i.e. published (B12a gate)
+                    return attemptsGuard
+                            .then(Mono.defer(() -> stateRepository.load(examId).flatMap(this::requireBlockRulesAvailable)))
+                            .then(Mono.defer(() -> examRepository.reschedule(examId, startTime, endTime, newStatus.name(),
                                     request.getMaxAttempts(), request.isMaxAttemptsPerDayPresent(),
                                     request.getMaxAttemptsPerDay())
                             .then(auditService.record(userId, GroupAuditService.EXAM_RESCHEDULED, null, exam.getCreatedBy(),
@@ -449,12 +623,16 @@ public class ExamService {
                                             + " maxAttempts=" + exam.getMaxAttempts() + " -> " + newMaxAttempts
                                             + " maxAttemptsPerDay=" + exam.getMaxAttemptsPerDay()
                                             + " -> " + newMaxAttemptsPerDay))
+                            .then(history.record(examId, exam.getCreatedBy(), exam.getStatus(), change,
+                                    List.of(ExamDiff.rescheduled(examId, exam.getStatus(), newStatus, exam.getStartTime(),
+                                            startTime, exam.getEndTime(), endTime, exam.getMaxAttempts(), newMaxAttempts,
+                                            exam.getMaxAttemptsPerDay(), newMaxAttemptsPerDay))))
                             .then(examRepository.findById(examId))));
                 });
 
         // The exam row and its audit entry change together; the cached exam is dropped after commit.
         // The answer is the exam itself, without questions (so without the answer key).
-        return transactionalOperator.transactional(change)
+        return transactionalOperator.transactional(rescheduling)
                 .flatMap(exam -> cacheService.invalidateExamCache(examId).thenReturn(mapper.toResponse(exam)))
                 .doOnSuccess(exam -> log.info("Exam {} rescheduled: {} until {}", examId, exam.getStatus(), exam.getEndTime()));
     }
@@ -466,10 +644,19 @@ public class ExamService {
      * This only stores the audience; who has access is decided by ExamAccessPolicy.
      */
     public Mono<ExamAudienceResponse> setAudience(Long examId, ExamAudienceRequest request, UUID userId, String role) {
+        return setAudience(examId, request, ChangeContext.of(userId, role));
+    }
+
+    /**
+     * Set the audience; the history gets AUDIENCE_CHANGED (when something changed) in the same transaction
+     */
+    public Mono<ExamAudienceResponse> setAudience(Long examId, ExamAudienceRequest request, ChangeContext change) {
+        UUID userId = change.actorId();
+        String role = change.role();
         ExamAccessType accessType = request.getAccessType();
         List<Long> groupIds = audienceGroupIds(accessType, request.getGroupIds());
 
-        Mono<ExamAudienceResponse> change = findAccessibleExam(examId, userId, role)
+        Mono<ExamAudienceResponse> audienceChange = findAccessibleExam(examId, userId, role)
                 .flatMap(exam -> {
                     if (!"ADMIN".equals(role) && !exam.getCreatedBy().equals(userId)) {
                         return Mono.error(ExamException.notOwner());
@@ -482,6 +669,8 @@ public class ExamService {
                         .flatMap(oldGroupIds -> examRepository.updateAccessType(examId, accessType.name())
                                 .then(writeAudience(examId, exam.getStatus(), exam.getAccessType(), accessType,
                                         oldGroupIds, groupIds, userId))
+                                .then(history.record(examId, exam.getCreatedBy(), exam.getStatus(), change,
+                                        ExamDiff.audience(examId, exam.getAccessType(), accessType, oldGroupIds, groupIds)))
                                 .thenReturn(ExamAudienceResponse.builder()
                                         .examId(examId)
                                         .accessType(accessType)
@@ -489,7 +678,7 @@ public class ExamService {
                                         .build())));
 
         // Audience rows, access type and audit entry change together; the cached exam is dropped after commit
-        return transactionalOperator.transactional(change)
+        return transactionalOperator.transactional(audienceChange)
                 .flatMap(response -> cacheService.invalidateExamCache(examId).thenReturn(response))
                 .doOnSuccess(response -> log.info("Exam {} audience set to {} {} by user {}",
                         examId, response.getAccessType(), response.getGroupIds(), userId));
@@ -680,6 +869,20 @@ public class ExamService {
                         + " title=" + (title.length() > 100 ? title.substring(0, 100) : title));
     }
 
+    /**
+     * The history row of a publish or archive; part of the caller's transaction. A publish also stores the
+     * snapshot of the exam (ExamSnapshotService) and names its version in the row.
+     */
+    private Mono<Void> statusHistory(Exam exam, ExamStatus newStatus, ChangeContext change) {
+        if (newStatus == ExamStatus.ACTIVE) {
+            return snapshots.publish(exam.getId(), change)
+                    .flatMap(version -> history.record(exam.getId(), exam.getCreatedBy(), exam.getStatus(), change,
+                            List.of(ExamDiff.status("PUBLISHED", exam.getStatus(), newStatus, exam.getId(), version))));
+        }
+        return history.record(exam.getId(), exam.getCreatedBy(), exam.getStatus(), change,
+                List.of(ExamDiff.status("ARCHIVED", exam.getStatus(), newStatus, exam.getId(), null)));
+    }
+
     private String statusAuditAction(ExamStatus newStatus) {
         return switch (newStatus) {
             case ACTIVE -> GroupAuditService.EXAM_PUBLISHED_BY_ADMIN;
@@ -693,53 +896,105 @@ public class ExamService {
     }
 
     /**
-     * Save questions and their options
+     * B12a, for ADMIN and the owner: who changed each question last and when. A copy: the given response may be the
+     * cached instance, which never carries it (participants never get it).
      */
-    private Mono<Void> saveQuestionsAndOptions(Long examId, List<QuestionDTO> questions) {
-        return Flux.fromIterable(questions)
-                .index()
-                // Sequential: these writes share the one connection of the surrounding transaction
-                .concatMap(tuple -> {
-                    int index = tuple.getT1().intValue();
-                    QuestionDTO dto = tuple.getT2();
-                    dto.setOrderIndex(index);
-                    
-                    Question question = mapper.toEntity(dto, examId);
-                    return questionRepository.save(question)
-                            .flatMap(savedQuestion -> examMedia.attachToQuestion(savedQuestion.getId(), dto)
-                                    .then(Mono.defer(() -> {
-                                        if (dto.getOptions() != null && !dto.getOptions().isEmpty()) {
-                                            return saveOptions(savedQuestion.getId(), dto.getOptions());
-                                        }
-                                        return Mono.empty();
-                                    })));
-                })
-                .then();
+    private Mono<ExamResponse> withLastEdits(ExamResponse exam) {
+        if (exam.getQuestions() == null || exam.getQuestions().isEmpty()) {
+            return Mono.just(exam);
+        }
+        return history.lastQuestionEdits(exam.getId())
+                .map(edits -> edits.isEmpty() ? exam : exam.toBuilder()
+                        .questions(exam.getQuestions().stream()
+                                .map(question -> {
+                                    var edit = edits.get(question.getId());
+                                    return edit == null ? question : question.toBuilder()
+                                            .lastEditedBy(ExamHistoryDtos.Actor.builder().userId(edit.actorId())
+                                                    .name(edit.actorName()).code(edit.actorCode()).build())
+                                            .lastEditedAt(edit.at())
+                                            .build();
+                                })
+                                .toList())
+                        .build());
     }
 
     /**
-     * Save options for a question
+     * The timing mode an update leaves the exam with: the request's, or the stored one
      */
-    private Mono<Void> saveOptions(Long questionId, List<OptionDTO> options) {
-        return Flux.fromIterable(options)
-                .index()
-                .concatMap(tuple -> {
-                    OptionDTO dto = tuple.getT2();
-                    dto.setOrderIndex(tuple.getT1().intValue());
-                    return optionRepository.save(mapper.toEntity(dto, questionId))
-                            .flatMap(savedOption -> examMedia.attachToOption(savedOption.getId(), dto));
-                })
-                .then();
+    private static TimingMode timingModeAfter(Exam exam, UpdateExamRequest request) {
+        if (request.getTimingMode() != null) {
+            return request.getTimingMode();
+        }
+        return exam.getTimingMode() != null ? exam.getTimingMode() : TimingMode.EXAM_TIMER;
     }
 
     /**
-     * Delete existing questions and options for an exam. Only ever called by updateExam for an exam
-     * without sessions (checked under the row lock), so no answer and no result refers to them.
+     * Every question of a request, from its blocks or from the older flat list
      */
-    private Mono<Void> deleteExistingQuestionsAndOptions(Long examId) {
-        return questionRepository.findByExamIdOrderByOrderIndex(examId)
-                .concatMap(question -> optionRepository.deleteByQuestionId(question.getId()))
-                .then(questionRepository.deleteByExamId(examId));
+    private static List<QuestionDTO> requestQuestions(List<ExamBlockDTO> blocks, List<QuestionDTO> questions) {
+        if (blocks != null && !blocks.isEmpty()) {
+            return blocks.stream()
+                    .flatMap(block -> block.getQuestions() == null ? java.util.stream.Stream.<QuestionDTO>empty()
+                            : block.getQuestions().stream())
+                    .toList();
+        }
+        return questions != null ? questions : List.of();
+    }
+
+    /**
+     * B12a: what the readiness check blocks stops a publication. Block rules before B12b are 409
+     * FEATURE_NOT_AVAILABLE, anything else 409 EXAM_NOT_READY; details carry the list.
+     */
+    static Mono<Void> requireReady(ExamReadinessResponse readiness) {
+        if (readiness.isReady()) {
+            return Mono.empty();
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("blocking", readiness.getBlocking());
+        details.put("warnings", readiness.getWarnings());
+        boolean onlyBlockRules = readiness.getBlocking().stream().anyMatch(item -> "FEATURE_NOT_AVAILABLE".equals(item.getCode()));
+        return Mono.error(onlyBlockRules ? ExamException.featureNotAvailable(details) : ExamException.notReady(details));
+    }
+
+    /**
+     * B12a, until B12b: participants cannot be given block timers, fixed navigation or a return to earlier blocks
+     * yet, so an exam that would need them is not published (409 FEATURE_NOT_AVAILABLE) unless
+     * exam.blocks.rules-enabled is on
+     */
+    Mono<Void> requireBlockRulesAvailable(ExamState state) {
+        if (features.blockRulesEnabled() || !state.needsBlockRules()) {
+            return Mono.empty();
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("timingMode", state.timingMode());
+        details.put("allowReturnToPreviousBlocks", state.allowReturnToPreviousBlocks());
+        details.put("blocksWithoutFreeNavigation", state.blocks().stream()
+                .filter(block -> !block.freeNavigation()).map(ExamState.BlockState::id).toList());
+        return Mono.error(ExamException.featureNotAvailable(details));
+    }
+
+    /**
+     * The exam row of an update, and its audience when the request names one. Part of the caller's transaction.
+     */
+    private Mono<Exam> saveExamRow(Exam exam, UpdateExamRequest request, ExamAccessType newAccessType,
+                                   List<Long> groupIds, UUID userId, Integer duration) {
+        Long examId = exam.getId();
+        ExamAccessType oldAccessType = exam.getAccessType();
+        mapper.updateEntity(exam, request);
+        // With block timers: the block limits plus the breaks (ExamValidator.validateTiming)
+        exam.setDurationMinutes(duration);
+        if (newAccessType == null) {
+            return examRepository.save(exam);
+        }
+        exam.setAccessType(newAccessType);
+        return examRepository.save(exam)
+                .flatMap(saved -> audienceRepository.findGroupIdsByExamId(examId).collectList()
+                        // An unchanged audience writes nothing, so it leaves no audit entry either
+                        .flatMap(oldGroupIds -> oldAccessType == newAccessType && oldGroupIds.equals(groupIds)
+                                ? Mono.<Void>empty()
+                                : writeAudience(examId, saved.getStatus(), oldAccessType, newAccessType,
+                                        oldGroupIds, groupIds, userId))
+                        .thenReturn(saved));
     }
 
     /**
@@ -772,7 +1027,13 @@ public class ExamService {
                                         .collect(Collectors.toList());
                                 return mapper.toResponse(exam, questionResponses);
                             });
-                });
+                })
+                // B12a: the blocks, each with its questions' ids
+                .flatMap(response -> blockRepository.findByExamIdOrderByPosition(exam.getId()).collectList()
+                        .map(blocks -> {
+                            response.setBlocks(mapper.toBlockResponses(blocks, response.getQuestions()));
+                            return response;
+                        }));
     }
 
     /**

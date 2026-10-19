@@ -2,6 +2,7 @@ package com.examportal.common.domain.dto;
 
 import com.examportal.common.domain.entity.ExamAccessType;
 import com.examportal.common.domain.entity.ExamStatus;
+import com.examportal.common.domain.entity.TimingMode;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -51,6 +52,14 @@ public class ExamResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private List<QuestionResponse> questions;
+
+    // B12a: blocks. totalMinutes = the exam timer, or with BLOCK_TIMERS the block limits plus the breaks
+    private TimingMode timingMode;
+    private Boolean allowReturnToPreviousBlocks;
+    private Boolean allowSkipBreak;
+    private Boolean showBlockBreakdown;
+    private Integer totalMinutes;
+    private List<ExamBlockResponse> blocks;
     
     // Computed fields for participants
     // remainingAttempts: what can still be started now, so it respects the total and the daily limit

@@ -91,6 +91,14 @@ public class SecurityConfig {
                         .pathMatchers("/api/exams/my").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/*/publish", "/api/exams/*/archive").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/exams/*/results", "/api/exams/*/results/**").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // B12a: history and published versions - admin and instructors (the service limits an
+                        // instructor to the own exams, anybody else's is 404)
+                        .pathMatchers("/api/exams/*/history", "/api/exams/*/history/**",
+                                "/api/exams/*/versions", "/api/exams/*/versions/**").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // B12a: copying an exam - admin and the owning instructor (checked by the service)
+                        .pathMatchers(HttpMethod.POST, "/api/exams/*/clone").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // B12a: the publish check - admin and the owning instructor (checked by the service)
+                        .pathMatchers("/api/exams/*/readiness").hasAnyRole("ADMIN", "INSTRUCTOR")
                         // Live monitoring and exam analytics - admin and instructors (the service then
                         // limits an instructor to the own exams); platform analytics - admin only
                         .pathMatchers("/api/exams/monitoring/**", "/api/exams/*/monitoring",

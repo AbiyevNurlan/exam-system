@@ -49,6 +49,8 @@ public class SessionReviewResponse {
     private GradingStatus gradingStatus;
     private List<QuestionReview> questions;
     private Violations violations;
+    // B12a: every block of the exam with its result, whatever participants are shown
+    private List<BlockResultResponse> blocks;
 
     @Data
     @Builder
@@ -68,6 +70,8 @@ public class SessionReviewResponse {
     @AllArgsConstructor
     public static class QuestionReview {
         private Long questionId;
+        // B12a: the block of the question
+        private Long blockId;
         private Integer orderIndex;
         private String questionText;
         private QuestionType questionType;

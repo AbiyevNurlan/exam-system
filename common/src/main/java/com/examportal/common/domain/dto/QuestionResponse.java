@@ -1,5 +1,6 @@
 package com.examportal.common.domain.dto;
 
+import com.examportal.common.domain.dto.history.ExamHistoryDtos;
 import com.examportal.common.domain.dto.media.MediaItemResponse;
 import com.examportal.common.domain.entity.QuestionType;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -24,6 +25,8 @@ public class QuestionResponse {
 
     private Long id;
     private Long examId;
+    // B12a: the block the question belongs to
+    private Long blockId;
     private String questionText;
     private QuestionType questionType;
     private BigDecimal points;
@@ -34,4 +37,7 @@ public class QuestionResponse {
     private List<OptionResponse> options;
     // Attached media in display order; without URLs for participants
     private List<MediaItemResponse> media;
+    // B12a, for ADMIN and the owner only: who changed the question last and when (its newest history row)
+    private ExamHistoryDtos.Actor lastEditedBy;
+    private java.time.LocalDateTime lastEditedAt;
 }

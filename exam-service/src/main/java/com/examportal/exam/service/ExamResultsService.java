@@ -2,6 +2,7 @@ package com.examportal.exam.service;
 
 import com.examportal.common.domain.AzerbaijaniOrder;
 import com.examportal.common.config.UtcDateTimeModule;
+import com.examportal.common.domain.dto.BlockResultResponse;
 import com.examportal.common.domain.dto.ExamResultsSummaryResponse;
 import com.examportal.common.domain.dto.PageResponse;
 import com.examportal.common.domain.dto.SessionReviewResponse;
@@ -18,6 +19,7 @@ import com.examportal.common.domain.entity.SessionStatus;
 import com.examportal.common.domain.entity.UserAnswer;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.exam.exception.ExamException;
+import com.examportal.exam.repository.BlockResultRepository;
 import com.examportal.exam.repository.ExamResultsRepository;
 import com.examportal.exam.repository.ExamResultsRepository.Filter;
 import com.examportal.exam.repository.ExamResultsRepository.RankedBest;
@@ -92,6 +94,8 @@ public class ExamResultsService {
     private final FraudRiskPolicy riskPolicy;
     private final ExamMediaService examMedia;
     private final GroupAuditService auditService;
+    // B12a: results per block
+    private final BlockResultRepository blockResults;
 
     // An export larger than this is refused (422 RESULTS_EXPORT_TOO_LARGE); EXAM_RESULTS_EXPORT_MAX_ROWS
     @Value("${exam.results.export-max-rows:50000}")
@@ -490,7 +494,7 @@ public class ExamResultsService {
     private record ReviewData(List<Question> questions, Map<Long, Collection<QuestionOption>> options,
                               Map<Long, UserAnswer> answers, ExamMediaService.MediaIndex media,
                               List<ExamResultsRepository.FraudEvent> events, List<TypeCount> eventCounts,
-                              int attemptNumber) {
+                              int attemptNumber, List<BlockResultResponse> blocks) {
     }
 
     private Mono<SessionReviewResponse> review(ExamSession session, Exam exam) {
@@ -509,8 +513,10 @@ public class ExamResultsService {
                                 resultsRepository.findFraudEvents(session.getId(), MAX_REVIEW_EVENTS).collectList(),
                                 resultsRepository.countFraudEventsByType(session.getId()).collectList(),
                                 resultsRepository.attemptNumber(exam.getId(), session.getUserId(), session.getStartTime(),
-                                        session.getId()))
-                        .map(t -> new ReviewData(list, t.getT1(), t.getT2(), t.getT3(), t.getT4(), t.getT5(), t.getT6())))
+                                        session.getId()),
+                                blockResults.forSession(exam.getId(), session.getId()).collectList())
+                        .map(t -> new ReviewData(list, t.getT1(), t.getT2(), t.getT3(), t.getT4(), t.getT5(), t.getT6(),
+                                t.getT7())))
                 // The participant and the graders are named with one lookup
                 .flatMap(data -> participants.names(Stream.concat(
                                         Stream.of(session.getUserId()),
@@ -543,6 +549,7 @@ public class ExamResultsService {
 
                     SessionReviewResponse.QuestionReview.QuestionReviewBuilder review = SessionReviewResponse.QuestionReview.builder()
                             .questionId(question.getId())
+                            .blockId(question.getBlockId())
                             .orderIndex(question.getOrderIndex())
                             .questionText(question.getQuestionText())
                             .questionType(question.getQuestionType())
@@ -565,7 +572,9 @@ public class ExamResultsService {
                             .correct(answer.getIsCorrect())
                             .needsManualReview(Boolean.TRUE.equals(answer.getNeedsManualReview()))
                             .feedback(answer.getFeedback())
-                            .gradedBy(ParticipantDirectory.fullName(users.get(answer.getGradedBy())))
+                            // An ungraded answer has no grader; the names may be an immutable Map.of() (failed lookup)
+                            .gradedBy(answer.getGradedBy() != null
+                                    ? ParticipantDirectory.fullName(users.get(answer.getGradedBy())) : null)
                             .gradedById(answer.getGradedBy())
                             .gradedAt(answer.getGradedAt())
                             .gradeVersion(answer.getGradeVersion())
@@ -600,6 +609,7 @@ public class ExamResultsService {
                 .passingScore(exam.getPassingScore())
                 .gradingStatus(session.getGradingStatus())
                 .questions(questions)
+                .blocks(data.blocks())
                 .violations(SessionReviewResponse.Violations.builder()
                         .total(countByType.values().stream().mapToInt(Integer::intValue).sum())
                         .riskScore(riskScore)

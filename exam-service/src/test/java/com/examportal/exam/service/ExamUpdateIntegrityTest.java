@@ -3,7 +3,14 @@ package com.examportal.exam.service;
 import com.examportal.common.domain.dto.ExamResponse;
 import com.examportal.common.domain.dto.UpdateExamRequest;
 import com.examportal.common.domain.entity.Exam;
+import com.examportal.common.domain.entity.ExamAccessType;
 import com.examportal.common.domain.entity.ExamStatus;
+import com.examportal.common.domain.entity.TimingMode;
+import com.examportal.exam.structure.ExamState;
+import com.examportal.exam.structure.ExamStateRepository;
+import com.examportal.exam.structure.ExamStructureWriter;
+import com.examportal.exam.structure.StructurePlan;
+import com.examportal.exam.structure.StructurePlanner;
 import com.examportal.common.exception.ApplicationException;
 import com.examportal.exam.mapper.ExamMapper;
 import com.examportal.exam.repository.*;
@@ -55,6 +62,10 @@ class ExamUpdateIntegrityTest {
     private final ExamValidator validator = mock(ExamValidator.class);
     private final ExamMapper mapper = mock(ExamMapper.class);
     private final TransactionalOperator transactionalOperator = mock(TransactionalOperator.class);
+    private final com.examportal.exam.history.ExamHistoryService history = mock(com.examportal.exam.history.ExamHistoryService.class);
+    private final ExamStateRepository stateRepository = mock(ExamStateRepository.class);
+    private final ExamStructureWriter structureWriter = mock(ExamStructureWriter.class);
+    private final ExamBlockRepository blockRepository = mock(ExamBlockRepository.class);
 
     private ExamService service;
 
@@ -62,10 +73,14 @@ class ExamUpdateIntegrityTest {
     @SuppressWarnings("unchecked")
     void setUp() {
         when(transactionalOperator.transactional(any(Mono.class))).thenAnswer(call -> call.getArgument(0));
+        when(history.record(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyList())).thenReturn(Mono.empty());
+        when(history.lastQuestionEdits(any())).thenReturn(Mono.just(java.util.Map.of()));
         when(accessPolicy.requireAccess(any(), anyString(), any(Exam.class))).thenAnswer(call -> Mono.just(call.getArgument(2)));
         when(accessPolicy.canManage(any(), anyString(), any(Exam.class))).thenReturn(true);
         when(editLock.lockForEdit(EXAM_ID)).thenReturn(Mono.just(EXAM_ID));
-        when(validator.validateUpdateRequest(any())).thenReturn(Mono.empty());
+        when(validator.validateUpdateRequest(any(), any())).thenReturn(Mono.empty());
+        when(validator.validateTiming(any(), any(), any(), any(), any())).thenReturn(Mono.just(30));
+        when(blockRepository.findByExamIdOrderByPosition(EXAM_ID)).thenReturn(Flux.empty());
         when(examMedia.validate(any(), any(), anyString(), anyLong())).thenReturn(Mono.empty());
         when(examMedia.withMedia(any(ExamResponse.class), anyBoolean())).thenAnswer(call -> Mono.just(call.getArgument(0)));
         when(examRepository.save(any(Exam.class))).thenAnswer(call -> Mono.just(call.getArgument(0)));
@@ -76,11 +91,18 @@ class ExamUpdateIntegrityTest {
         when(mapper.toResponse(any(Exam.class), anyList())).thenReturn(ExamResponse.builder().id(EXAM_ID).build());
         when(cacheService.invalidateExamCache(EXAM_ID)).thenReturn(Mono.empty());
         when(cacheService.cacheExam(any())).thenAnswer(call -> Mono.just(call.getArgument(0)));
+        when(stateRepository.load(EXAM_ID)).thenReturn(Mono.just(new ExamState(EXAM_ID, OWNER, "Old", null, ExamStatus.DRAFT,
+                30, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(2), null, false, false, false, 1, null,
+                null, ExamAccessType.PUBLIC, TimingMode.EXAM_TIMER, false, true, true, List.of(),
+                List.of(new ExamState.BlockState(70L, 1, "Əsas blok", null, null, 0, true, false, true, List.of())))));
+        when(structureWriter.apply(eq(EXAM_ID), any(ExamState.class), any(StructurePlan.class))).thenReturn(Mono.empty());
         service = new ExamService(examRepository, questionRepository, optionRepository, mock(ExamSessionRepository.class),
                 mock(ExamAttemptRepository.class), editLock, mock(ExamManageRepository.class),
                 mock(GroupMembershipRepository.class), mock(ExamDayClock.class), cacheService,
                 mock(AnswerSubmissionService.class), accessPolicy, mock(UserGroupRepository.class),
-                mock(ExamAudienceRepository.class), auditService, examMedia, validator, mapper, transactionalOperator);
+                mock(ExamAudienceRepository.class), auditService, examMedia, validator, mapper, transactionalOperator,
+                stateRepository, new StructurePlanner(), structureWriter, blockRepository, new ExamFeatures(false, false), history, mock(com.examportal.exam.history.ExamSnapshotService.class),
+                mock(ExamReadinessService.class));
     }
 
     private void examIs(ExamStatus status) {
@@ -117,6 +139,7 @@ class ExamUpdateIntegrityTest {
         }
         verify(questionRepository, never()).deleteByExamId(anyLong());
         verify(optionRepository, never()).deleteByQuestionId(anyLong());
+        verify(structureWriter, never()).apply(anyLong(), any(), any());
         verify(examRepository, never()).save(any(Exam.class));
         verify(examRepository, never()).updateTotalQuestions(anyLong(), any());
     }
@@ -134,7 +157,7 @@ class ExamUpdateIntegrityTest {
     }
 
     @Test
-    void anExamWithoutAttemptsIsStillEditedAndItsQuestionsReplaced() {
+    void anExamWithoutAttemptsIsStillEditedAndItsQuestionsChangedInPlace() {
         for (ExamStatus status : List.of(ExamStatus.DRAFT, ExamStatus.SCHEDULED)) {
             examIs(status);
             when(editLock.hasSessions(EXAM_ID)).thenReturn(Mono.just(false));
@@ -143,7 +166,9 @@ class ExamUpdateIntegrityTest {
                     .expectNextMatches(response -> Long.valueOf(EXAM_ID).equals(response.getId()))
                     .verifyComplete();
         }
-        verify(questionRepository, org.mockito.Mockito.times(2)).deleteByExamId(EXAM_ID);
+        // B12a: written in place, never deleted and created again
+        verify(structureWriter, org.mockito.Mockito.times(2)).apply(eq(EXAM_ID), any(ExamState.class), any(StructurePlan.class));
+        verify(questionRepository, never()).deleteByExamId(anyLong());
         verify(examRepository, org.mockito.Mockito.times(2)).save(any(Exam.class));
     }
 

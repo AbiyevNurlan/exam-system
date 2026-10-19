@@ -39,6 +39,11 @@ public class ExamMapper {
                 .createdBy(userId)
                 // Default; ExamService replaces it when the create request names an audience
                 .accessType(ExamAccessType.PUBLIC)
+                // B12a: omitted = the behaviour before blocks
+                .timingMode(request.getTimingMode() != null ? request.getTimingMode() : TimingMode.EXAM_TIMER)
+                .allowReturnToPreviousBlocks(Boolean.TRUE.equals(request.getAllowReturnToPreviousBlocks()))
+                .allowSkipBreak(request.getAllowSkipBreak() == null || request.getAllowSkipBreak())
+                .showBlockBreakdown(request.getShowBlockBreakdown() == null || request.getShowBlockBreakdown())
                 .active(true)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
@@ -65,7 +70,50 @@ public class ExamMapper {
             exam.setMaxAttemptsPerDay(request.getMaxAttemptsPerDay());
         }
         exam.setCategoryId(request.getCategoryId());
+        // B12a: omitted = unchanged
+        if (request.getTimingMode() != null) {
+            exam.setTimingMode(request.getTimingMode());
+        }
+        if (request.getAllowReturnToPreviousBlocks() != null) {
+            exam.setAllowReturnToPreviousBlocks(request.getAllowReturnToPreviousBlocks());
+        }
+        if (request.getAllowSkipBreak() != null) {
+            exam.setAllowSkipBreak(request.getAllowSkipBreak());
+        }
+        if (request.getShowBlockBreakdown() != null) {
+            exam.setShowBlockBreakdown(request.getShowBlockBreakdown());
+        }
         exam.setUpdatedAt(LocalDateTime.now());
+    }
+
+    /**
+     * The blocks of an exam for a response, each with its questions' ids in order
+     */
+    public List<ExamBlockResponse> toBlockResponses(List<ExamBlock> blocks, List<QuestionResponse> questions) {
+        if (blocks == null) {
+            return null;
+        }
+        return blocks.stream()
+                .map(block -> {
+                    List<Long> ids = questions == null ? List.of() : questions.stream()
+                            .filter(q -> block.getId().equals(q.getBlockId()))
+                            .map(QuestionResponse::getId)
+                            .toList();
+                    return ExamBlockResponse.builder()
+                            .id(block.getId())
+                            .position(block.getPosition())
+                            .title(block.getTitle())
+                            .instructions(block.getInstructions())
+                            .timeLimitMinutes(block.getTimeLimitMinutes())
+                            .breakAfterMinutes(block.getBreakAfterMinutes())
+                            .freeNavigation(block.getFreeNavigation())
+                            .shuffleQuestions(block.getShuffleQuestions())
+                            .showResultToParticipant(block.getShowResultToParticipant())
+                            .questionCount(ids.size())
+                            .questionIds(ids)
+                            .build();
+                })
+                .toList();
     }
 
     /**
@@ -126,7 +174,22 @@ public class ExamMapper {
                 .createdAt(exam.getCreatedAt())
                 .updatedAt(exam.getUpdatedAt())
                 .canStart(exam.canStart())
+                .timingMode(exam.getTimingMode() != null ? exam.getTimingMode() : TimingMode.EXAM_TIMER)
+                .allowReturnToPreviousBlocks(exam.getAllowReturnToPreviousBlocks())
+                .allowSkipBreak(exam.getAllowSkipBreak())
+                .showBlockBreakdown(exam.getShowBlockBreakdown())
+                // With block timers the stored duration is the computed total (blocks and breaks)
+                .totalMinutes(exam.getDurationMinutes())
                 .build();
+    }
+
+    /**
+     * Map Exam entity to ExamResponse with questions and blocks
+     */
+    public ExamResponse toResponse(Exam exam, List<QuestionResponse> questions, List<ExamBlock> blocks) {
+        ExamResponse response = toResponse(exam, questions);
+        response.setBlocks(toBlockResponses(blocks, questions));
+        return response;
     }
 
     /**
@@ -151,6 +214,7 @@ public class ExamMapper {
         return QuestionResponse.builder()
                 .id(question.getId())
                 .examId(question.getExamId())
+                .blockId(question.getBlockId())
                 .questionText(question.getQuestionText())
                 .questionType(question.getQuestionType())
                 .points(question.getPoints())
@@ -177,6 +241,7 @@ public class ExamMapper {
         return QuestionResponse.builder()
                 .id(question.getId())
                 .examId(question.getExamId())
+                .blockId(question.getBlockId())
                 .questionText(question.getQuestionText())
                 .questionType(question.getQuestionType())
                 .points(question.getPoints())
@@ -197,6 +262,7 @@ public class ExamMapper {
                 .map(q -> QuestionResponse.builder()
                         .id(q.getId())
                         .examId(q.getExamId())
+                        .blockId(q.getBlockId())
                         .questionText(q.getQuestionText())
                         .questionType(q.getQuestionType())
                         .points(q.getPoints())
@@ -234,6 +300,13 @@ public class ExamMapper {
                 .nextAttemptAt(full.getNextAttemptAt())
                 .canStart(full.getCanStart())
                 .totalPoints(full.getTotalPoints())
+                // Blocks carry no answer key: participants see titles, instructions, limits and breaks
+                .timingMode(full.getTimingMode())
+                .allowReturnToPreviousBlocks(full.getAllowReturnToPreviousBlocks())
+                .allowSkipBreak(full.getAllowSkipBreak())
+                .showBlockBreakdown(full.getShowBlockBreakdown())
+                .totalMinutes(full.getTotalMinutes())
+                .blocks(full.getBlocks())
                 .build();
     }
 

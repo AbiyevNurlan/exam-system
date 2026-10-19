@@ -5,6 +5,9 @@ import com.examportal.common.domain.dto.ExamResponse;
 import com.examportal.common.domain.entity.Exam;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.exam.exception.ExamException;
+import com.examportal.exam.history.ChangeContext;
+import com.examportal.exam.history.ExamDiff;
+import com.examportal.exam.history.ExamHistoryService;
 import com.examportal.exam.mapper.ExamMapper;
 import com.examportal.exam.repository.ExamMetaRepository;
 import com.examportal.exam.repository.ExamRepository;
@@ -36,8 +39,18 @@ public class ExamMetaService {
     private final ExamCacheService cacheService;
     private final ExamMapper mapper;
     private final TransactionalOperator transactionalOperator;
+    private final ExamHistoryService history;
 
     public Mono<ExamResponse> updateMeta(Long examId, ExamMetaRequest request, UUID userId, String role) {
+        return updateMeta(examId, request, ChangeContext.of(userId, role));
+    }
+
+    /**
+     * The same, with the history row META_CHANGED (B12a) in the same transaction
+     */
+    public Mono<ExamResponse> updateMeta(Long examId, ExamMetaRequest request, ChangeContext change) {
+        UUID userId = change.actorId();
+        String role = change.role();
         if (!request.getOtherFields().isEmpty()) {
             return Mono.error(new ValidationException("Only title and description can be changed here; not allowed: "
                     + String.join(", ", request.getOtherFields())));
@@ -52,7 +65,7 @@ public class ExamMetaService {
         String description = request.isDescriptionPresent() && request.getDescription() != null
                 && !request.getDescription().isBlank() ? request.getDescription().trim() : null;
 
-        Mono<Exam> change = examRepository.findById(examId)
+        Mono<Exam> metaChange = examRepository.findById(examId)
                 .filter(exam -> !Boolean.FALSE.equals(exam.getActive()))
                 .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
                 // An exam outside the user's audience is a 404 like an unknown one
@@ -67,9 +80,12 @@ public class ExamMetaService {
                                 "examId=" + examId
                                         + (request.isTitlePresent() ? " title=" + cut(exam.getTitle()) + " -> " + cut(title) : "")
                                         + (request.isDescriptionPresent() ? " description=changed" : ""))
+                        .then(history.record(examId, exam.getCreatedBy(), exam.getStatus(), change, ExamDiff.meta(examId,
+                                exam.getTitle(), request.isTitlePresent() ? title : exam.getTitle(),
+                                exam.getDescription(), request.isDescriptionPresent() ? description : exam.getDescription())))
                         .then(Mono.defer(() -> examRepository.findById(examId))));
 
-        return transactionalOperator.transactional(change)
+        return transactionalOperator.transactional(metaChange)
                 .flatMap(exam -> cacheService.invalidateExamCache(examId).thenReturn(mapper.toResponse(exam)))
                 .doOnSuccess(exam -> log.info("Exam {} title/description changed by {}", examId, userId));
     }

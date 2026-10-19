@@ -1,5 +1,6 @@
 package com.examportal.common.domain.dto;
 
+import com.examportal.common.domain.dto.history.ExamHistoryDtos;
 import com.examportal.common.domain.entity.ExamAccessType;
 import com.examportal.common.domain.entity.ExamStatus;
 import lombok.AllArgsConstructor;
@@ -45,4 +46,9 @@ public class ManagedExamResponse {
     // The active groups of the audience (at most 50, sorted); empty for a PUBLIC exam
     private int audienceGroupCount;
     private List<Long> groupIds;
+
+    // B12a: the newest row of the exam's history (null for an exam not changed since B12a; lastModifiedAt then
+    // falls back to the exam's updatedAt)
+    private ExamHistoryDtos.Actor lastModifiedBy;
+    private LocalDateTime lastModifiedAt;
 }

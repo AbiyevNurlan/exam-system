@@ -26,7 +26,14 @@ public class ExamMetaRequest {
     private String description;
     private boolean descriptionPresent;
 
+    // B12a: why (optional, 3-500 characters); written to the exam's history
+    private String changeReason;
+
     private final List<String> otherFields = new ArrayList<>();
+
+    public void setChangeReason(String changeReason) {
+        this.changeReason = changeReason;
+    }
 
     public void setTitle(String title) {
         this.title = title;
