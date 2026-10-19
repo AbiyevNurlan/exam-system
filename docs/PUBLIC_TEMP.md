@@ -123,7 +123,11 @@ Pulsuz quick tunnel bəzən Cloudflare tərəfindən silinir. Loqda `Unauthorize
 - data-ya toxunulmur;
 - yeni link `deploy\public\CURRENT_URL.txt` və `deploy\public\state\watch.log` fayllarına yazılır.
 
-**Yeni linki iştirakçılara özünüz göndərməlisiniz.**
+**Yeni linki iştirakçılara özünüz göndərməlisiniz.** Jurnalda `ADDRESS CHANGED: köhnə -> yeni` sətri olur. Problem sətrində hər cəhdin nəticəsi yazılır: `502`, `530` və ya `timeout/no answer`.
+
+**`exam-cloudflared`-i əl ilə `docker restart` etməyin.** Tunel yeni link alır, amma exam-service imtahan şəkillərini və səslərini köhnə linkə imzalamağa davam edir. Bu halda sayt açılır, media isə yüklənmir. `go-public.ps1 status` bunu `WARNING: exam-service still signs media links ...` ilə göstərir. Həlli: `.\scripts\go-public.ps1 start`.
+
+**Tunel HTTP/2 ilə qoşulur** (`--protocol http2`, TCP 443). QUIC (UDP 7844) bu şəbəkədə tez-tez qırılırdı. Jurnalda `failed to dial a quic connection` və `datagram manager error` görünürdü və hər yenidən qoşulmada brauzer qısa müddətə 502 alırdı.
 
 **Nə vaxt açmır:** `go-public.ps1 stop` ilə qəsdən dayandırılan saytı. Növbəti `start`-a qədər toxunmur. Bir yenidən başlatmadan sonra 5 dəqiqə gözləyir ki, dövrəyə düşməsin.
 
