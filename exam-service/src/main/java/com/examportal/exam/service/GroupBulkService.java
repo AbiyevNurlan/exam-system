@@ -23,7 +23,9 @@ import java.util.UUID;
 
 /**
  * Group Bulk Service
- * Adds many participants to a group at once (a filter: ADMIN only; ids: also an INSTRUCTOR to an own group):
+ * Adds many participants to a group at once, to a group the caller may manage (ADMIN every group, an INSTRUCTOR the
+ * own ones). B13: for an INSTRUCTOR both the filter and the ids reach only the members of the teacher's own groups
+ * (moving people between the own groups); nobody else counts, the same as an unknown id:
  * everybody a filter of the participant list matches, or a list of ids (a page selection).
  *
  * A dry run reports what would happen and writes nothing. A real run by filter must say how many
@@ -47,8 +49,8 @@ public class GroupBulkService {
     private final TransactionalOperator transactionalOperator;
 
     /**
-     * ADMIN only (the controller enforces it): a filter reaches every participant of the platform,
-     * which only the participant list (ADMIN) may show
+     * ADMIN: a filter over every participant of the platform; INSTRUCTOR (B13): over the members of the own groups
+     * only, with the filters the teacher's participant list allows (ParticipantService.resolveFilterFor)
      */
     public Mono<ParticipantDtos.BulkResult> addByFilter(Long groupId, ParticipantDtos.BulkByFilterRequest request, UserPrincipal actor) {
         ParticipantDtos.Filter filter = request.getFilter() != null ? request.getFilter() : new ParticipantDtos.Filter();
@@ -56,7 +58,8 @@ public class GroupBulkService {
             return Mono.error(new ValidationException("expectedCount is required for a real run (take it from the dry run)"));
         }
         return findGroup(groupId, actor)
-                .then(Mono.defer(() -> participantService.resolveFilter(filter)))
+                // An empty member list matches nobody (id = ANY('{}') in auth-service)
+                .then(Mono.defer(() -> participantService.resolveFilterFor(filter, actor.getId(), actor.getRole())))
                 .flatMap(resolved -> run(groupId, resolved, request.isDryRun(), request.getExpectedCount(),
                         "filter " + describe(filter), actor.getId()));
     }
@@ -66,10 +69,12 @@ public class GroupBulkService {
      */
     public Mono<ParticipantDtos.BulkResult> addByIds(Long groupId, ParticipantDtos.BulkByIdsRequest request, UserPrincipal actor) {
         List<UUID> ids = new ArrayList<>(new LinkedHashSet<>(request.getUserIds()));
-        // Only participants among the given ids count: an unknown id or a user with another role is left out
-        ParticipantQuery.Filter filter = ParticipantQuery.Filter.builder().includeIds(ids).build();
+        // Only participants among the given ids count: an unknown id or a user with another role is left out;
+        // B13: for a teacher also anybody who is not a member of one of the teacher's groups
         return findGroup(groupId, actor)
-                .then(Mono.defer(() -> run(groupId, filter, request.isDryRun(), null, "ids " + ids.size(), actor.getId())));
+                .then(Mono.defer(() -> participantService.ownMembersAmong(ids, actor.getId(), actor.getRole())))
+                .flatMap(usable -> run(groupId, ParticipantQuery.Filter.builder().includeIds(usable).build(),
+                        request.isDryRun(), null, "ids " + ids.size(), actor.getId()));
     }
 
     // ==================== Private Helper Methods ====================

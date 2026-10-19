@@ -21,9 +21,9 @@ import reactor.core.publisher.Mono;
 
 /**
  * Group Bulk Controller
- * Adding many participants to a group at once. By ids: ADMIN for every group, INSTRUCTOR for the own
- * ones (GroupAccessPolicy). By filter: ADMIN only, because a filter reaches every participant of the
- * platform. Roles by path in SecurityConfig (/api/groups/{id}/**) and by @PreAuthorize.
+ * Adding many participants to a group at once: ADMIN for every group, INSTRUCTOR for the own ones
+ * (GroupAccessPolicy). B13: for an INSTRUCTOR the filter and the ids reach only the members of the own groups
+ * (GroupBulkService). Roles by path in SecurityConfig (/api/groups/{id}/**) and by @PreAuthorize.
  */
 @Slf4j
 @RestController
@@ -37,11 +37,12 @@ public class GroupBulkController {
     private final GroupBulkService bulkService;
 
     @PostMapping("/bulk-by-filter")
-    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Add everybody matching a filter", description = "The filter is the one of the participant list. "
             + "dryRun=true writes nothing and answers {matched, alreadyMembers, willAdd, cap}. A real run needs expectedCount "
             + "(willAdd of the dry run): 409 FILTER_COUNT_CHANGED when it no longer holds, 422 TOO_MANY_MATCHES above 20 000; "
-            + "nothing is written in either case. Idempotent; one audit row per real run.")
+            + "nothing is written in either case. Idempotent; one audit row per real run. INSTRUCTOR (B13): only the members of "
+            + "the own groups count, with the filters of the teacher's participant list (category, institution, blocked and "
+            + "noGroup are 400).")
     public Mono<ApiResponse<ParticipantDtos.BulkResult>> addByFilter(
             @PathVariable Long id,
             @Valid @RequestBody ParticipantDtos.BulkByFilterRequest request,

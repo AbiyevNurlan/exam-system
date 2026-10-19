@@ -32,14 +32,24 @@ public class GroupMembershipRepository {
      * The groups of each of the given users, by group name (idx_group_members_user_id)
      */
     public Flux<UserGroupName> findGroupsOfUsers(Collection<UUID> userIds) {
-        return databaseClient.sql("""
+        return findGroupsOfUsers(userIds, null);
+    }
+
+    /**
+     * The groups of each of the given users, by group name; owner limits them to the groups of that owner (B13: a
+     * teacher sees only the own groups of a participant, never the names of another owner's groups); null = all
+     */
+    public Flux<UserGroupName> findGroupsOfUsers(Collection<UUID> userIds, UUID owner) {
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql("""
                         SELECT m.user_id, g.id, g.name
                         FROM user_group_members m
                         JOIN user_groups g ON g.id = m.group_id AND g.active = true
                         WHERE m.user_id = ANY(:userIds)
+                          AND (CAST(:owner AS uuid) IS NULL OR g.owner_id = CAST(:owner AS uuid))
                         ORDER BY m.user_id, btrim(g.name) COLLATE az_ci, g.id
                         """)
-                .bind("userIds", userIds.toArray(new UUID[0]))
+                .bind("userIds", userIds.toArray(new UUID[0]));
+        return (owner != null ? spec.bind("owner", owner) : spec.bindNull("owner", UUID.class))
                 .map(row -> new UserGroupName(
                         row.get("user_id", UUID.class),
                         row.get("id", Long.class),
@@ -53,6 +63,37 @@ public class GroupMembershipRepository {
     public Mono<List<UUID>> findMemberIds(Long groupId) {
         return databaseClient.sql("SELECT user_id FROM user_group_members WHERE group_id = :groupId")
                 .bind("groupId", groupId)
+                .map(row -> row.get("user_id", UUID.class))
+                .all()
+                .collectList();
+    }
+
+    /**
+     * B13: whether the user is a member of an active group of the owner (someone the teacher knows already)
+     */
+    public Mono<Boolean> isMemberOfOwner(UUID userId, UUID owner) {
+        return databaseClient.sql("""
+                        SELECT EXISTS (SELECT 1 FROM user_group_members m
+                                       JOIN user_groups g ON g.id = m.group_id AND g.active = true
+                                       WHERE m.user_id = :userId AND g.owner_id = :owner) AS member
+                        """)
+                .bind("userId", userId)
+                .bind("owner", owner)
+                .map(row -> Boolean.TRUE.equals(row.get("member", Boolean.class)))
+                .one();
+    }
+
+    /**
+     * B13: the ids of everybody who is a member of at least one active group of the owner (a teacher's participants)
+     */
+    public Mono<List<UUID>> findMemberIdsOfOwner(UUID owner) {
+        return databaseClient.sql("""
+                        SELECT DISTINCT m.user_id
+                        FROM user_groups g
+                        JOIN user_group_members m ON m.group_id = g.id
+                        WHERE g.owner_id = :owner AND g.active = true
+                        """)
+                .bind("owner", owner)
                 .map(row -> row.get("user_id", UUID.class))
                 .all()
                 .collectList();

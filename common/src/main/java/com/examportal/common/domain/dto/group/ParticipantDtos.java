@@ -30,7 +30,7 @@ public final class ParticipantDtos {
      * The same filter drives the list and the bulk addition, so "add everybody I see" means the same people.
      */
     @Data
-    @Builder
+    @Builder(toBuilder = true)
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Filter {

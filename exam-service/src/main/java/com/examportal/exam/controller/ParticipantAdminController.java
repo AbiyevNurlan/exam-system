@@ -27,7 +27,8 @@ import reactor.core.publisher.Mono;
 /**
  * Participant Admin Controller
  * The list of participants for administrators. ADMIN is enforced by path in SecurityConfig
- * (/api/admin/**); @PreAuthorize is a second layer.
+ * (/api/admin/**); @PreAuthorize is a second layer. B13: GET of the list itself is open to INSTRUCTOR too (path rule
+ * and method annotation), limited to the members of the own groups (ParticipantService); summary and PATCH stay ADMIN.
  */
 @RestController
 @RequestMapping("/api/admin/participants")
@@ -41,10 +42,13 @@ public class ParticipantAdminController {
     private final UserDirectoryClient userDirectory;
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
     @Operation(summary = "List participants", description = "Users with the role STUDENT, paged on the server (default 25, max 50). "
             + "Each row carries the first three groups and the number of groups. q: first name, last name, email prefix or a "
             + "user id (at least 2 characters). registeredFrom / registeredTo: days (yyyy-MM-dd) in the exam day zone, inclusive. "
-            + "groupId and noGroup cannot be combined.")
+            + "groupId and noGroup cannot be combined. INSTRUCTOR (B13): only the members of the own groups (q and a 7-digit code "
+            + "search among them only), groupId an own group (else 404 GROUP_NOT_FOUND), category, institution, blocked and "
+            + "noGroup are 400; rows show only the own groups, blocked false and lockedUntil null.")
     public Mono<ApiResponse<PageResponse<ParticipantDtos.Participant>>> getParticipants(
             @RequestParam(required = false) @Parameter(description = "Name, email prefix or user id") String q,
             @RequestParam(required = false) @Parameter(description = "Members of this group only") Long groupId,
@@ -64,14 +68,16 @@ public class ParticipantAdminController {
             @RequestParam(required = false) @Parameter(description = "Older form: asc or desc (default: desc for "
                     + "createdAt, asc otherwise)") String order,
             @RequestParam(defaultValue = "0") @Parameter(description = "Page number (0-indexed)") int page,
-            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size) {
+            @RequestParam(defaultValue = "25") @Parameter(description = "Page size (max 50)") int size,
+            @AuthenticationPrincipal UserPrincipal principal) {
 
         ParticipantDtos.Filter filter = ParticipantDtos.Filter.builder()
                 .q(q).groupId(groupId).noGroup(noGroup).verified(verified).blocked(blocked)
                 .registeredFrom(registeredFrom).registeredTo(registeredTo)
                 .category(category).institution(institution)
                 .build();
-        return Mono.defer(() -> participantService.getParticipants(filter, sortBy, dir, sort, order, page, size))
+        return Mono.defer(() -> participantService.getParticipants(filter, sortBy, dir, sort, order, page, size,
+                        principal.getId(), principal.getRole()))
                 .map(ApiResponse::success);
     }
 

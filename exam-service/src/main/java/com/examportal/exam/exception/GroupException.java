@@ -37,8 +37,23 @@ public class GroupException extends ApplicationException {
     }
 
     public static GroupException memberReferenceRequired() {
-        return new GroupException("Exactly one of userId and email is required", HttpStatus.BAD_REQUEST,
+        return new GroupException("Exactly one of userId, email and participantCode is required", HttpStatus.BAD_REQUEST,
                 "GROUP_MEMBER_REFERENCE_REQUIRED");
+    }
+
+    /**
+     * B13: no participant (a verified STUDENT account) has this code; the same answer for every reason
+     */
+    public static GroupException participantNotFound() {
+        return new GroupException("No participant has this code", HttpStatus.NOT_FOUND, "PARTICIPANT_NOT_FOUND");
+    }
+
+    /**
+     * B13: too many additions by participant code in a short time (they could be used to probe for codes)
+     */
+    public static GroupException codeLookupLimited() {
+        return new GroupException("Too many additions by participant code; try again in a minute",
+                HttpStatus.TOO_MANY_REQUESTS, "MEMBER_CODE_RATE_LIMITED");
     }
 
     public static GroupException invalidSearch() {

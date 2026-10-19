@@ -64,7 +64,9 @@ class ParticipantCardServiceTest {
     void setUp() {
         ParticipantCardDtos.AuthCard account = ParticipantCardDtos.AuthCard.builder().id(USER).participantCode(4141592)
                 .firstName("Gülnarə").lastName("Məmmədova").email("p@x.test").role("STUDENT").emailVerified(true).active(true)
-                .profile(ParticipantProfileDtos.Profile.builder().category("UNIVERSITY_STUDENT").institution("ADA").build())
+                .profile(ParticipantProfileDtos.Profile.builder().category("UNIVERSITY_STUDENT").institution("ADA")
+                        .birthDate(java.time.LocalDate.of(2004, 5, 6)).workplace("ADA").build())
+                .phoneNumber("+994501234567").blocked(true).lockedUntil(LocalDateTime.of(2030, 1, 1, 0, 0))
                 .accountEvents(authRows).build();
         when(directory.participantCard(eq(USER), anyInt())).thenReturn(Mono.just(account));
         when(cards.findGroups(eq(USER), any())).thenReturn(Mono.just(List.of(ParticipantCardDtos.Membership.builder().groupId(4L).groupName("G").build())));
@@ -83,6 +85,9 @@ class ParticipantCardServiceTest {
                     assertThat(card.getParticipantCode()).isEqualTo(4141592);
                     assertThat(card.getScope()).isEqualTo(ParticipantCardDtos.SCOPE_ALL);
                     assertThat(card.getProfile().getInstitution()).isEqualTo("ADA");
+                    assertThat(card.getProfile().getBirthDate()).isEqualTo(java.time.LocalDate.of(2004, 5, 6));
+                    assertThat(card.getPhoneNumber()).isEqualTo("+994501234567");
+                    assertThat(card.isBlocked()).isTrue();
                     assertThat(card.getGroups()).hasSize(1);
                     assertThat(card.getStats().getExamsTaken()).isEqualTo(2);
                     assertThat(card.getRecentEvents()).extracting(AuditEntryResponse::getActorCode).containsExactly(1000001);
@@ -101,6 +106,14 @@ class ParticipantCardServiceTest {
                 .assertNext(card -> {
                     assertThat(card.getScope()).isEqualTo(ParticipantCardDtos.SCOPE_OWN);
                     assertThat(card.getRecentEvents()).isEmpty();
+                    // B13: name, code and email; never the profile, the phone or the lock state
+                    assertThat(card.getParticipantCode()).isEqualTo(4141592);
+                    assertThat(card.getEmail()).isEqualTo("p@x.test");
+                    assertThat(card.getFirstName()).isNotBlank();
+                    assertThat(card.getProfile()).isNull();
+                    assertThat(card.getPhoneNumber()).isNull();
+                    assertThat(card.isBlocked()).isFalse();
+                    assertThat(card.getLockedUntil()).isNull();
                 })
                 .verifyComplete();
         verify(cards).findGroups(USER, TEACHER);

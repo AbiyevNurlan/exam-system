@@ -34,6 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
@@ -54,6 +55,8 @@ import java.util.stream.Collectors;
 public class GroupService {
 
     private static final int MAX_PAGE_SIZE = 50;
+    // B13: additions by participant code per caller and minute
+    static final int CODE_ADDITIONS_PER_MINUTE = 10;
     private static final int MAX_NAME_LENGTH = 100;
 
     private final UserGroupRepository groupRepository;
@@ -65,6 +68,7 @@ public class GroupService {
     private final GroupOverviewRepository overviewRepository;
     private final GroupMembershipRepository membershipRepository;
     private final GroupAccessPolicy accessPolicy;
+    private final ActionRateLimiter rateLimiter;
 
     /**
      * The creator owns the new group
@@ -312,31 +316,86 @@ public class GroupService {
     }
 
     /**
-     * Add one member by user id or by email.
+     * Add one member by user id, by email or by participant code (exactly one of them).
      * By id: the account must exist. By email: an account with that verified email becomes a member;
      * otherwise the email is stored as a pending invite and applied once such an account exists
      * (an unverified account must not gain access through an address it has not proven to own).
+     *
+     * B13, for a teacher (INSTRUCTOR), nothing may tell whether an account exists:
+     * - by email the account is not looked up at all: the email is always stored as a pending invite (INVITED,
+     *   or ALREADY_INVITED for an email invited to this group already), which becomes a membership the next time
+     *   that person signs in or verifies the address (GroupInviteService), exactly as for an unknown email;
+     * - by id only someone who is a member of one of the teacher's groups already (anybody else is the same 404
+     *   USER_NOT_FOUND as an unknown id);
+     * - by participant code (any role): an exact match of a verified participant, at most
+     *   CODE_ADDITIONS_PER_MINUTE per caller (429 MEMBER_CODE_RATE_LIMITED); the answer carries the masked name so
+     *   the teacher can check the person; an unknown code is 404 PARTICIPANT_NOT_FOUND.
      */
     public Mono<AddGroupMemberResponse> addMember(Long groupId, AddGroupMemberRequest request, UserPrincipal actor) {
         UUID actorId = actor.getId();
         boolean hasId = request.getUserId() != null;
         boolean hasEmail = request.getEmail() != null && !request.getEmail().isBlank();
-        if (hasId == hasEmail) {
+        boolean hasCode = request.getParticipantCode() != null;
+        if ((hasId ? 1 : 0) + (hasEmail ? 1 : 0) + (hasCode ? 1 : 0) != 1) {
             return Mono.error(GroupException.memberReferenceRequired());
         }
+        UUID owner = GroupAccessPolicy.ownerFilter(actorId, actor.getRole());
 
         return findGroup(groupId, actor).flatMap(group -> {
+            if (hasCode) {
+                return addByCode(groupId, request.getParticipantCode(), actorId);
+            }
             if (hasId) {
-                return userDirectory.findById(request.getUserId())
+                Mono<Boolean> known = owner == null ? Mono.just(true)
+                        : membershipRepository.isMemberOfOwner(request.getUserId(), owner);
+                return known.filter(Boolean::booleanValue)
+                        .flatMap(yes -> userDirectory.findById(request.getUserId()))
                         .switchIfEmpty(Mono.error(GroupException.userNotFound()))
                         .flatMap(user -> addExistingUser(groupId, user.getId(), null, actorId));
             }
             String email = request.getEmail().trim().toLowerCase(Locale.ROOT);
+            if (owner != null) {
+                return invite(groupId, email, actorId);
+            }
             return userDirectory.findByEmail(email)
                     .filter(user -> user.isEmailVerified())
                     .flatMap(user -> addExistingUser(groupId, user.getId(), email, actorId))
                     .switchIfEmpty(Mono.defer(() -> invite(groupId, email, actorId)));
         });
+    }
+
+    /**
+     * B13: a verified participant by the exact 7-digit code, within the caller's rate limit
+     */
+    private Mono<AddGroupMemberResponse> addByCode(Long groupId, int code, UUID actorId) {
+        return rateLimiter.tryAcquire("member-by-code:" + actorId, CODE_ADDITIONS_PER_MINUTE, Duration.ofMinutes(1))
+                .flatMap(allowed -> allowed ? Mono.just(code) : Mono.<Integer>error(GroupException.codeLookupLimited()))
+                .flatMap(wanted -> userDirectory.participants(ParticipantQuery.PageRequest.builder()
+                        .filter(ParticipantQuery.Filter.builder().q(String.valueOf(wanted)).verified(true).build())
+                        .page(0)
+                        .size(5)
+                        .sort("code")
+                        .ascending(true)
+                        .build()))
+                // q also matches names and email prefixes: only the exact code counts
+                .flatMap(found -> Mono.justOrEmpty(found.getUsers().stream()
+                        .filter(user -> Integer.valueOf(code).equals(user.getParticipantCode()))
+                        .findFirst()))
+                .switchIfEmpty(Mono.error(GroupException.participantNotFound()))
+                .flatMap(user -> addExistingUser(groupId, user.getId(), null, actorId)
+                        .map(added -> added.toBuilder().maskedName(maskName(user.getFirstName(), user.getLastName())).build()));
+    }
+
+    /**
+     * "Aysel Quliyeva" -> "A*** Q***": enough for the teacher to check the person, nothing more
+     */
+    static String maskName(String firstName, String lastName) {
+        return (maskPart(firstName) + " " + maskPart(lastName)).trim();
+    }
+
+    private static String maskPart(String part) {
+        String trimmed = part == null ? "" : part.trim();
+        return trimmed.isEmpty() ? "" : trimmed.substring(0, trimmed.offsetByCodePoints(0, 1)) + "***";
     }
 
     public Mono<Void> removeMember(Long groupId, UUID userId, UserPrincipal actor) {

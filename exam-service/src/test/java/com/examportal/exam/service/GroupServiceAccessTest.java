@@ -62,7 +62,8 @@ class GroupServiceAccessTest {
         when(groupRepository.findActiveById(GROUP_ID)).thenReturn(Mono.just(
                 UserGroup.builder().id(GROUP_ID).name("Owned").ownerId(OWNER).createdBy(OWNER).active(true).build()));
         service = new GroupService(groupRepository, memberRepository, inviteRepository, auditService, userDirectory,
-                transactionalOperator, overviewRepository, membershipRepository, new GroupAccessPolicy(groupRepository));
+                transactionalOperator, overviewRepository, membershipRepository, new GroupAccessPolicy(groupRepository),
+                new ActionRateLimiter(mock(org.springframework.beans.factory.ObjectProvider.class)));
     }
 
     private static UserPrincipal user(UUID id, String role) {

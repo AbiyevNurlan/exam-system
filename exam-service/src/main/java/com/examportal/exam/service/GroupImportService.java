@@ -86,7 +86,10 @@ public class GroupImportService {
                 .flatMap(group -> DataBufferUtils.join(file.content(), MAX_FILE_BYTES))
                 .map(this::readAndRelease)
                 .flatMap(text -> Mono.fromCallable(() -> parse(text)))
-                .flatMap(parsed -> classify(groupId, parsed.emails())
+                // B13: a teacher's import never looks the accounts up, so its figures cannot tell whether an email has
+                // an account: every new email is a pending invite (matched and alreadyMember stay 0) and becomes a
+                // membership when that person signs in or verifies the address, as for an unknown email
+                .flatMap(parsed -> classify(groupId, parsed.emails(), OwnershipPolicy.isAdmin(actor.getRole()))
                         .flatMap(classification -> {
                             CsvImportResponse response = CsvImportResponse.builder()
                                     .dryRun(dryRun)
@@ -177,16 +180,25 @@ public class GroupImportService {
         return value;
     }
 
-    private Mono<Classification> classify(Long groupId, List<String> emails) {
+    private Mono<Classification> classify(Long groupId, List<String> emails, boolean lookupAccounts) {
         return Flux.fromIterable(batches(emails))
                 // One batch at a time: bounded load on auth-service and on the connection pool
-                .concatMap(batch -> classifyBatch(groupId, batch))
+                .concatMap(batch -> lookupAccounts ? classifyBatch(groupId, batch) : classifyAsInvites(groupId, batch))
                 .reduceWith(() -> new Classification(new HashMap<>(), new ArrayList<>(), 0, 0), (total, part) -> {
                     total.newMembers().putAll(part.newMembers());
                     total.newInvites().addAll(part.newInvites());
                     return new Classification(total.newMembers(), total.newInvites(),
                             total.alreadyMember() + part.alreadyMember(),
                             total.alreadyInvited() + part.alreadyInvited());
+                });
+    }
+
+    // B13, a teacher: only the invites of this group are looked at, never the accounts
+    private Mono<Classification> classifyAsInvites(Long groupId, List<String> batch) {
+        return importRepository.findInvitedEmails(groupId, batch).collect(Collectors.toSet())
+                .map(invited -> {
+                    List<String> newInvites = new ArrayList<>(batch.stream().filter(email -> !invited.contains(email)).toList());
+                    return new Classification(new HashMap<>(), newInvites, 0, batch.size() - newInvites.size());
                 });
     }
 

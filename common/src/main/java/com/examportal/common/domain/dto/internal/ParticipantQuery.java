@@ -30,7 +30,7 @@ public final class ParticipantQuery {
      * Every field is optional; the given ones are combined with AND. Dates are UTC.
      */
     @Data
-    @Builder
+    @Builder(toBuilder = true)
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Filter {

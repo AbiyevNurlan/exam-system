@@ -54,27 +54,102 @@ public class ParticipantService {
     public Mono<PageResponse<ParticipantDtos.Participant>> getParticipants(ParticipantDtos.Filter filter, String sortBy,
                                                                            String dir, String sort, String order,
                                                                            int page, int size) {
+        return getParticipants(filter, sortBy, dir, sort, order, page, size, null, OwnershipPolicy.ADMIN);
+    }
+
+    /**
+     * The list for the caller. ADMIN: every participant, every filter. B13, INSTRUCTOR: only the members of the
+     * own groups (anybody else is not in the list, also not through q or a 7-digit code); groupId only an own group
+     * (another owner's group is the same 404 GROUP_NOT_FOUND as a missing one); the profile filters (category,
+     * institution), blocked and noGroup are 400, since a teacher does not see those fields; each row shows only the
+     * teacher's own groups, and blocked / lockedUntil are not shown (false / null). A teacher without members gets an
+     * empty page (200).
+     */
+    public Mono<PageResponse<ParticipantDtos.Participant>> getParticipants(ParticipantDtos.Filter filter, String sortBy,
+                                                                           String dir, String sort, String order,
+                                                                           int page, int size, UUID callerId, String callerRole) {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), ParticipantQuery.MAX_PAGE_SIZE);
         SortChoice choice = sortChoice(sortBy, dir, sort, order);
+        UUID owner = OwnershipPolicy.ownerFilter(callerId, callerRole);
+        if (owner != null) {
+            return instructorFilter(filter, owner).flatMap(resolved -> resolved.getIncludeIds().isEmpty()
+                    ? Mono.just(PageResponse.<ParticipantDtos.Participant>of(List.of(), pageNumber, pageSize, 0))
+                    : page(resolved, choice, pageNumber, pageSize, owner));
+        }
+        return resolveFilter(filter).flatMap(resolved -> page(resolved, choice, pageNumber, pageSize, null));
+    }
 
-        return resolveFilter(filter)
-                .flatMap(resolved -> userDirectory.participants(ParticipantQuery.PageRequest.builder()
+    /**
+     * The filter as the caller may use it: ADMIN the whole platform (resolveFilter), an INSTRUCTOR only the members
+     * of the own groups (B13), anybody else nobody
+     */
+    public Mono<ParticipantQuery.Filter> resolveFilterFor(ParticipantDtos.Filter filter, UUID callerId, String callerRole) {
+        UUID owner = OwnershipPolicy.ownerFilter(callerId, callerRole);
+        return owner == null ? resolveFilter(filter) : instructorFilter(filter, owner);
+    }
+
+    /**
+     * B13: the members of the own groups among the given ids (a teacher may only use people of the own groups)
+     */
+    public Mono<List<UUID>> ownMembersAmong(List<UUID> ids, UUID callerId, String callerRole) {
+        UUID owner = OwnershipPolicy.ownerFilter(callerId, callerRole);
+        if (owner == null) {
+            return Mono.just(ids);
+        }
+        return membershipRepository.findMemberIdsOfOwner(owner)
+                .map(members -> {
+                    java.util.Set<UUID> own = new java.util.HashSet<>(members);
+                    return ids.stream().filter(own::contains).toList();
+                });
+    }
+
+    /**
+     * The filter of a teacher: the members of the own groups (or of one own group), never more
+     */
+    private Mono<ParticipantQuery.Filter> instructorFilter(ParticipantDtos.Filter filter, UUID owner) {
+        ParticipantDtos.Filter given = filter != null ? filter : new ParticipantDtos.Filter();
+        if (given.getCategory() != null && !given.getCategory().isBlank()) {
+            return Mono.error(new ValidationException("category", "The profile is not shown to instructors, so it cannot be filtered"));
+        }
+        if (given.getInstitution() != null && !given.getInstitution().isBlank()) {
+            return Mono.error(new ValidationException("institution", "The profile is not shown to instructors, so it cannot be filtered"));
+        }
+        if (given.getBlocked() != null) {
+            return Mono.error(new ValidationException("blocked", "The lock state of an account is not shown to instructors"));
+        }
+        if (Boolean.TRUE.equals(given.getNoGroup())) {
+            return Mono.error(new ValidationException("noGroup", "An instructor sees only the members of the own groups"));
+        }
+        Long groupId = given.getGroupId();
+        ParticipantDtos.Filter withoutGroup = given.toBuilder().groupId(null).build();
+        Mono<List<UUID>> members = groupId == null
+                ? membershipRepository.findMemberIdsOfOwner(owner)
+                : groupRepository.findActiveById(groupId)
+                        .filter(group -> owner.equals(group.getOwnerId()))
+                        .switchIfEmpty(Mono.error(GroupException.notFound(groupId)))
+                        .flatMap(group -> membershipRepository.findMemberIds(group.getId()));
+        return resolveFilter(withoutGroup).zipWith(members, (resolved, ids) -> resolved.toBuilder().includeIds(ids).build());
+    }
+
+    private Mono<PageResponse<ParticipantDtos.Participant>> page(ParticipantQuery.Filter resolved, SortChoice choice,
+                                                                 int pageNumber, int pageSize, UUID owner) {
+        return userDirectory.participants(ParticipantQuery.PageRequest.builder()
                         .filter(resolved)
                         .page(pageNumber)
                         .size(pageSize)
                         .sort(choice.key())
                         .ascending(choice.ascending())
-                        .build()))
+                        .build())
                 .flatMap(found -> {
                     List<UUID> ids = found.getUsers().stream().map(ParticipantQuery.Participant::getId).toList();
-                    // The groups of the whole page in one statement
+                    // The groups of the whole page in one statement (a teacher: only the own groups)
                     Mono<Map<UUID, List<UserGroupName>>> groups = ids.isEmpty()
                             ? Mono.just(Map.of())
-                            : membershipRepository.findGroupsOfUsers(ids).collectList()
+                            : membershipRepository.findGroupsOfUsers(ids, owner).collectList()
                                     .map(rows -> rows.stream().collect(Collectors.groupingBy(UserGroupName::userId)));
                     return groups.map(byUser -> PageResponse.of(
-                            found.getUsers().stream().map(user -> toParticipant(user, byUser.getOrDefault(user.getId(), List.of()))).toList(),
+                            found.getUsers().stream().map(user -> toParticipant(user, byUser.getOrDefault(user.getId(), List.of()), owner == null)).toList(),
                             pageNumber, pageSize, found.getTotal()));
                 });
     }
@@ -211,7 +286,8 @@ public class ParticipantService {
         return value == null || value.isBlank() ? null : LocalDate.parse(value.trim());
     }
 
-    private ParticipantDtos.Participant toParticipant(ParticipantQuery.Participant user, List<UserGroupName> groups) {
+    // admin = false: a teacher's row, without the lock state of the account (B13)
+    private ParticipantDtos.Participant toParticipant(ParticipantQuery.Participant user, List<UserGroupName> groups, boolean admin) {
         return ParticipantDtos.Participant.builder()
                 .id(user.getId())
                 .firstName(user.getFirstName())
@@ -220,8 +296,8 @@ public class ParticipantService {
                 .participantCode(user.getParticipantCode())
                 .registeredAt(user.getCreatedAt())
                 .emailVerified(user.isEmailVerified())
-                .blocked(user.isBlocked())
-                .lockedUntil(user.getLockedUntil())
+                .blocked(admin && user.isBlocked())
+                .lockedUntil(admin ? user.getLockedUntil() : null)
                 .groups(groups.stream()
                         .limit(GROUPS_SHOWN)
                         .map(group -> new ParticipantDtos.GroupRef(group.groupId(), group.groupName()))

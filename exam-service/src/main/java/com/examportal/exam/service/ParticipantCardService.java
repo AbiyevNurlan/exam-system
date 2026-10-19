@@ -22,7 +22,7 @@ import java.util.UUID;
  *
  * Who sees what (also enforced by path in SecurityConfig):
  *   ADMIN       every account, every group, every attempt, the statistics over every exam, the newest events
- *   INSTRUCTOR  only a member of a group the instructor owns (anyone else is a 404, like an unknown id, so an
+ *   INSTRUCTOR  (B13: without phone, lock state and profile) only a member of a group the instructor owns (anyone else is a 404, like an unknown id, so an
  *               instructor cannot even learn that an account exists); of that member only the instructor's own
  *               groups and the attempts at exams the instructor created, statistics over those exams; no events
  *   anyone else 403
@@ -67,14 +67,17 @@ public class ParticipantCardService {
                                 .firstName(account.getFirstName())
                                 .lastName(account.getLastName())
                                 .email(account.getEmail())
-                                .phoneNumber(account.getPhoneNumber())
+                                // B13: a teacher sees name, code, email, the own groups and the own exams only; the
+                                // phone, the lock state and the profile (birth date, workplace, institution, category ...)
+                                // are dropped here, on the server
+                                .phoneNumber(admin ? account.getPhoneNumber() : null)
                                 .role(account.getRole())
                                 .registeredAt(account.getRegisteredAt())
                                 .emailVerified(account.isEmailVerified())
                                 .active(account.isActive())
-                                .blocked(account.isBlocked())
-                                .lockedUntil(account.getLockedUntil())
-                                .profile(account.getProfile())
+                                .blocked(admin && account.isBlocked())
+                                .lockedUntil(admin ? account.getLockedUntil() : null)
+                                .profile(admin ? account.getProfile() : null)
                                 .scope(admin ? ParticipantCardDtos.SCOPE_ALL : ParticipantCardDtos.SCOPE_OWN)
                                 .groups(found.getT2())
                                 .sessions(found.getT3())

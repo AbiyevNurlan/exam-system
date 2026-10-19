@@ -52,7 +52,8 @@ class ParticipantCodeDisplayTest {
                 UserRef.builder().id(withoutCode).email("b@x.test").firstName("Aynur").lastName("Kerimova").build())));
         GroupService service = new GroupService(groups, members, mock(PendingGroupInviteRepository.class),
                 mock(GroupAuditService.class), directory, mock(TransactionalOperator.class), mock(GroupOverviewRepository.class),
-                mock(GroupMembershipRepository.class), new GroupAccessPolicy(groups));
+                mock(GroupMembershipRepository.class), new GroupAccessPolicy(groups),
+                new ActionRateLimiter(mock(org.springframework.beans.factory.ObjectProvider.class)));
 
         StepVerifier.create(service.getMembers(GROUP_ID, 0, 25, UserPrincipal.builder().id(ADMIN).role("ADMIN").build()))
                 .assertNext(page -> {

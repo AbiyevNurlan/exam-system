@@ -12,7 +12,7 @@ import java.util.UUID;
  * Add Group Member Response DTO
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -31,4 +31,6 @@ public class AddGroupMemberResponse {
 
     private Status status;
     private UUID userId;
+    /** B13, added by participant code: the name with all but the first letter of each part hidden ("A*** Q***") */
+    private String maskedName;
 }
