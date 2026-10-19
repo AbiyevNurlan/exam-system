@@ -87,16 +87,20 @@ public class GroupMembershipRepository {
      * B13: the ids of everybody who is a member of at least one active group of the owner (a teacher's participants)
      */
     public Mono<List<UUID>> findMemberIdsOfOwner(UUID owner) {
+        // One row with an array: 20 000 ids as rows cost several times more in the driver than in the database
         return databaseClient.sql("""
-                        SELECT DISTINCT m.user_id
+                        SELECT array_agg(DISTINCT m.user_id) AS ids
                         FROM user_groups g
                         JOIN user_group_members m ON m.group_id = g.id
                         WHERE g.owner_id = :owner AND g.active = true
                         """)
                 .bind("owner", owner)
-                .map(row -> row.get("user_id", UUID.class))
-                .all()
-                .collectList();
+                .map(row -> {
+                    UUID[] ids = row.get("ids", UUID[].class);
+                    return ids == null ? List.<UUID>of() : List.of(ids);
+                })
+                .one()
+                .defaultIfEmpty(List.of());
     }
 
     /**

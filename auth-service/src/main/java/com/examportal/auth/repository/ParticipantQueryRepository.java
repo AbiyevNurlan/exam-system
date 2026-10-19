@@ -11,6 +11,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -47,8 +48,9 @@ public class ParticipantQueryRepository {
                 .bind("limit", pageSize)
                 .bind("offset", (long) pageNumber * pageSize);
 
-        return count.map(row -> row.get(0, Long.class)).one()
-                .flatMap(total -> page
+        // B13: the count and the page run side by side (each on its own connection): a teacher's list binds up to
+        // 20 000 ids to both, one after the other doubled the time
+        Mono<List<ParticipantQuery.Participant>> users = page
                         .map(row -> ParticipantQuery.Participant.builder()
                                 .id(row.get("id", UUID.class))
                                 .email(row.get("email", String.class))
@@ -61,8 +63,10 @@ public class ParticipantQueryRepository {
                                 .createdAt(row.get("created_at", LocalDateTime.class))
                                 .build())
                         .all()
-                        .collectList()
-                        .map(users -> ParticipantQuery.PageResponse.builder().total(total).users(users).build()));
+                        .collectList();
+
+        return Mono.zip(count.map(row -> row.get(0, Long.class)).one(), users)
+                .map(loaded -> ParticipantQuery.PageResponse.builder().total(loaded.getT1()).users(loaded.getT2()).build());
     }
 
     /**
