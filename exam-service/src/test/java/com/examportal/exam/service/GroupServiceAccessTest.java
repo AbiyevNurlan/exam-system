@@ -114,7 +114,7 @@ class GroupServiceAccessTest {
                 .verify();
         verify(memberRepository, never()).countByGroupId(anyLong());
         verify(inviteRepository, never()).countByGroupId(anyLong());
-        verify(overviewRepository, never()).findById(anyLong());
+        verify(overviewRepository, never()).findById(anyLong(), any());
     }
 
     @Test

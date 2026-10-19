@@ -134,7 +134,7 @@ public class GroupService {
      */
     public Mono<GroupResponse> getGroup(Long groupId, UserPrincipal actor) {
         return findGroup(groupId, actor)
-                .then(Mono.defer(() -> overviewRepository.findById(groupId)))
+                .then(Mono.defer(() -> overviewRepository.findById(groupId, GroupAccessPolicy.ownerFilter(actor.getId(), actor.getRole()))))
                 .switchIfEmpty(Mono.error(GroupException.notFound(groupId)))
                 .map(this::toResponse);
     }
@@ -166,10 +166,12 @@ public class GroupService {
     public Mono<PageResponse<GroupExamResponse>> getGroupExams(Long groupId, int page, int size, UserPrincipal actor) {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        // B13: a teacher sees only the own exams of the group, not those another owner (ADMIN) gave it
+        UUID examOwner = GroupAccessPolicy.ownerFilter(actor.getId(), actor.getRole());
 
         return findGroup(groupId, actor)
-                .flatMap(group -> overviewRepository.countExamsOfGroup(groupId))
-                .flatMap(total -> overviewRepository.findExamsOfGroup(groupId, pageSize, (long) pageNumber * pageSize)
+                .flatMap(group -> overviewRepository.countExamsOfGroup(groupId, examOwner))
+                .flatMap(total -> overviewRepository.findExamsOfGroup(groupId, examOwner, pageSize, (long) pageNumber * pageSize)
                         .collectList()
                         .map(rows -> PageResponse.of(rows, pageNumber, pageSize, total)));
     }

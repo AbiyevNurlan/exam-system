@@ -32,7 +32,8 @@ public class GroupOverviewRepository {
                                Integer linkUses) {
     }
 
-    // Figures of the groups in "g" (an inline view of user_groups rows); fixed text only
+    // Figures of the groups in "g" (an inline view of user_groups rows); fixed text only. :examOwner limits the exam
+    // count to the exams of that owner (B13: a teacher counts only the own exams of an own group); null = every exam
     private static final String FIGURES = """
             SELECT g.id, g.name, g.description, g.created_by, g.owner_id, g.created_at, g.updated_at,
                    m.member_count, i.invite_count, r.request_count, x.exam_count,
@@ -46,7 +47,8 @@ public class GroupOverviewRepository {
                                 WHERE group_id = g.id AND status = 'PENDING') r
             CROSS JOIN LATERAL (SELECT COUNT(*) AS exam_count FROM exam_audience a
                                 JOIN exams e ON e.id = a.exam_id AND e.active = true AND e.access_type = 'GROUP'
-                                WHERE a.group_id = g.id) x
+                                WHERE a.group_id = g.id
+                                  AND (CAST(:examOwner AS uuid) IS NULL OR e.created_by = CAST(:examOwner AS uuid))) x
             LEFT JOIN group_join_links l ON l.group_id = g.id
             """;
 
@@ -65,32 +67,38 @@ public class GroupOverviewRepository {
                 .bind("limit", limit)
                 .bind("offset", offset);
         spec = ownerId != null ? spec.bind("ownerId", ownerId) : spec.bindNull("ownerId", UUID.class);
+        // The caller's owner filter limits the exams counted as well (null for ADMIN)
+        spec = ownerId != null ? spec.bind("examOwner", ownerId) : spec.bindNull("examOwner", UUID.class);
         return spec.map(GroupOverviewRepository::figures).all();
     }
 
     /**
-     * One active group with its figures
+     * One active group with its figures; examOwner limits the exam count to the exams of that owner (null = all)
      */
-    public Mono<GroupFigures> findById(Long groupId) {
-        return databaseClient.sql(FIGURES.formatted("SELECT * FROM user_groups WHERE id = :groupId AND active = true"))
-                .bind("groupId", groupId)
+    public Mono<GroupFigures> findById(Long groupId, UUID examOwner) {
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql(FIGURES.formatted("SELECT * FROM user_groups WHERE id = :groupId AND active = true"))
+                .bind("groupId", groupId);
+        return (examOwner != null ? spec.bind("examOwner", examOwner) : spec.bindNull("examOwner", UUID.class))
                 .map(GroupOverviewRepository::figures)
                 .one();
     }
 
     /**
-     * Exams (not deleted) whose audience includes the group, newest start first
+     * Exams (not deleted) whose audience includes the group, newest start first. examOwner limits them to the
+     * exams of that owner (B13: a teacher sees only the own exams, not those another owner gave the group); null = all
      */
-    public Flux<GroupExamResponse> findExamsOfGroup(Long groupId, int limit, long offset) {
-        return databaseClient.sql("""
+    public Flux<GroupExamResponse> findExamsOfGroup(Long groupId, UUID examOwner, int limit, long offset) {
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql("""
                         SELECT e.id, e.title, e.status, e.start_time, e.end_time, e.access_type
                         FROM exam_audience a
                         JOIN exams e ON e.id = a.exam_id AND e.active = true AND e.access_type = 'GROUP'
                         WHERE a.group_id = :groupId
+                          AND (CAST(:examOwner AS uuid) IS NULL OR e.created_by = CAST(:examOwner AS uuid))
                         ORDER BY e.start_time DESC, e.id DESC
                         LIMIT :limit OFFSET :offset
                         """)
-                .bind("groupId", groupId)
+                .bind("groupId", groupId);
+        return (examOwner != null ? spec.bind("examOwner", examOwner) : spec.bindNull("examOwner", UUID.class))
                 .bind("limit", limit)
                 .bind("offset", offset)
                 .map(row -> GroupExamResponse.builder()
@@ -104,13 +112,15 @@ public class GroupOverviewRepository {
                 .all();
     }
 
-    public Mono<Long> countExamsOfGroup(Long groupId) {
-        return databaseClient.sql("""
+    public Mono<Long> countExamsOfGroup(Long groupId, UUID examOwner) {
+        DatabaseClient.GenericExecuteSpec spec = databaseClient.sql("""
                         SELECT COUNT(*) FROM exam_audience a
                         JOIN exams e ON e.id = a.exam_id AND e.active = true AND e.access_type = 'GROUP'
                         WHERE a.group_id = :groupId
+                          AND (CAST(:examOwner AS uuid) IS NULL OR e.created_by = CAST(:examOwner AS uuid))
                         """)
-                .bind("groupId", groupId)
+                .bind("groupId", groupId);
+        return (examOwner != null ? spec.bind("examOwner", examOwner) : spec.bindNull("examOwner", UUID.class))
                 .map(row -> row.get(0, Long.class))
                 .one();
     }
