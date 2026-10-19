@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Continue'
 [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::InvariantCulture
 Set-Location F:\exam-system
 $GW = 'http://127.0.0.1:8080'
+. "$PSScriptRoot\_common.ps1"
+Wait-Gateway $GW
 $EXAM = 'http://127.0.0.1:8082'
 $MAIL = 'http://127.0.0.1:8025'
 $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString('x')
@@ -340,7 +342,7 @@ Check 'options of true/false: True 7, False 4' ((Opts $q['truefalse']) -eq 'True
 $tops = (@($q['blank'].topAnswers) | ForEach-Object { "$($_.text):$($_.count):$($_.isCorrect)" }) -join ' '
 Check 'fill-in-the-blank: most frequent answers, trimmed and lower case, the correct one marked' ($tops -eq 'baku:5:True ganja:3:False baki:1:False sumqayit:1:False') $tops
 Check 'open question: 10 graded, 1 waiting, average grade 37.5 %; text cut to 200 characters; no options' ($q['essay'].gradedCount -eq 10 -and $q['essay'].pendingGradingCount -eq 1 -and [decimal]$q['essay'].averageGradePercent -eq 37.5 -and $q['essay'].text.Length -eq 200 -and -not (Has $q['essay'] 'options') -and -not (Has $q['single'] 'gradedCount') -and (Has $q['blank'] 'topAnswers')) "graded $($q['essay'].gradedCount), pending $($q['essay'].pendingGradingCount), average $($q['essay'].averageGradePercent), text length $($q['essay'].text.Length)"
-Check 'types, order and maximum points' ((@($qa.data.questions) | ForEach-Object { "$($_.orderIndex):$($_.type):$([decimal]$_.maxPoints)" }) -join ' ' -eq '0:MULTIPLE_CHOICE:2 1:MULTIPLE_CHOICE:3 2:TRUE_FALSE:1 3:FILL_BLANK:2 4:OPEN_ENDED:4')
+Check 'types, order and maximum points' ((@($qa.data.questions) | ForEach-Object { "$($_.orderIndex):$($_.type):$(([decimal]$_.maxPoints).ToString('0.##', [Globalization.CultureInfo]::InvariantCulture))" }) -join ' ' -eq '0:MULTIPLE_CHOICE:2 1:MULTIPLE_CHOICE:3 2:TRUE_FALSE:1 3:FILL_BLANK:2 4:OPEN_ENDED:4')
 
 $ov = Api 'GET' "/api/exams/$idAna/analytics/overview" $ins.token $null
 $o = $ov.data
