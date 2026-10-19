@@ -572,7 +572,9 @@ public class ExamResultsService {
                             .correct(answer.getIsCorrect())
                             .needsManualReview(Boolean.TRUE.equals(answer.getNeedsManualReview()))
                             .feedback(answer.getFeedback())
-                            .gradedBy(ParticipantDirectory.fullName(users.get(answer.getGradedBy())))
+                            // An ungraded answer has no grader; the names may be an immutable Map.of() (failed lookup)
+                            .gradedBy(answer.getGradedBy() != null
+                                    ? ParticipantDirectory.fullName(users.get(answer.getGradedBy())) : null)
                             .gradedById(answer.getGradedBy())
                             .gradedAt(answer.getGradedAt())
                             .gradeVersion(answer.getGradeVersion())

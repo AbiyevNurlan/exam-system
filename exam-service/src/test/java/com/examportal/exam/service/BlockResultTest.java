@@ -5,22 +5,34 @@ import com.examportal.common.domain.dto.CreateExamRequest;
 import com.examportal.common.domain.dto.ExamBlockDTO;
 import com.examportal.common.domain.dto.ExamResponse;
 import com.examportal.common.domain.dto.SessionResultResponse;
+import com.examportal.common.domain.dto.SessionReviewResponse;
+import com.examportal.common.exception.ApplicationException;
+import com.examportal.exam.controller.ExamController;
 import com.examportal.exam.repository.BlockResultRepository;
+import com.examportal.exam.repository.ExamResultsRepository;
 import com.examportal.exam.repository.UserAnswerRepository;
 import com.examportal.exam.structure.ExamState;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate;
 import org.springframework.data.r2dbc.repository.support.R2dbcRepositoryFactory;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.testcontainers.DockerClientFactory;
+import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * B12a on a real PostgreSQL: the result of a finished session per block. The participant gets only the blocks
@@ -33,6 +45,8 @@ class BlockResultTest {
     private static ExamService service;
     private static BlockResultRepository blockResults;
     private static AnswerSubmissionService answers;
+    private static ExamResultsService results;
+    private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
 
     @BeforeAll
     static void start() {
@@ -45,8 +59,14 @@ class BlockResultTest {
                         .host(stack.postgres.getHost()).port(stack.postgres.getMappedPort(5432))
                         .database(stack.postgres.getDatabaseName()).username(stack.postgres.getUsername())
                         .password(stack.postgres.getPassword()).build())));
+        UserAnswerRepository userAnswers = repositories.getRepository(UserAnswerRepository.class);
         answers = new AnswerSubmissionService(stack.exams, stack.questions, stack.options, stack.sessions,
-                repositories.getRepository(UserAnswerRepository.class), stack.cache, stack.accessPolicy, stack.tx, blockResults);
+                userAnswers, stack.cache, stack.accessPolicy, stack.tx, blockResults);
+        ParticipantDirectory directory = mock(ParticipantDirectory.class);
+        when(directory.names(any())).thenReturn(Mono.just(Map.of()));
+        results = new ExamResultsService(new ExamResultsRepository(stack.db), stack.sessions, stack.questions, stack.options,
+                userAnswers, stack.accessPolicy, directory, new FraudRiskPolicy(5, 15, 30), stack.examMedia, stack.groupAudit,
+                blockResults);
     }
 
     @AfterAll
@@ -142,6 +162,81 @@ class BlockResultTest {
         assertThat(result.getBlocks().get(0).getScore()).isEqualByComparingTo("2.50");
         // The flag is for the people who manage the exam
         assertThat(result.getBlocks().get(0).getShowResultToParticipant()).isNull();
+    }
+
+    @Test
+    void nothingOfTheHiddenBlockReachesTheParticipantsJson() throws Exception {
+        Taken taken = taken("T-b12a block result json", true);
+        long hiddenBlock = taken.state().blocks().get(1).id();
+
+        String json = JSON.writeValueAsString(answers.getSessionResult(taken.sessionId(), taken.participant()).block());
+
+        assertThat(json).contains("Riyaziyyat");
+        assertThat(json).doesNotContain("Məntiq").doesNotContain("\"blockId\":" + hiddenBlock)
+                .doesNotContain("showResultToParticipant");
+    }
+
+    @Test
+    void noBlocksWhileTheResultIsWithheld() {
+        Taken taken = taken("T-b12a block result withheld", true);
+        stack.db.sql("UPDATE exams SET show_results_immediately = false WHERE id = :e")
+                .bind("e", taken.exam().getId()).then().block();
+
+        SessionResultResponse result = answers.getSessionResult(taken.sessionId(), taken.participant()).block();
+
+        assertThat(result.getResultsAvailable()).isFalse();
+        assertThat(result.getBlocks()).isNull();
+    }
+
+    @Test
+    void someoneElsesSessionIs404() {
+        Taken taken = taken("T-b12a block result foreign", true);
+
+        assertThatThrownBy(() -> answers.getSessionResult(taken.sessionId(), UUID.randomUUID()).block())
+                .satisfies(e -> assertThat(code(e)).isEqualTo("SESSION_NOT_FOUND"));
+    }
+
+    @Test
+    void theReviewHasEveryBlockForAdminAndTheOwner() {
+        Taken taken = taken("T-b12a block result review", true);
+
+        for (SessionReviewResponse review : List.of(
+                results.getReview(taken.sessionId(), UUID.randomUUID(), "ADMIN").block(),
+                results.getReview(taken.sessionId(), ExamHistoryTest.nurlan().actorId(), "INSTRUCTOR").block())) {
+            assertThat(review.getBlocks()).extracting(BlockResultResponse::getTitle).containsExactly("Riyaziyyat", "Məntiq");
+            assertThat(review.getBlocks()).extracting(BlockResultResponse::getShowResultToParticipant).containsExactly(true, false);
+            assertThat(review.getBlocks().get(0).getScore()).isEqualByComparingTo("2.50");
+            assertThat(review.getBlocks().get(1).getMaxScore()).isEqualByComparingTo("2");
+            // The questions of the hidden block too, each with its block
+            assertThat(review.getQuestions()).extracting(SessionReviewResponse.QuestionReview::getBlockId)
+                    .containsExactly(taken.state().blocks().get(0).id(), taken.state().blocks().get(0).id(),
+                            taken.state().blocks().get(1).id());
+        }
+    }
+
+    @Test
+    void theReviewIsNotForAnotherInstructorNorForParticipants() throws Exception {
+        Taken taken = taken("T-b12a block result review foreign", true);
+
+        // A PUBLIC exam is visible to everybody, so not owning it is 403 (ExamAccessPolicy.findManageableExam)
+        assertThatThrownBy(() -> results.getReview(taken.sessionId(), UUID.randomUUID(), "INSTRUCTOR").block())
+                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_OWNER"));
+        assertThatThrownBy(() -> results.getReview(taken.sessionId(), taken.participant(), "STUDENT").block())
+                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_OWNER"));
+        // Outside the audience of a GROUP exam it is 404, the same as an exam that does not exist
+        stack.db.sql("UPDATE exams SET access_type = 'GROUP' WHERE id = :e").bind("e", taken.exam().getId()).then().block();
+        assertThatThrownBy(() -> results.getReview(taken.sessionId(), UUID.randomUUID(), "INSTRUCTOR").block())
+                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_FOUND"));
+        assertThatThrownBy(() -> results.getReview(taken.sessionId(), taken.participant(), "STUDENT").block())
+                .satisfies(e -> assertThat(code(e)).isEqualTo("EXAM_NOT_FOUND"));
+        // And a STUDENT does not reach the service at all
+        assertThat(ExamController.class.getMethod("getSessionReview", String.class,
+                com.examportal.common.security.UserPrincipal.class).getAnnotation(PreAuthorize.class).value())
+                .isEqualTo("hasAnyRole('ADMIN', 'INSTRUCTOR')");
+    }
+
+    private static String code(Throwable error) {
+        return ((ApplicationException) error).getErrorCode();
     }
 
     @Test
