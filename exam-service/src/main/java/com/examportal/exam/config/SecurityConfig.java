@@ -66,6 +66,8 @@ public class SecurityConfig {
                         // Every other administration path - admin only, here by path as well as by @PreAuthorize
                         // B13: the participant list for a teacher too, limited to the members of the own groups
                         .pathMatchers(HttpMethod.GET, "/api/admin/participants").hasAnyRole("ADMIN", "INSTRUCTOR")
+                        // B13: a teacher reads the own actions only (AuditService)
+                        .pathMatchers(HttpMethod.GET, "/api/admin/audit").hasAnyRole("ADMIN", "INSTRUCTOR")
                         .pathMatchers("/api/admin/**").hasRole("ADMIN")
                         // Everything below a group (bulk membership, join link, join requests) - as above;
                         // adding by filter is ADMIN only (@PreAuthorize on the method)

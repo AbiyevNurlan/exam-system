@@ -17,7 +17,7 @@ import java.util.UUID;
  * cleaned once more before they are sent.
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)

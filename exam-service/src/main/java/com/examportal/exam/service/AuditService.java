@@ -53,10 +53,44 @@ public class AuditService {
     private static final Pattern EXAM_ID = Pattern.compile("\\bexamId=(\\d+)");
     // key=value pairs that must never be shown, whatever wrote them
     private static final Pattern SECRET = Pattern.compile("(?i)\\b(code|otp|token|password|secret)=\\S+");
+    private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
 
     private final AuditQueryRepository auditRepository;
     private final UserDirectoryClient userDirectory;
     private final ParticipantDirectory participants;
+
+    /**
+     * The audit list for the caller. ADMIN: both logs, every actor. B13, INSTRUCTOR: only the teacher's own actions
+     * in exam-service (groups, members, invites, join links, exams, grading, result exports of the teacher); an
+     * actorId other than the teacher or source AUTH_SERVICE gives an empty page (the admin log of auth-service is
+     * never shown to a teacher), and any email in the details is masked once more. No row carries an ip address,
+     * a user agent, a join code or an OTP (SECRET).
+     */
+    public Mono<PageResponse<AuditEntryResponse>> list(String action, String actorId, String from, String to, String q,
+                                                       String source, int page, int size, UUID callerId, String callerRole) {
+        UUID owner = OwnershipPolicy.ownerFilter(callerId, callerRole);
+        if (owner == null) {
+            return list(action, actorId, from, to, q, source, page, size);
+        }
+        int pageNumber = Math.max(page, 0);
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        UUID requested = parseUuid(actorId);
+        String sourceFilter = source == null || source.isBlank() ? EXAM_SERVICE : source.trim().toUpperCase(Locale.ROOT);
+        if ((requested != null && !requested.equals(owner)) || AUTH_SERVICE.equals(sourceFilter)) {
+            return Mono.just(PageResponse.of(List.of(), pageNumber, pageSize, 0));
+        }
+        return list(action, owner.toString(), from, to, q, EXAM_SERVICE, page, size)
+                .map(found -> PageResponse.of(found.getContent().stream()
+                                .map(row -> row.toBuilder().details(maskEmails(row.getDetails())).build())
+                                .toList(),
+                        found.getPage(), found.getSize(), found.getTotalElements()));
+    }
+
+    // Any email address in a text, masked as in the logs (a***@x.test)
+    static String maskEmails(String details) {
+        return details == null ? null : EMAIL.matcher(details).replaceAll(match -> Matcher.quoteReplacement(
+                com.examportal.common.utils.LogMaskUtils.maskEmail(match.group())));
+    }
 
     public Mono<PageResponse<AuditEntryResponse>> list(String action, String actorId, String from, String to, String q,
                                                        String source, int page, int size) {
