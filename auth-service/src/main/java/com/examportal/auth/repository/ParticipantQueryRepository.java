@@ -119,16 +119,21 @@ public class ParticipantQueryRepository {
     /**
      * The ORDER BY of a page. Only fixed text from this switch is put into the statement (the key is a
      * whitelist, the direction one of two words); an unknown key is a 400.
+     * Every order ends with participant_code (unique, never changes), so rows equal in the sort key keep one
+     * place and no row repeats or goes missing between pages. Each order has its partial index (V7); names and
+     * email are NOT NULL, a registration time without a value comes last in both directions.
      */
     static String orderBy(String sortKey, boolean ascending) {
         String d = ascending ? "ASC" : "DESC";
+        String code = "participant_code " + d;
         String sort = sortKey == null ? "registeredat" : sortKey.trim().toLowerCase(Locale.ROOT);
         return switch (sort) {
-            case "code" -> "participant_code " + d;
-            case "firstname" -> FIRST_NAME + " " + d + ", " + LAST_NAME + " " + d + ", id";
-            case "lastname", "name" -> LAST_NAME + " " + d + ", " + FIRST_NAME + " " + d + ", id";
-            case "email" -> "lower(email) " + d;
-            case "registeredat", "createdat", "" -> "created_at " + d + ", id";
+            case "code" -> code;
+            case "firstname" -> FIRST_NAME + " " + d + ", " + LAST_NAME + " " + d + ", " + code;
+            case "lastname", "name" -> LAST_NAME + " " + d + ", " + FIRST_NAME + " " + d + ", " + code;
+            // Addresses are ASCII: byte order of the lower-case text, the same on every platform
+            case "email" -> "lower(email) COLLATE \"C\" " + d + ", " + code;
+            case "registeredat", "createdat", "" -> "created_at " + d + " NULLS LAST, " + code;
             default -> throw new ValidationException("sortBy", "must be code, firstName, lastName, email or registeredAt");
         };
     }
