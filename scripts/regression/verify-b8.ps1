@@ -242,9 +242,9 @@ $p3After = @((Api 'GET' '/api/join/requests/mine' $p3.token $null).data.content)
 $p4After = @((Api 'GET' '/api/join/requests/mine' $p4.token $null).data.content)[0]
 Check 'mine after the decisions: p3 REJECTED with decidedAt and canRequestAgainAt, p4 APPROVED without it; who decided is not shown' ($p3After.status -eq 'REJECTED' -and $p3After.decidedAt -match 'Z$' -and $p3After.canRequestAgainAt -match 'Z$' -and $p4After.status -eq 'APPROVED' -and -not $p4After.canRequestAgainAt -and -not ($p3After.PSObject.Properties.Name -contains 'decidedBy')) "p3 $($p3After.status) $($p3After.canRequestAgainAt); p4 $($p4After.status); fields $($p3After.PSObject.Properties.Name -join ',')"
 
-# ---------- 5. known: a group name of someone else is refused with 409 (names are unique over all groups) ----------
+# ---------- 5. B13: group names are unique per owner, the name of somebody else's group is free (no leak) ----------
 $sameName = Api 'POST' '/api/admin/groups' $ins.token @{ name = "$T-admin" }
-Note "instructor creates a group with the name of the admin's group (known small leak: the name exists)" "$(Answer $sameName): $($sameName.message)"
+Check "instructor creates a group with the name of the admin's group: 201 (names are per owner since exam V18, nothing tells that the name exists)" ($sameName.status -eq 201) "$(Answer $sameName)"
 } finally {
     # The test account gets the participant role back, whatever happened above: no test account stays INSTRUCTOR
     if ($ins.email -like '*@x.test') {
