@@ -41,8 +41,9 @@ function Api($method, $path, $token, $body) {
     }
     try {
         $r = Invoke-WebRequest @params
-        $raw = $r.Content
-        if ($raw -is [byte[]]) { $raw = [Text.Encoding]::UTF8.GetString($raw) }
+        # Always UTF-8 from the raw bytes: without a charset in the content type PowerShell 5.1 decodes the body
+        # as ISO-8859-1, and Azerbaijani letters ('Əsas blok', '(nüsxə)') would never match
+        $raw = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
         $status = [int]$r.StatusCode
     } catch {
         $resp = $_.Exception.Response
@@ -93,13 +94,13 @@ function Block($title, $questions, $extra = @{}) {
 function ExamBody($title, $blocks, $extra = @{}) {
     $now = [DateTime]::UtcNow
     $b = @{ title = "$T $title"; description = 'B12a verification'; durationMinutes = 30
-            startTime = (Utc $now.AddMinutes(-5)); endTime = (Utc $now.AddDays(1))
+            startTime = (Utc $now.AddMinutes(5)); endTime = (Utc $now.AddDays(1))
             shuffleQuestions = $false; shuffleOptions = $false; showResultsImmediately = $true; maxAttempts = 3; passingScore = 50
             accessType = 'PUBLIC'; blocks = $blocks }
     foreach ($k in $extra.Keys) { $b[$k] = $extra[$k] }
     return $b
 }
-function History($examId, $query = '') { Api 'GET' "/api/exams/$examId/history?size=100&$query" $adm.token $null }
+function ExamHistory($examId, $query = '') { Api 'GET' "/api/exams/$examId/history?size=100&$query" $adm.token $null }
 function Actions($r) { @($r.data.content | ForEach-Object { $_.action }) }
 
 # ---------- setup ----------
@@ -110,7 +111,9 @@ foreach ($line in Get-Content F:\exam-system\.env) {
 }
 $mainLogin = Login $adminEmail $adminPassword
 if ($mainLogin.status -ne 200) { throw "admin login answered $($mainLogin.status)" }
-$adm = @{ id = $mainLogin.data.user.id; token = $mainLogin.data.accessToken; code = $mainLogin.data.user.participantCode }
+$adm = @{ id = $mainLogin.data.user.id; token = $mainLogin.data.accessToken }
+# The login answer has no participant code; GET /auth/me has it (B10)
+$adm.code = (Api 'GET' '/auth/me' $adm.token $null).data.participantCode
 $stu = Account 'stu'
 $ins = Account 'ins'
 $stu.token = (Login $stu.email $password).data.accessToken
@@ -130,7 +133,7 @@ Check 'create with two blocks: 201, blocks in order with their questions' ($crea
     @($exam.blocks)[0].title -eq 'Riyaziyyat' -and @($exam.blocks)[0].questionCount -eq 3 -and @($exam.blocks)[1].questionCount -eq 2) (Answer $created)
 Check 'EXAM_TIMER: totalMinutes = durationMinutes' ($exam.timingMode -eq 'EXAM_TIMER' -and $exam.totalMinutes -eq 30) "$($exam.timingMode) $($exam.totalMinutes)"
 $flat = Api 'POST' '/api/exams' $adm.token @{ title = "$T flat"; description = 'older request'; durationMinutes = 20
-    startTime = (Utc ([DateTime]::UtcNow.AddMinutes(-5))); endTime = (Utc ([DateTime]::UtcNow.AddDays(1)))
+    startTime = (Utc ([DateTime]::UtcNow.AddMinutes(5))); endTime = (Utc ([DateTime]::UtcNow.AddDays(1)))
     showResultsImmediately = $true; maxAttempts = 1; passingScore = 50; questions = @((Mc 'flat 1'), (Mc 'flat 2')) }
 Check 'older request without blocks: one block "Əsas blok" with every question' ($flat.status -eq 201 -and @($flat.data.blocks).Count -eq 1 -and
     @($flat.data.blocks)[0].title -eq 'Əsas blok' -and @($flat.data.blocks)[0].questionCount -eq 2) (Answer $flat)
@@ -159,13 +162,16 @@ function QuestionBody($q, $changes = @{}) {
 $byBlock = @{}
 foreach ($q in $questions) { if (-not $byBlock[[string]$q.blockId]) { $byBlock[[string]$q.blockId] = @() }; $byBlock[[string]$q.blockId] += $q }
 $first = @($byBlock[[string]$blocks[0].id]); $second = @($byBlock[[string]$blocks[1].id])
-# q2: the right answer B instead of A and 2 points; q3 moves to the second block; a new question in the first block
-$q2 = QuestionBody $first[1] @{ points = 2; options = @(
+# q1: 2 points; q2: the right answer B instead of A; q3 moves to the second block; a new question in the first block.
+# Points and answer key on different questions: one question with several kinds of change is one QUESTION_UPDATED
+# row naming them all (ExamDiff), only a single kind gets its own action (POINTS_CHANGED, CORRECT_ANSWER_CHANGED)
+$q1 = QuestionBody $first[0] @{ points = 2 }
+$q2 = QuestionBody $first[1] @{ options = @(
     @{ id = $first[1].options[0].id; optionText = 'A'; isCorrect = $false; orderIndex = 0 },
     @{ id = $first[1].options[1].id; optionText = 'B'; isCorrect = $true; orderIndex = 1 }) }
 $update = ExamBody 'blocks' @(
     @{ id = $blocks[0].id; title = 'Riyaziyyat'; freeNavigation = $true; shuffleQuestions = $false; showResultToParticipant = $true; breakAfterMinutes = 0
-       questions = @((QuestionBody $first[0]), $q2, (Mc 'q6 new')) },
+       questions = @($q1, $q2, (Mc 'q6 new')) },
     @{ id = $blocks[1].id; title = 'Məntiq'; freeNavigation = $true; shuffleQuestions = $false; showResultToParticipant = $false; breakAfterMinutes = 0
        questions = @(@($second | ForEach-Object { QuestionBody $_ }) + @(QuestionBody $first[2])) }) @{ id = $exam.id; showBlockBreakdown = $true }
 $put = Api 'PUT' "/api/exams/$($exam.id)" $adm.token $update
@@ -178,7 +184,7 @@ $moved = @($after.questions | Where-Object { [long]$_.id -eq [long]$first[2].id 
 Check 'q3 moved to the second block, same id' ([long]$moved.blockId -eq [long]$blocks[1].id)
 
 # ---------- 3. history ----------
-$h = History $exam.id
+$h = ExamHistory $exam.id
 $acts = Actions $h
 Check 'history: EXAM_CREATED, CORRECT_ANSWER_CHANGED, POINTS_CHANGED, QUESTION_ADDED, QUESTION_MOVED' ($h.status -eq 200 -and
     ($acts -contains 'EXAM_CREATED') -and ($acts -contains 'CORRECT_ANSWER_CHANGED') -and ($acts -contains 'POINTS_CHANGED') -and
@@ -190,12 +196,12 @@ Check 'answer key row: sensitive, actor name and 7-digit code, question number 2
     $key.summaryParams.questionNumber -eq 2) "$($key.summaryKey) $($key.actor.code) q$($key.summaryParams.questionNumber)"
 $detail = Api 'GET' "/api/exams/$($exam.id)/history/$($key.id)" $adm.token $null
 Check 'history/{id}: before and after' ($detail.status -eq 200 -and $detail.raw -match 'correct') (Answer $detail)
-Check 'sensitiveOnly filter' (@((History $exam.id 'sensitiveOnly=true').data.content | Where-Object { -not $_.sensitive }).Count -eq 0)
+Check 'sensitiveOnly filter' (@((ExamHistory $exam.id 'sensitiveOnly=true').data.content | Where-Object { -not $_.sensitive }).Count -eq 0)
 $u = Sql 'exam_db' "update exam_revisions set reason='x' where id=$($key.id)"
 $d = Sql 'exam_db' "delete from exam_revisions where id=$($key.id)"
 Check 'the database refuses UPDATE and DELETE of a history row' (("$u" -match 'append-only') -and ("$d" -match 'append-only')) "$u / $d"
 $meta = Api 'PATCH' "/api/exams/$($exam.id)/meta" $adm.token @{ title = "$T blocks renamed" }
-Check 'B10 PATCH /meta: 200 and a META_CHANGED row' ($meta.status -eq 200 -and ((Actions (History $exam.id)) -contains 'META_CHANGED')) (Answer $meta)
+Check 'B10 PATCH /meta: 200 and a META_CHANGED row' ($meta.status -eq 200 -and ((Actions (ExamHistory $exam.id)) -contains 'META_CHANGED')) (Answer $meta)
 
 # ---------- 4. readiness and the publish gate ----------
 $empty = Api 'POST' '/api/exams' $adm.token (ExamBody 'empty block' @((Block 'A' @((Mc 'x'))), (Block 'B' @())))
@@ -212,10 +218,13 @@ $versions = Api 'GET' "/api/exams/$($exam.id)/versions" $adm.token $null
 $v1 = Api 'GET' "/api/exams/$($exam.id)/versions/1" $adm.token $null
 Check 'version 1 with a SHA-256 that matches its snapshot' ($versions.status -eq 200 -and @($versions.data).Count -eq 1 -and
     "$($v1.data.sha256)" -match '^[0-9a-f]{64}$' -and $v1.data.hashValid -eq $true) "$($v1.data.sha256)"
-Check 'PUBLISHED in the history' ((Actions (History $exam.id)) -contains 'PUBLISHED')
+Check 'PUBLISHED in the history' ((Actions (ExamHistory $exam.id)) -contains 'PUBLISHED')
 
 # ---------- 5. block results: hidden from the participant, shown to the administrator ----------
-$start = Api 'POST' "/api/exams/$($exam.id)/start" $stu.token @{}
+# POST /api/exams refuses a start in the past (@Future), so the window is opened now, as New-ActiveExam does
+$opened = Api 'POST' "/api/exams/$($exam.id)/reschedule" $adm.token @{ startTime = (Utc ([DateTime]::UtcNow.AddMinutes(-1))); endTime = (Utc ([DateTime]::UtcNow.AddDays(1))) }
+Check 'the window is opened with reschedule' ($opened.status -eq 200) (Answer $opened)
+$start =Api 'POST' "/api/exams/$($exam.id)/start" $stu.token @{}
 $sid = $start.data.sessionId
 foreach ($q in @($start.data.questions)) {
     $right = Sql 'exam_db' "select id from question_options where question_id=$($q.id) and is_correct limit 1"
@@ -233,11 +242,11 @@ $keep = ExamBody 'blocks' @(@{ id = $blocks[0].id; title = 'Riyaziyyat'; freeNav
 $removal = Api 'PUT' "/api/exams/$($exam.id)" $adm.token $keep
 Check 'removing questions of an exam with sessions: 409 EXAM_HAS_SESSIONS' ($removal.status -eq 409 -and $removal.code -eq 'EXAM_HAS_SESSIONS') (Answer $removal)
 $del = Api 'DELETE' "/api/exams/$($exam.id)" $adm.token $null
-Check 'delete of an exam with sessions refused, DELETE_ATTEMPTED written' ($del.status -ge 400 -and ((Actions (History $exam.id)) -contains 'DELETE_ATTEMPTED')) (Answer $del)
+Check 'delete of an exam with sessions refused, DELETE_ATTEMPTED written' ($del.status -ge 400 -and ((Actions (ExamHistory $exam.id)) -contains 'DELETE_ATTEMPTED')) (Answer $del)
 $clone = Api 'POST' "/api/exams/$($exam.id)/clone" $adm.token @{}
 Check 'clone: a DRAFT "(nüsxə)" with both blocks and new ids' ($clone.status -in 200, 201 -and $clone.data.status -eq 'DRAFT' -and
     "$($clone.data.title)" -like '*(nüsxə)' -and @($clone.data.blocks).Count -eq 2 -and [long]$clone.data.id -ne [long]$exam.id) (Answer $clone)
-Check 'clone: CLONED_FROM in its history' ((Actions (History $clone.data.id)) -contains 'CLONED_FROM')
+Check 'clone: CLONED_FROM in its history' ((Actions (ExamHistory $clone.data.id)) -contains 'CLONED_FROM')
 Check 'clone: no sessions' ((Sql 'exam_db' "select count(*) from exam_sessions where exam_id=$($clone.data.id)") -eq '0')
 
 # ---------- 7. who may read the history ----------
