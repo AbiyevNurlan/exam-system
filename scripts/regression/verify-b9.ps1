@@ -33,8 +33,8 @@ function Api($method, $path, $token, $body) {
     }
     try {
         $r = Invoke-WebRequest @params
-        $raw = $r.Content
-        if ($raw -is [byte[]]) { $raw = [Text.Encoding]::UTF8.GetString($raw) }
+        # Always UTF-8 from the raw bytes: without a charset in the content type PowerShell 5.1 decodes as ISO-8859-1
+        $raw = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
         $status = [int]$r.StatusCode
     } catch {
         $resp = $_.Exception.Response
@@ -93,6 +93,8 @@ function ExamBody($title, [DateTime]$start, [DateTime]$end, $duration, $question
        shuffleQuestions = $false; shuffleOptions = $false; showResultsImmediately = $true; maxAttempts = 3; passingScore = 50
        questions = $questions }
 }
+# PUT /api/exams/{id} needs the id in the body too (UpdateExamRequest: @NotNull id, also before B12a)
+function WithId($id, $body) { $body['id'] = $id; return $body }
 function ExamShape($examId) {
     Sql 'exam_db' "select e.duration_minutes||'|'||e.passing_score||'|'||(select string_agg(q.question_text||':'||q.points||':'||(select string_agg(o.option_text||'='||o.is_correct, ',' order by o.order_index) from question_options o where o.question_id=q.id), ';' order by q.order_index) from questions q where q.exam_id=e.id) from exams e where e.id=$examId"
 }
@@ -120,7 +122,7 @@ Write-Output "run $stamp; instructor be-b9-ins-$stamp@x.test, participants p1, p
 $now = [DateTime]::UtcNow
 $draft = Api 'POST' '/api/exams' $ins.token (ExamBody "$T-draft" $now.AddDays(1) $now.AddDays(2) 30 @((Question "$T q1" 2)))
 $draftId = $draft.data.id
-$edited = Api 'PUT' "/api/exams/$draftId" $ins.token (ExamBody "$T-draft" $now.AddDays(1) $now.AddDays(2) 45 @((Question "$T q1 edited" 3), (Question "$T q2" 1)))
+$edited = Api 'PUT' "/api/exams/$draftId" $ins.token (WithId $draftId (ExamBody "$T-draft" $now.AddDays(1) $now.AddDays(2) 45 @((Question "$T q1 edited" 3), (Question "$T q2" 1))))
 Check 'an exam without attempts: PUT 200, questions, points and duration replaced' ($draft.status -eq 201 -and $edited.status -eq 200 -and (ExamShape $draftId) -like "45|*$T q1 edited:3.00:*;$T q2:1.00:*") "create $(Answer $draft), put $(Answer $edited)"
 
 # ---------- 2. an exam with attempts keeps what decided their results ----------
@@ -146,12 +148,12 @@ $changes = [ordered]@{
     'a question added'   = @((Question "$T a1" 2), (Question "$T a2" 3), (Question "$T a3" 1))
 }
 foreach ($kind in $changes.Keys) {
-    $r = Api 'PUT' "/api/exams/$liveId" $ins.token (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) 30 $changes[$kind])
+    $r = Api 'PUT' "/api/exams/$liveId" $ins.token (WithId $liveId (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) 30 $changes[$kind]))
     Check "an exam with attempts, changed ${kind}: 409 EXAM_HAS_SESSIONS" ($r.status -eq 409 -and $r.code -eq 'EXAM_HAS_SESSIONS') (Answer $r)
 }
-$durationOnly = Api 'PUT' "/api/exams/$liveId" $ins.token (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) 90 @((Question "$T a1" 2), (Question "$T a2" 3)))
+$durationOnly = Api 'PUT' "/api/exams/$liveId" $ins.token (WithId $liveId (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) 90 @((Question "$T a1" 2), (Question "$T a2" 3))))
 Check 'an exam with attempts, only the duration changed: 409 EXAM_HAS_SESSIONS' ($durationOnly.status -eq 409 -and $durationOnly.code -eq 'EXAM_HAS_SESSIONS') (Answer $durationOnly)
-$adminTry = Api 'PUT' "/api/exams/$liveId" $adm.token (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) 30 @((Question "$T a1" 9)))
+$adminTry = Api 'PUT' "/api/exams/$liveId" $adm.token (WithId $liveId (ExamBody "$T-live" $now.AddDays(1) $now.AddDays(2) 30 @((Question "$T a1" 9))))
 Check 'an ADMIN gets the same 409' ($adminTry.status -eq 409 -and $adminTry.code -eq 'EXAM_HAS_SESSIONS') (Answer $adminTry)
 Check 'after all of that the questions, points, answer key and duration are exactly as before' ((ExamShape $liveId) -eq $shapeBefore) $shapeBefore
 $deleted = Api 'DELETE' "/api/exams/$liveId" $ins.token $null
@@ -183,7 +185,9 @@ $alias = Api 'PUT' '/auth/profile' $p2.token @{ firstName = 'Leyla'; lastName = 
 Check 'PUT /auth/profile: phoneNumber is accepted too, empty removes the phone' ($alias.status -eq 200 -and -not $alias.data.phoneNumber) (Answer $alias)
 $badProfile = Api 'PUT' '/auth/profile' $p2.token @{ firstName = 'L'; lastName = 'M'; phone = 'abc' }
 Check 'PUT /auth/profile with a one-letter name and a bad phone: 400, nothing changed' ($badProfile.status -eq 400 -and (Api 'GET' '/auth/me' $p2.token $null).data.firstName -eq 'Leyla') (Answer $badProfile)
-Check 'PUT /auth/profile cannot change the email or the role' ((Api 'PUT' '/auth/profile' $p2.token @{ firstName = 'Leyla'; lastName = 'Mammadova'; email = 'other@x.test'; role = 'ADMIN' }).status -eq 200 -and (Sql 'exam_auth' "select email||'|'||role from users where id='$($p2.id)'") -eq "$($p2.email)|STUDENT")
+# The answer may be 200 (fields ignored) or 400 (body refused, as the stack does on 2026-10-19): what matters is the stored row
+$sneaky = Api 'PUT' '/auth/profile' $p2.token @{ firstName = 'Leyla'; lastName = 'Mammadova'; email = 'other@x.test'; role = 'ADMIN' }
+Check 'PUT /auth/profile cannot change the email or the role' ((@(200, 400) -contains $sneaky.status) -and (Sql 'exam_auth' "select email||'|'||role from users where id='$($p2.id)'") -eq "$($p2.email)|STUDENT") (Answer $sneaky)
 
 $wrong = Api 'POST' '/auth/change-password' $p2.token @{ currentPassword = 'Wrong1pass'; newPassword = 'Brand2Newpass' }
 Check 'change-password with a wrong current password: 400 PASSWORD_CHANGE_REJECTED' ($wrong.status -eq 400 -and $wrong.code -eq 'PASSWORD_CHANGE_REJECTED') (Answer $wrong)
