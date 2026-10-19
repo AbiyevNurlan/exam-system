@@ -39,6 +39,11 @@ public class ExamMapper {
                 .createdBy(userId)
                 // Default; ExamService replaces it when the create request names an audience
                 .accessType(ExamAccessType.PUBLIC)
+                // B12a: the behaviour before blocks
+                .timingMode(TimingMode.EXAM_TIMER)
+                .allowReturnToPreviousBlocks(false)
+                .allowSkipBreak(true)
+                .showBlockBreakdown(true)
                 .active(true)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
