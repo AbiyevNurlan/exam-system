@@ -32,8 +32,8 @@ function Call($base, $method, $path, $token, $body) {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     try {
         $r = Invoke-WebRequest @params
-        $raw = $r.Content
-        if ($raw -is [byte[]]) { $raw = [Text.Encoding]::UTF8.GetString($raw) }
+        # Always UTF-8 from the raw bytes: without a charset in the content type PowerShell 5.1 decodes as ISO-8859-1
+        $raw = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
         $status = [int]$r.StatusCode
     } catch {
         $resp = $_.Exception.Response
