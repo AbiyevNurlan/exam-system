@@ -92,6 +92,11 @@ exam:
   results:
     # Most rows a CSV export of an exam's results may have; more is refused with 422 RESULTS_EXPORT_TOO_LARGE
     export-max-rows: ${EXAM_RESULTS_EXPORT_MAX_ROWS:50000}
+  blocks:
+    # B12a: the participant side of blocks (block timers, breaks, fixed navigation, returning to earlier
+    # blocks) is B12b. Until it is in place this stays false and an exam that needs it cannot be
+    # published (409 FEATURE_NOT_AVAILABLE). B12b turns it on.
+    rules-enabled: ${EXAM_BLOCK_RULES_ENABLED:false}
   media:
     # Allowed uploads: IMAGE jpeg/png/webp, AUDIO mp3/ogg/m4a, VIDEO mp4 (MediaTypePolicy)
     image-max-bytes: 5242880          # 5 MB

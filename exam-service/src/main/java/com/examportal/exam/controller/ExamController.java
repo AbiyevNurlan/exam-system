@@ -65,7 +65,10 @@ public class ExamController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Create a new exam", description = "Create a new exam with questions and options. Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); only your own confirmed media. WARNING: the alt text of option media is shown to participants and must not reveal the answer.")
+    @Operation(summary = "Create a new exam", description = "Create a new exam with questions and options. Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); only your own confirmed media. WARNING: the alt text of option media is shown to participants and must not reveal the answer. "
+            + "B12a: either questions (one block 'Əsas blok') or blocks (1..20, in order, each {title, instructions, timeLimitMinutes, breakAfterMinutes, freeNavigation, shuffleQuestions, showResultToParticipant, questions}); "
+            + "timingMode EXAM_TIMER (default) or BLOCK_TIMERS (every block needs timeLimitMinutes; the duration becomes the limits plus the breaks, 400 EXAM_DURATION_EXCEEDS_WINDOW when it does not fit start..end), "
+            + "allowReturnToPreviousBlocks, allowSkipBreak, showBlockBreakdown. The answer carries blocks and totalMinutes.")
     public Mono<ApiResponse<ExamResponse>> createExam(
             @Valid @RequestBody CreateExamRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
@@ -78,7 +81,10 @@ public class ExamController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Update an exam", description = "Update an existing exam (DRAFT or SCHEDULED only; questions, options and their media are replaced). Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); your own confirmed media, or media the exam already carries (ADMIN: any). WARNING: the alt text of option media is shown to participants and must not reveal the answer.")
+    @Operation(summary = "Update an exam", description = "Update an existing exam (DRAFT or SCHEDULED only, never with attempts: 409 EXAM_HAS_SESSIONS). Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); your own confirmed media, or media the exam already carries (ADMIN: any). WARNING: the alt text of option media is shown to participants and must not reveal the answer. "
+            + "B12a: changed IN PLACE: a block, question or option with its id keeps its row and id (a question may move to another block), one without an id is new, one left out is deleted. "
+            + "Either questions (the exam's only block; 400 BLOCKS_REQUIRED for an exam with more) or blocks, as on create. Fields left out (timingMode, allowReturnToPreviousBlocks, allowSkipBreak, showBlockBreakdown) stay. "
+            + "A SCHEDULED exam cannot get block timers, fixed navigation or returning to earlier blocks before B12b (409 FEATURE_NOT_AVAILABLE).")
     public Mono<ApiResponse<ExamResponse>> updateExam(
             @PathVariable Long id,
             @Valid @RequestBody UpdateExamRequest request,
@@ -428,7 +434,8 @@ public class ExamController {
     @PostMapping("/{id}/publish")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
     @Operation(summary = "Publish an exam", description = "Change exam status to ACTIVE. An exam whose end time has passed "
-            + "answers 400 EXAM_WINDOW_ENDED: give it a new end time with POST /{id}/reschedule first.")
+            + "answers 400 EXAM_WINDOW_ENDED: give it a new end time with POST /{id}/reschedule first. "
+            + "B12a: block timers, a block without free navigation or returning to earlier blocks need B12b: 409 FEATURE_NOT_AVAILABLE until it is switched on.")
     public Mono<ApiResponse<ExamResponse>> publishExam(
             @PathVariable Long id,
             @AuthenticationPrincipal UserPrincipal principal) {

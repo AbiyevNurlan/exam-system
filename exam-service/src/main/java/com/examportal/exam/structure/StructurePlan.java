@@ -16,6 +16,18 @@ public record StructurePlan(List<BlockPlan> blocks) {
                             List<QuestionDTO> questions) {
     }
 
+    /**
+     * The same plan whose first block takes the given stored block (the one the database made with a new exam)
+     */
+    public StructurePlan withFirstBlockId(Long blockId) {
+        List<BlockPlan> changed = new java.util.ArrayList<>(blocks);
+        BlockPlan first = changed.get(0);
+        changed.set(0, new BlockPlan(blockId, first.title(), first.instructions(), first.timeLimitMinutes(),
+                first.breakAfterMinutes(), first.freeNavigation(), first.shuffleQuestions(), first.showResultToParticipant(),
+                first.questions()));
+        return new StructurePlan(changed);
+    }
+
     public int questionCount() {
         return blocks.stream().mapToInt(block -> block.questions().size()).sum();
     }

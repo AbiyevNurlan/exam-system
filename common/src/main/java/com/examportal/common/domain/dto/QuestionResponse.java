@@ -24,6 +24,8 @@ public class QuestionResponse {
 
     private Long id;
     private Long examId;
+    // B12a: the block the question belongs to
+    private Long blockId;
     private String questionText;
     private QuestionType questionType;
     private BigDecimal points;

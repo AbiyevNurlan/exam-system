@@ -64,6 +64,7 @@ class ExamUpdateIntegrityTest {
     private final TransactionalOperator transactionalOperator = mock(TransactionalOperator.class);
     private final ExamStateRepository stateRepository = mock(ExamStateRepository.class);
     private final ExamStructureWriter structureWriter = mock(ExamStructureWriter.class);
+    private final ExamBlockRepository blockRepository = mock(ExamBlockRepository.class);
 
     private ExamService service;
 
@@ -74,7 +75,9 @@ class ExamUpdateIntegrityTest {
         when(accessPolicy.requireAccess(any(), anyString(), any(Exam.class))).thenAnswer(call -> Mono.just(call.getArgument(2)));
         when(accessPolicy.canManage(any(), anyString(), any(Exam.class))).thenReturn(true);
         when(editLock.lockForEdit(EXAM_ID)).thenReturn(Mono.just(EXAM_ID));
-        when(validator.validateUpdateRequest(any())).thenReturn(Mono.empty());
+        when(validator.validateUpdateRequest(any(), any())).thenReturn(Mono.empty());
+        when(validator.validateTiming(any(), any(), any(), any(), any())).thenReturn(Mono.just(30));
+        when(blockRepository.findByExamIdOrderByPosition(EXAM_ID)).thenReturn(Flux.empty());
         when(examMedia.validate(any(), any(), anyString(), anyLong())).thenReturn(Mono.empty());
         when(examMedia.withMedia(any(ExamResponse.class), anyBoolean())).thenAnswer(call -> Mono.just(call.getArgument(0)));
         when(examRepository.save(any(Exam.class))).thenAnswer(call -> Mono.just(call.getArgument(0)));
@@ -95,7 +98,7 @@ class ExamUpdateIntegrityTest {
                 mock(GroupMembershipRepository.class), mock(ExamDayClock.class), cacheService,
                 mock(AnswerSubmissionService.class), accessPolicy, mock(UserGroupRepository.class),
                 mock(ExamAudienceRepository.class), auditService, examMedia, validator, mapper, transactionalOperator,
-                stateRepository, new StructurePlanner(), structureWriter);
+                stateRepository, new StructurePlanner(), structureWriter, blockRepository, new ExamFeatures(false, false));
     }
 
     private void examIs(ExamStatus status) {
