@@ -1,0 +1,45 @@
+# B13: every endpoint of auth-service and who may reach it. EndpointRegistryTest fails when an endpoint is missing
+# here, when a line names an endpoint that no longer exists, and when the roles the security chain and @PreAuthorize
+# really let through differ from the class.
+#
+#   ADMIN_ONLY    ADMIN
+#   OWNER_SCOPED  ADMIN everything, INSTRUCTOR only the own rows (none in auth-service so far)
+#   OWN_DATA      every signed-in user, only the own account
+#   STUDENT_ONLY  the participant's flow (none in auth-service so far)
+#   PUBLIC        no sign-in: registration, sign-in and the password recovery
+#   INTERNAL      /internal/**, service to service: shared secret, 404 without it
+#
+# Method, path (path variables without their regex), class
+
+POST   /auth/register                              PUBLIC
+POST   /auth/verify-otp                            PUBLIC
+POST   /auth/resend-otp                            PUBLIC
+POST   /auth/login                                 PUBLIC
+POST   /auth/refresh                               PUBLIC
+POST   /auth/forgot-password                       PUBLIC
+POST   /auth/reset-password                        PUBLIC
+GET    /auth/health                                PUBLIC
+POST   /auth/logout                                OWN_DATA
+GET    /auth/me                                    OWN_DATA
+PUT    /auth/profile                               OWN_DATA
+POST   /auth/change-password                       OWN_DATA
+
+GET    /auth/admin/users                           ADMIN_ONLY
+POST   /auth/admin/users/{id}/unlock               ADMIN_ONLY
+POST   /auth/admin/users/{id}/verify-email         ADMIN_ONLY
+
+POST   /api/admin/instructors                      ADMIN_ONLY
+GET    /api/admin/instructors                      ADMIN_ONLY
+PATCH  /api/admin/instructors/{id}                 ADMIN_ONLY
+POST   /api/admin/instructors/{id}/reset-password  ADMIN_ONLY
+
+POST   /internal/audit/admin                       INTERNAL
+GET    /internal/users/{userId}/card               INTERNAL
+POST   /internal/users/participants                INTERNAL
+POST   /internal/users/participants/ids            INTERNAL
+POST   /internal/users/participants/summary        INTERNAL
+GET    /internal/users/{userId}/profile            INTERNAL
+PUT    /internal/users/{userId}/profile            INTERNAL
+POST   /internal/users/search                      INTERNAL
+POST   /internal/users/stats                       INTERNAL
+POST   /internal/users/lookup                      INTERNAL
