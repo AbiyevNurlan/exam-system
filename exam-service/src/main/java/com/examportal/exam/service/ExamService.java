@@ -99,19 +99,26 @@ public class ExamService {
         String role = change.role();
         log.info("Creating exam '{}' for user {}", request.getTitle(), userId);
 
-        // PUBLIC unless the request says otherwise; a GROUP exam gets its audience in the same call
-        ExamAccessType accessType = request.getAccessType() != null ? request.getAccessType() : ExamAccessType.PUBLIC;
+        // ADMIN: PUBLIC unless the request says otherwise. B13: an INSTRUCTOR cannot make a PUBLIC exam, so without
+        // an access type the exam is GROUP, with the groups of the request or none yet (like a copy: only the owner
+        // and ADMIN can take it until groups are set; the readiness check reports AUDIENCE_EMPTY)
+        boolean admin = OwnershipPolicy.isAdmin(role);
+        ExamAccessType accessType = request.getAccessType() != null ? request.getAccessType()
+                : admin ? ExamAccessType.PUBLIC : ExamAccessType.GROUP;
+        boolean groupByDefault = request.getAccessType() == null && !admin;
         List<Long> groupIds = audienceGroupIds(accessType, request.getGroupIds());
 
         TimingMode mode = request.getTimingMode() != null ? request.getTimingMode() : TimingMode.EXAM_TIMER;
         List<QuestionDTO> questions = request.getQuestions() != null ? request.getQuestions() : List.of();
 
-        Mono<ExamResponse> creation = validator.validateCreateRequest(request)
+        Mono<ExamResponse> creation = requirePublicAllowed(accessType, null, role)
+                .then(validator.validateCreateRequest(request))
                 .then(Mono.fromCallable(() -> planner.forCreate(request.getBlocks(), questions, null,
                         Boolean.TRUE.equals(request.getShuffleQuestions()))))
                 .flatMap(plan -> validator.validateTiming(mode, request.getDurationMinutes(), request.getStartTime(),
                                 request.getEndTime(), plan)
-                        .flatMap(duration -> requireValidAudience(accessType, groupIds, userId, role, List.of())
+                        .flatMap(duration -> (groupByDefault && groupIds.isEmpty() ? Mono.<Void>empty()
+                                        : requireValidAudience(accessType, groupIds, userId, role, List.of()))
                                 .then(examMedia.validate(plan.questions(), userId, role, null))
                                 .then(Mono.defer(() -> {
                                     Exam exam = mapper.toEntity(request, userId);
@@ -181,6 +188,7 @@ public class ExamService {
                 .flatMap(taken -> taken ? Mono.<Exam>error(ExamException.hasSessions()) : findExistingExam(examId))
                 .flatMap(exam -> exam.canModify() ? Mono.just(exam) : Mono.<Exam>error(ExamException.cannotModify()))
                 .flatMap(exam -> validator.validateUpdateRequest(request, timingModeAfter(exam, request))
+                        .then(requirePublicAllowed(newAccessType, exam.getAccessType(), role))
                         .then(newAccessType == null ? Mono.<Void>empty() : audienceRepository.findGroupIdsByExamId(examId).collectList()
                                 .flatMap(stored -> requireValidAudience(newAccessType, groupIds, userId, role, stored)))
                         .then(examMedia.validate(requestQuestions(request.getBlocks(), request.getQuestions()), userId, role, examId))
@@ -279,7 +287,7 @@ public class ExamService {
                         ? Mono.just(exam)
                         : Mono.<Exam>error(ExamAccessPolicy.notManageable(examId)))
                 .flatMap(exam -> stateRepository.load(examId))
-                .flatMap(source -> examRepository.save(copyRow(source, userId))
+                .flatMap(source -> examRepository.save(copyRow(source, userId, role))
                         .flatMap(copy -> stateRepository.load(copy.getId())
                                 .flatMap(created -> structureWriter.apply(copy.getId(), created,
                                         planner.copyOf(source, created.blocks().get(0).id())))
@@ -301,7 +309,7 @@ public class ExamService {
     /**
      * The exam row of a copy: everything of the source's row except id, status (DRAFT), owner and audience groups
      */
-    private static Exam copyRow(ExamState source, UUID owner) {
+    private static Exam copyRow(ExamState source, UUID owner, String role) {
         String title = source.title() == null ? "" : source.title();
         if (title.length() + COPY_SUFFIX.length() > 255) {
             title = title.substring(0, 255 - COPY_SUFFIX.length());
@@ -323,7 +331,9 @@ public class ExamService {
                 .maxAttemptsPerDay(source.maxAttemptsPerDay())
                 .categoryId(source.categoryId())
                 .createdBy(owner)
-                .accessType(source.accessType())
+                // B13: a teacher's copy of a PUBLIC exam is GROUP without groups (only ADMIN makes an exam PUBLIC)
+                .accessType(source.accessType() == ExamAccessType.PUBLIC && !OwnershipPolicy.isAdmin(role)
+                        ? ExamAccessType.GROUP : source.accessType())
                 .timingMode(source.timingMode())
                 .allowReturnToPreviousBlocks(source.allowReturnToPreviousBlocks())
                 .allowSkipBreak(source.allowSkipBreak())
@@ -661,7 +671,8 @@ public class ExamService {
                     if (!"ADMIN".equals(role) && !exam.getCreatedBy().equals(userId)) {
                         return Mono.error(ExamAccessPolicy.notManageable(examId));
                     }
-                    return audienceRepository.findGroupIdsByExamId(examId).collectList()
+                    return requirePublicAllowed(accessType, exam.getAccessType(), role)
+                            .then(audienceRepository.findGroupIdsByExamId(examId).collectList())
                             .flatMap(stored -> requireValidAudience(accessType, groupIds, userId, role, stored))
                             .thenReturn(exam);
                 })
@@ -784,6 +795,17 @@ public class ExamService {
         return accessType == ExamAccessType.GROUP && requested != null
                 ? requested.stream().distinct().sorted().toList()
                 : List.of();
+    }
+
+    /**
+     * B13: only ADMIN makes an exam PUBLIC (403 PUBLIC_EXAM_ADMIN_ONLY for anybody else); an exam that is PUBLIC
+     * already (current) stays so when its owner saves it. requested null = the access type is not changed.
+     */
+    private static Mono<Void> requirePublicAllowed(ExamAccessType requested, ExamAccessType current, String role) {
+        if (requested == ExamAccessType.PUBLIC && current != ExamAccessType.PUBLIC && !OwnershipPolicy.isAdmin(role)) {
+            return Mono.error(ExamException.publicAdminOnly());
+        }
+        return Mono.empty();
     }
 
     /**

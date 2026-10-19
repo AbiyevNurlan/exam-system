@@ -180,7 +180,9 @@ class ExamHistoryReadTest {
         assertThat(forOwner.getQuestions().get(1).getLastEditedBy().getCode()).isEqualTo(1234567);
         assertThat(forOwner.getQuestions().get(1).getLastEditedAt()).isNotNull();
         assertThat(forOwner.getQuestions().get(0).getLastEditedBy()).isNull();
-        // Participants never get it (the exam is ACTIVE and PUBLIC)
+        // Participants never get it (the exam is ACTIVE and PUBLIC; B13: a teacher's exam is GROUP by default,
+        // so PUBLIC as an administrator would make it)
+        stack.db.sql("UPDATE exams SET access_type = 'PUBLIC' WHERE id = " + exam.getId()).then().block();
         ExamResponse forParticipant = service.getExamById(exam.getId(), UUID.randomUUID(), "STUDENT").block();
         assertThat(forParticipant.getQuestions()).allSatisfy(q -> assertThat(q.getLastEditedBy()).isNull());
     }

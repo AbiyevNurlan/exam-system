@@ -128,7 +128,8 @@ class ExamBlocksServiceTest {
         assertThat(created.getTotalQuestions()).isEqualTo(3);
 
         // The participant view (published, PUBLIC) shows the blocks, never the answer key
-        stack.db.sql("UPDATE exams SET status = 'ACTIVE', start_time = LOCALTIMESTAMP - interval '1 minute' WHERE id = "
+        // B13: a teacher's exam is GROUP by default; PUBLIC as an administrator would make it
+        stack.db.sql("UPDATE exams SET status = 'ACTIVE', access_type = 'PUBLIC', start_time = LOCALTIMESTAMP - interval '1 minute' WHERE id = "
                 + created.getId()).then().block();
         stack.cache.invalidateExamCache(created.getId()).block();
         ExamResponse participant = service.getExamById(created.getId(), UUID.randomUUID(), "STUDENT").block();

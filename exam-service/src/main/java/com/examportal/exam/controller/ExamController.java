@@ -73,7 +73,7 @@ public class ExamController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Create a new exam", description = "Create a new exam with questions and options. Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); only your own confirmed media. WARNING: the alt text of option media is shown to participants and must not reveal the answer. "
+    @Operation(summary = "Create a new exam", description = "Create a new exam with questions and options. B13: accessType PUBLIC is for ADMIN only (403 PUBLIC_EXAM_ADMIN_ONLY); without accessType ADMIN's exam is PUBLIC and a teacher's GROUP (the groups given, or none yet: readiness AUDIENCE_EMPTY). Questions may carry media (up to 3: {mediaId, position, maxPlays for audio/video}) and options one image (mediaIds); only your own confirmed media. WARNING: the alt text of option media is shown to participants and must not reveal the answer. "
             + "B12a: either questions (one block 'Əsas blok') or blocks (1..20, in order, each {title, instructions, timeLimitMinutes, breakAfterMinutes, freeNavigation, shuffleQuestions, showResultToParticipant, questions}); "
             + "timingMode EXAM_TIMER (default) or BLOCK_TIMERS (every block needs timeLimitMinutes; the duration becomes the limits plus the breaks, 400 EXAM_DURATION_EXCEEDS_WINDOW when it does not fit start..end), "
             + "allowReturnToPreviousBlocks, allowSkipBreak, showBlockBreakdown. The answer carries blocks and totalMinutes.")
@@ -466,7 +466,7 @@ public class ExamController {
 
     @PutMapping("/{id}/audience")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Set exam audience", description = "PUBLIC or GROUP with the groups whose members may take the exam (owner or admin)")
+    @Operation(summary = "Set exam audience", description = "PUBLIC or GROUP with the groups whose members may take the exam (owner or admin). B13: only ADMIN makes an exam PUBLIC (403 PUBLIC_EXAM_ADMIN_ONLY); a teacher chooses only own groups (another owner's group is AUDIENCE_GROUP_NOT_FOUND like a missing one)")
     public Mono<ApiResponse<ExamAudienceResponse>> setAudience(
             @PathVariable Long id,
             @Valid @RequestBody ExamAudienceRequest request,

@@ -135,6 +135,15 @@ public class ExamException extends ApplicationException {
         return exception;
     }
 
+    /**
+     * B13: only an administrator makes an exam PUBLIC (open to every account); a teacher's exam is for the
+     * teacher's own groups. An exam that is PUBLIC already stays so.
+     */
+    public static ExamException publicAdminOnly() {
+        return new ExamException("Only an administrator can make an exam public; choose your own groups as the audience",
+                HttpStatus.FORBIDDEN, "PUBLIC_EXAM_ADMIN_ONLY");
+    }
+
     public static ExamException sessionNotFound(String sessionId) {
         return new ExamException("Session not found: " + sessionId, HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND");
     }
