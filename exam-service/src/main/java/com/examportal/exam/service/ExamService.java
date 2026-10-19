@@ -14,6 +14,7 @@ import com.examportal.exam.repository.*;
 import com.examportal.exam.history.ChangeContext;
 import com.examportal.exam.history.ExamDiff;
 import com.examportal.exam.history.ExamHistoryService;
+import com.examportal.exam.history.ExamSnapshotService;
 import com.examportal.exam.structure.ExamState;
 import com.examportal.exam.structure.ExamStateRepository;
 import com.examportal.exam.structure.ExamStructureWriter;
@@ -67,6 +68,8 @@ public class ExamService {
     private final ExamFeatures features;
     // B12a: every change of an exam is written to its history in the transaction of the change
     private final ExamHistoryService history;
+    // B12a: every publication stores the whole exam as a new version with its SHA-256
+    private final ExamSnapshotService snapshots;
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
@@ -795,8 +798,9 @@ public class ExamService {
      */
     private Mono<Void> statusHistory(Exam exam, ExamStatus newStatus, ChangeContext change) {
         if (newStatus == ExamStatus.ACTIVE) {
-            return history.record(exam.getId(), exam.getCreatedBy(), exam.getStatus(), change,
-                    List.of(ExamDiff.status("PUBLISHED", exam.getStatus(), newStatus, exam.getId(), null)));
+            return snapshots.publish(exam.getId(), change)
+                    .flatMap(version -> history.record(exam.getId(), exam.getCreatedBy(), exam.getStatus(), change,
+                            List.of(ExamDiff.status("PUBLISHED", exam.getStatus(), newStatus, exam.getId(), version))));
         }
         return history.record(exam.getId(), exam.getCreatedBy(), exam.getStatus(), change,
                 List.of(ExamDiff.status("ARCHIVED", exam.getStatus(), newStatus, exam.getId(), null)));

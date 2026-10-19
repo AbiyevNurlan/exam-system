@@ -100,7 +100,7 @@ class ExamUpdateIntegrityTest {
                 mock(GroupMembershipRepository.class), mock(ExamDayClock.class), cacheService,
                 mock(AnswerSubmissionService.class), accessPolicy, mock(UserGroupRepository.class),
                 mock(ExamAudienceRepository.class), auditService, examMedia, validator, mapper, transactionalOperator,
-                stateRepository, new StructurePlanner(), structureWriter, blockRepository, new ExamFeatures(false, false), history);
+                stateRepository, new StructurePlanner(), structureWriter, blockRepository, new ExamFeatures(false, false), history, mock(com.examportal.exam.history.ExamSnapshotService.class));
     }
 
     private void examIs(ExamStatus status) {
