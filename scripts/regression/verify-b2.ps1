@@ -25,8 +25,8 @@ function Api($method, $path, $token, $body) {
     if ($null -ne $body) { $params['Body'] = [Text.Encoding]::UTF8.GetBytes(($body | ConvertTo-Json -Depth 10)); $params['ContentType'] = 'application/json' }
     try {
         $r = Invoke-WebRequest @params
-        $raw = $r.Content
-        if ($raw -is [byte[]]) { $raw = [Text.Encoding]::UTF8.GetString($raw) }
+        # Always UTF-8 from the raw bytes: without a charset in the content type PowerShell 5.1 decodes as ISO-8859-1
+        $raw = [Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
         $status = [int]$r.StatusCode
     } catch {
         $resp = $_.Exception.Response
@@ -379,12 +379,13 @@ Check 'regress: the owner attaches the own media: 200' ($putOwn.status -eq 200 -
 
 # ---------- e) management list ----------
 $adminOnce = Api 'POST' '/api/exams' $adm.token (ExamBody "T-b2-$stamp-adminmain" ([DateTime]::UtcNow.AddMinutes(5)) $weekEnd 1 $null $null)
-$manageKeys = 'id', 'title', 'status', 'accessType', 'startTime', 'endTime', 'durationMinutes', 'maxAttempts', 'maxAttemptsPerDay', 'totalQuestions', 'totalPoints', 'sessionCount', 'participantCount', 'createdBy', 'createdAt', 'audienceGroupCount', 'groupIds'
+$manageKeys = 'id', 'title', 'status', 'accessType', 'startTime', 'endTime', 'durationMinutes', 'maxAttempts', 'maxAttemptsPerDay', 'totalQuestions', 'totalPoints', 'sessionCount', 'participantCount', 'createdBy', 'createdAt', 'audienceGroupCount', 'groupIds',
+    'lastModifiedBy', 'lastModifiedAt'   # B12a: newest history row (name, code, role) and its time
 $all = Api 'GET' '/api/exams/manage?size=50' $admTwo.token $null
 $expectedAll = Sql 'exam_db' "select count(*) from exams where active = true and status <> 'ARCHIVED'"
 Check 'ADMIN: every exam that is not archived' ($all.status -eq 200 -and "$($all.data.totalElements)" -eq $expectedAll -and @($all.data.content).Count -eq [Math]::Min(50, [int]$expectedAll)) "total $($all.data.totalElements), database $expectedAll"
 $rowKeys = @(@($all.data.content)[0].PSObject.Properties.Name)
-Check 'a row has exactly the 17 listed fields' (-not ($manageKeys | Where-Object { $_ -notin $rowKeys }) -and -not ($rowKeys | Where-Object { $_ -notin $manageKeys })) ($rowKeys -join ', ')
+Check 'a row has exactly the 19 listed fields' (-not ($manageKeys | Where-Object { $_ -notin $rowKeys }) -and -not ($rowKeys | Where-Object { $_ -notin $manageKeys })) ($rowKeys -join ', ')
 Check 'the list carries no questions and no key' ($all.raw -notmatch '"questions"|isCorrect|explanation')
 AllDatesZ 'management list' $all.raw
 $mine = Api 'GET' "/api/exams/manage?search=T-b2-$stamp&size=50" $admTwo.token $null
