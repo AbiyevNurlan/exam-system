@@ -46,30 +46,25 @@ public class ParticipantService {
     private final ExamDayClock dayClock;
 
     /**
-     * One page of participants. sort: createdAt (default, newest first), name or email.
+     * One page of participants, sorted on the server (the list is paged, so only the server can sort it).
+     * sortBy: code, firstName, lastName, email or registeredAt (a whitelist; anything else is 400), dir: asc
+     * (default) or desc. Without sortBy the older parameters apply as before: sort createdAt (default, newest
+     * first), name or email, order asc or desc.
      */
-    public Mono<PageResponse<ParticipantDtos.Participant>> getParticipants(ParticipantDtos.Filter filter, String sort,
-                                                                           String order, int page, int size) {
+    public Mono<PageResponse<ParticipantDtos.Participant>> getParticipants(ParticipantDtos.Filter filter, String sortBy,
+                                                                           String dir, String sort, String order,
+                                                                           int page, int size) {
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), ParticipantQuery.MAX_PAGE_SIZE);
-        String sortBy = sort == null || sort.isBlank() ? "createdAt" : sort.trim();
-        if (!List.of("createdat", "name", "email").contains(sortBy.toLowerCase(Locale.ROOT))) {
-            throw new ValidationException("sort must be createdAt, name or email");
-        }
-        String direction = order == null || order.isBlank() ? null : order.trim().toLowerCase(Locale.ROOT);
-        if (direction != null && !direction.equals("asc") && !direction.equals("desc")) {
-            throw new ValidationException("order must be asc or desc");
-        }
-        // The newest registrations first; names and emails from A
-        boolean ascending = direction != null ? direction.equals("asc") : !sortBy.equalsIgnoreCase("createdAt");
+        SortChoice choice = sortChoice(sortBy, dir, sort, order);
 
         return resolveFilter(filter)
                 .flatMap(resolved -> userDirectory.participants(ParticipantQuery.PageRequest.builder()
                         .filter(resolved)
                         .page(pageNumber)
                         .size(pageSize)
-                        .sort(sortBy)
-                        .ascending(ascending)
+                        .sort(choice.key())
+                        .ascending(choice.ascending())
                         .build()))
                 .flatMap(found -> {
                     List<UUID> ids = found.getUsers().stream().map(ParticipantQuery.Participant::getId).toList();
@@ -163,6 +158,51 @@ public class ParticipantService {
             return membershipRepository.findAllMemberIds().map(memberIds -> resolved.excludeIds(memberIds).build());
         }
         return Mono.just(resolved.build());
+    }
+
+    /**
+     * The sort key handed to auth-service (ParticipantQuery.PageRequest.sort) and its direction
+     */
+    record SortChoice(String key, boolean ascending) {
+    }
+
+    // sortBy as the API takes it -> the key of ParticipantQueryRepository; nothing else reaches SQL
+    private static final Map<String, String> SORT_KEYS = Map.of(
+            "code", "code",
+            "firstname", "firstName",
+            "lastname", "lastName",
+            "email", "email",
+            "registeredat", "registeredAt");
+
+    /**
+     * sortBy and dir (B11b) when sortBy is given, otherwise the older sort and order exactly as before
+     * (createdAt newest first by default; name and email from A). A value outside the whitelist is 400.
+     */
+    static SortChoice sortChoice(String sortBy, String dir, String sort, String order) {
+        if (sortBy != null && !sortBy.isBlank()) {
+            String key = SORT_KEYS.get(sortBy.trim().toLowerCase(Locale.ROOT));
+            if (key == null) {
+                throw new ValidationException("sortBy", "must be code, firstName, lastName, email or registeredAt");
+            }
+            String direction = direction("dir", dir != null && !dir.isBlank() ? dir : order);
+            return new SortChoice(key, direction == null || direction.equals("asc"));
+        }
+        String legacy = sort == null || sort.isBlank() ? "createdAt" : sort.trim();
+        if (!List.of("createdat", "name", "email").contains(legacy.toLowerCase(Locale.ROOT))) {
+            throw new ValidationException("sort must be createdAt, name or email");
+        }
+        String direction = direction("order", dir != null && !dir.isBlank() ? dir : order);
+        // The newest registrations first; names and emails from A
+        boolean ascending = direction != null ? direction.equals("asc") : !legacy.equalsIgnoreCase("createdAt");
+        return new SortChoice(legacy, ascending);
+    }
+
+    private static String direction(String field, String value) {
+        String direction = value == null || value.isBlank() ? null : value.trim().toLowerCase(Locale.ROOT);
+        if (direction != null && !direction.equals("asc") && !direction.equals("desc")) {
+            throw new ValidationException(field, "must be asc or desc");
+        }
+        return direction;
     }
 
     // ==================== Private Helper Methods ====================

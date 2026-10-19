@@ -58,7 +58,8 @@ public final class ParticipantQuery {
         private Filter filter;
         private int page;
         private int size;
-        // createdAt (default), name or email
+        // code, firstName, lastName, email or registeredAt (B11b); the older createdAt (default) and name stay accepted
+        // (name = lastName, createdAt = registeredAt)
         private String sort;
         private boolean ascending;
     }

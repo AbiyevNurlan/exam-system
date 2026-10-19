@@ -36,14 +36,7 @@ public class ParticipantQueryRepository {
         String where = where(request.getFilter(), params);
         int pageNumber = Math.max(request.getPage(), 0);
         int pageSize = Math.min(Math.max(request.getSize(), 1), ParticipantQuery.MAX_PAGE_SIZE);
-        String direction = request.isAscending() ? "ASC" : "DESC";
-        String sort = request.getSort() == null ? "createdat" : request.getSort().trim().toLowerCase(Locale.ROOT);
-        String order = switch (sort) {
-            case "name" -> "lower(last_name) " + direction + ", lower(first_name) " + direction + ", id";
-            case "email" -> "lower(email) " + direction;
-            case "createdat", "" -> "created_at " + direction + ", id";
-            default -> throw new ValidationException("sort", "must be createdAt, name or email");
-        };
+        String order = orderBy(request.getSort(), request.isAscending());
 
         DatabaseClient.GenericExecuteSpec count = bindAll(databaseClient.sql("SELECT COUNT(*) FROM users" + where), params);
         DatabaseClient.GenericExecuteSpec page = bindAll(databaseClient.sql(
@@ -118,6 +111,23 @@ public class ParticipantQueryRepository {
     }
 
     // ==================== Private Helper Methods ====================
+
+    /**
+     * The ORDER BY of a page. Only fixed text from this switch is put into the statement (the key is a
+     * whitelist, the direction one of two words); an unknown key is a 400.
+     */
+    static String orderBy(String sortKey, boolean ascending) {
+        String d = ascending ? "ASC" : "DESC";
+        String sort = sortKey == null ? "registeredat" : sortKey.trim().toLowerCase(Locale.ROOT);
+        return switch (sort) {
+            case "code" -> "participant_code " + d;
+            case "firstname" -> "lower(first_name) " + d + ", lower(last_name) " + d + ", id";
+            case "lastname", "name" -> "lower(last_name) " + d + ", lower(first_name) " + d + ", id";
+            case "email" -> "lower(email) " + d;
+            case "registeredat", "createdat", "" -> "created_at " + d + ", id";
+            default -> throw new ValidationException("sortBy", "must be code, firstName, lastName, email or registeredAt");
+        };
+    }
 
     private String where(ParticipantQuery.Filter filter, Map<String, Object> params) {
         StringBuilder where = new StringBuilder(" WHERE role = 'STUDENT'");
