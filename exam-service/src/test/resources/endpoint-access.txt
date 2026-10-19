@@ -1,0 +1,113 @@
+# B13: every endpoint of exam-service and who may reach it. EndpointRegistryTest fails when an endpoint is missing
+# here, when a line names an endpoint that no longer exists, and when the roles the security chain and @PreAuthorize
+# really let through differ from the class.
+#
+#   ADMIN_ONLY    ADMIN
+#   OWNER_SCOPED  ADMIN everything, INSTRUCTOR only the own exams, sessions, groups, members, media (404 otherwise)
+#   OWN_DATA      every signed-in user, only what belongs to the caller or what the caller may take part in
+#   STUDENT_ONLY  the participant's flow (available exams, start, answer, submit, result, join): every signed-in user
+#                 acts as a participant on the own sessions and requests only
+#   PUBLIC        no sign-in (nothing private in the answer)
+#   INTERNAL      /internal/**, service to service: shared secret, 404 without it
+#
+# Method, path (path variables without their regex), class
+
+GET    /api/exams/{examId}/analytics/questions               OWNER_SCOPED
+GET    /api/exams/{examId}/analytics/overview                OWNER_SCOPED
+GET    /api/analytics/overview                               ADMIN_ONLY
+
+GET    /api/admin/audit                                      OWNER_SCOPED
+
+POST   /api/exams                                            OWNER_SCOPED
+PUT    /api/exams/{id}                                       OWNER_SCOPED
+GET    /api/exams/{id}/readiness                             OWNER_SCOPED
+POST   /api/exams/{id}/clone                                 OWNER_SCOPED
+DELETE /api/exams/{id}                                       OWNER_SCOPED
+GET    /api/exams/{id}                                       OWN_DATA
+GET    /api/exams/my                                         OWNER_SCOPED
+GET    /api/exams/manage                                     OWNER_SCOPED
+GET    /api/exams/available                                  STUDENT_ONLY
+GET    /api/exams/my-sessions                                STUDENT_ONLY
+POST   /api/exams/{id}/start                                 STUDENT_ONLY
+GET    /api/exams/session/{sessionId}/questions              STUDENT_ONLY
+GET    /api/exams/session/{sessionId}/media/{mediaId}        STUDENT_ONLY
+GET    /api/exams/session/{sessionId}/answers                STUDENT_ONLY
+POST   /api/exams/session/{sessionId}/fraud-event            STUDENT_ONLY
+POST   /api/exams/session/{sessionId}/answer                 STUDENT_ONLY
+POST   /api/exams/session/{sessionId}/submit                 STUDENT_ONLY
+GET    /api/exams/session/{sessionId}/result                 STUDENT_ONLY
+GET    /api/exams/{id}/results                               OWNER_SCOPED
+GET    /api/exams/{id}/results/export                        OWNER_SCOPED
+GET    /api/exams/{id}/results/summary                       OWNER_SCOPED
+GET    /api/exams/session/{sessionId}/review                 OWNER_SCOPED
+GET    /api/exams/{id}/audience/preview                      OWNER_SCOPED
+POST   /api/exams/audience/preview                           OWNER_SCOPED
+PUT    /api/exams/{id}/audience                              OWNER_SCOPED
+POST   /api/exams/{id}/publish                               OWNER_SCOPED
+POST   /api/exams/{id}/reschedule                            OWNER_SCOPED
+POST   /api/exams/{id}/archive                               OWNER_SCOPED
+PATCH  /api/exams/{id}/meta                                  OWNER_SCOPED
+
+GET    /api/exams/{id}/history                               OWNER_SCOPED
+GET    /api/exams/{id}/history/{revisionId}                  OWNER_SCOPED
+GET    /api/exams/{id}/versions                              OWNER_SCOPED
+GET    /api/exams/{id}/versions/{versionNo}                  OWNER_SCOPED
+
+GET    /api/exams/{examId}/grading                           OWNER_SCOPED
+GET    /api/exams/session/{sessionId}/grading                OWNER_SCOPED
+PUT    /api/exams/session/{sessionId}/grades                 OWNER_SCOPED
+GET    /api/grading/pending-exams                            OWNER_SCOPED
+GET    /api/grading/pending-count                            OWNER_SCOPED
+
+POST   /api/admin/groups                                     OWNER_SCOPED
+GET    /api/admin/groups                                     OWNER_SCOPED
+GET    /api/admin/groups/{id}                                OWNER_SCOPED
+PUT    /api/admin/groups/{id}                                OWNER_SCOPED
+DELETE /api/admin/groups/{id}                                OWNER_SCOPED
+GET    /api/admin/groups/{id}/members                        OWNER_SCOPED
+GET    /api/admin/groups/{id}/exams                          OWNER_SCOPED
+POST   /api/admin/groups/{id}/members                        OWNER_SCOPED
+POST   /api/admin/groups/{id}/members/import                 OWNER_SCOPED
+GET    /api/admin/groups/{id}/invites                        OWNER_SCOPED
+DELETE /api/admin/groups/{id}/invites/{inviteId}             OWNER_SCOPED
+DELETE /api/admin/groups/{id}/members/{userId}               OWNER_SCOPED
+POST   /api/groups/{id}/members/bulk-by-filter               OWNER_SCOPED
+POST   /api/groups/{id}/members/bulk-by-ids                  OWNER_SCOPED
+GET    /api/groups                                           OWNER_SCOPED
+GET    /api/groups/{id}/join-link                            OWNER_SCOPED
+POST   /api/groups/{id}/join-link                            OWNER_SCOPED
+PATCH  /api/groups/{id}/join-link                            OWNER_SCOPED
+GET    /api/groups/{id}/join-requests                        OWNER_SCOPED
+POST   /api/groups/{id}/join-requests/approve                OWNER_SCOPED
+POST   /api/groups/{id}/join-requests/reject                 OWNER_SCOPED
+POST   /api/groups/{id}/join-requests/{requestId}/approve    OWNER_SCOPED
+POST   /api/groups/{id}/join-requests/{requestId}/reject     OWNER_SCOPED
+
+GET    /api/admin/instructor-limits/{instructorId}           ADMIN_ONLY
+PUT    /api/admin/instructor-limits/{instructorId}           ADMIN_ONLY
+
+POST   /internal/group-invites/apply                         INTERNAL
+POST   /internal/instructors/figures                         INTERNAL
+
+GET    /api/join/{code}                                      PUBLIC
+GET    /api/join/requests/mine                               STUDENT_ONLY
+POST   /api/join/{code}                                      STUDENT_ONLY
+
+GET    /api/me/stats                                         OWN_DATA
+GET    /api/me/profile                                       OWN_DATA
+PUT    /api/me/profile                                       OWN_DATA
+
+POST   /api/media/upload-url                                 OWNER_SCOPED
+POST   /api/media/{id}/confirm                               OWNER_SCOPED
+GET    /api/media/{id}/preview-url                           OWNER_SCOPED
+DELETE /api/media/{id}                                       OWNER_SCOPED
+
+GET    /api/exams/monitoring/active                          OWNER_SCOPED
+GET    /api/exams/{examId}/monitoring                        OWNER_SCOPED
+GET    /api/exams/session/{sessionId}/violations             OWNER_SCOPED
+
+GET    /api/admin/participants                               OWNER_SCOPED
+GET    /api/admin/participants/summary                       ADMIN_ONLY
+PATCH  /api/admin/participants/{userId}/profile              ADMIN_ONLY
+GET    /api/admin/participants/{userId}                      OWNER_SCOPED
+GET    /api/admin/participants/{userId}/sessions             OWNER_SCOPED
