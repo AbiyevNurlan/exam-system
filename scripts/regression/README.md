@@ -19,6 +19,8 @@ against a stack that serves real users: they create test data.
 | `verify-b11.ps1` | participant profile (`GET/PUT /api/me/profile`: null for a new account, trim, HTML removed, 400 with the field, audit), participant card (ADMIN all, INSTRUCTOR only a member of an own group else 404, STUDENT 403, no secret field, paged attempts), ADMIN `PATCH .../profile` (keep, clear, audit with actor and target codes), category and institution filters, the immutable participant code and `check-participant-codes.ps1`. Refuses to run while the public mode is up | `T-b11-*` groups, `be-b11-*@x.test` |
 | `verify-b8.ps1` | group ownership of an INSTRUCTOR (another owner's group is 404 like a missing one), admin paths 403 for an INSTRUCTOR, `GET /api/join/requests/mine`, rejection cooldown | `T-b8-*` groups and exams, `be-b8-*@x.test` |
 
+Every script starts with `Wait-Gateway` (`_common.ps1`, up to 120 s for `/actuator/health` to answer 200 UP), so a stack that is still starting does not show up as `admin login answered 0`. `New-ActiveExam` in the same file makes an exam ACTIVE with an open window (`POST /api/exams` refuses a start in the past).
+
 Run one with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\regression\verify-b2.ps1`.
 Each prints `PASS`/`FAIL` lines and a total (`NOTE` lines report known behaviour and are not counted). Known failures that are not regressions are listed in
 docs/BACKLOG.md. Everything they create follows the test data rules and is removed by
