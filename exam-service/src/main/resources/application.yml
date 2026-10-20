@@ -115,6 +115,8 @@ exam:
     audio-max-bytes: 20971520         # 20 MB
     video-max-bytes: 209715200        # 200 MB
     upload-url-ttl-seconds: 600       # presigned PUT
+    avatar-max-bytes: 2097152         # 2 MB, a profile picture (jpeg/png/webp)
+    avatar-url-ttl-seconds: 3600      # presigned GET of the own profile picture
     preview-url-ttl-seconds: 300      # presigned GET for owner/ADMIN
     session-url-ttl-seconds: 300      # presigned GET for a participant inside a session
     max-pending-per-user: 50          # unconfirmed uploads one user may have

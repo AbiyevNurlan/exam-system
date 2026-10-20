@@ -96,6 +96,10 @@ POST   /api/join/{code}                                      STUDENT_ONLY
 GET    /api/me/stats                                         OWN_DATA
 GET    /api/me/profile                                       OWN_DATA
 PUT    /api/me/profile                                       OWN_DATA
+GET    /api/me/avatar                                        OWN_DATA
+POST   /api/me/avatar/upload-url                             OWN_DATA
+POST   /api/me/avatar/confirm                                OWN_DATA
+DELETE /api/me/avatar                                        OWN_DATA
 
 POST   /api/media/upload-url                                 OWNER_SCOPED
 POST   /api/media/{id}/confirm                               OWNER_SCOPED
