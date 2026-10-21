@@ -157,6 +157,8 @@ $resExam = Api 'POST' '/api/exams' $ins.token (ExamBody "T-b3-$stamp-res" $start
 $pubExam = Api 'POST' '/api/exams' $ins.token (ExamBody "T-b3-$stamp-pub" $start $end 1 50 @((Mc 'T-b3 pub' 1 0 $null)))
 $doneExam = Api 'POST' '/api/exams' $ins.token (ExamBody "T-b3-$stamp-done" $start $end 1 50 @((Mc 'T-b3 done' 1 0 $null)))
 $idOpen = $openExam.data.id; $idRes = $resExam.data.id; $idPub = $pubExam.data.id; $idDone = $doneExam.data.id
+# B13: the instructor's exams are for groups; the participants of this script take them as PUBLIC exams
+foreach ($examId in $idOpen, $idRes, $idPub, $idDone) { if ((Open-ExamToEveryone $adm.token $examId).status -ne 200) { throw "open $examId to everybody failed" } }
 foreach ($examId in $idOpen, $idRes, $idDone) { if ((Api 'POST' "/api/exams/$examId/publish" $ins.token $null).status -ne 200) { throw "publish $examId failed" } }
 
 # ---------- i) publish ----------

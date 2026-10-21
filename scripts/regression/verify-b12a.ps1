@@ -252,7 +252,8 @@ Check 'clone: no sessions' ((Sql 'exam_db' "select count(*) from exam_sessions w
 # ---------- 7. who may read the history ----------
 Check 'INSTRUCTOR, the exam of somebody else: 404' ((Api 'GET' "/api/exams/$($exam.id)/history" $ins.token $null).status -eq 404)
 Check 'STUDENT: 403' ((Api 'GET' "/api/exams/$($exam.id)/history" $stu.token $null).status -eq 403)
-$own = Api 'POST' '/api/exams' $ins.token (ExamBody 'own' @((Block 'A' @((Mc 'x')))))
+# B13: a teacher cannot make a PUBLIC exam; without an access type the own exam is for groups
+$own = Api 'POST' '/api/exams' $ins.token (ExamBody 'own' @((Block 'A' @((Mc 'x')))) @{ accessType = $null })
 Check 'INSTRUCTOR, own exam: history 200' ((Api 'GET' "/api/exams/$($own.data.id)/history" $ins.token $null).status -eq 200) (Answer $own)
 } finally {
     # The test account gets the participant role back, whatever happened above: no test account stays INSTRUCTOR

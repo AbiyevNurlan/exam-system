@@ -108,7 +108,9 @@ $other.token = (Login $other.email $password).data.accessToken
 Write-Output "run $stamp; participants p1, p2; instructors ins (owner of the group of p1), other"
 
 $group = Api 'POST' '/api/admin/groups' $ins.token @{ name = "$T group"; description = 'B11 verification' }
-$null = Api 'POST' "/api/admin/groups/$($group.data.id)/members" $ins.token @{ userId = $p1.id }
+# B13: a teacher adds somebody new by the 7-digit participant code (by id only people already in the own groups)
+$codeP1 = Sql 'exam_auth' "select participant_code from users where id='$($p1.id)'"
+$null = Api 'POST' "/api/admin/groups/$($group.data.id)/members" $ins.token @{ participantCode = [int]$codeP1 }
 Check 'setup: a group of ins with p1' ($group.status -in 200, 201 -and (Sql 'exam_db' "select count(*) from user_group_members where group_id=$($group.data.id) and user_id='$($p1.id)'") -eq '1') (Answer $group)
 
 # ---------- 1. own profile ----------
@@ -138,7 +140,9 @@ Check 'STUDENT: 403 for another card and for the own' ((Api 'GET' "/api/admin/pa
 Check 'an unknown id: 404' ((Api 'GET' "/api/admin/participants/$([Guid]::NewGuid())" $adm.token $null).status -eq 404)
 $sessions = Api 'GET' "/api/admin/participants/$($p1.id)/sessions?page=0&size=500" $adm.token $null
 Check 'the attempts are paged (size capped at 50)' ($sessions.status -eq 200 -and $sessions.data.size -eq 50) (Answer $sessions)
-Check 'INSTRUCTOR cannot list participants or read the summary' ((Api 'GET' '/api/admin/participants' $ins.token $null).status -eq 403 -and (Api 'GET' '/api/admin/participants/summary' $ins.token $null).status -eq 403)
+# B13: a teacher lists the own participants (the members of the own groups: p1 only); the summary stays ADMIN only
+$insList = Api 'GET' '/api/admin/participants?size=100' $ins.token $null
+Check 'INSTRUCTOR lists only the own participants and cannot read the summary' ($insList.status -eq 200 -and (@($insList.data.content | ForEach-Object { $_.id }) -join ',') -eq "$($p1.id)" -and (Api 'GET' '/api/admin/participants/summary' $ins.token $null).status -eq 403)
 
 # ---------- 3. administrator's change ----------
 $patch = Api 'PATCH' "/api/admin/participants/$($p1.id)/profile" $adm.token @{ city = 'Gence'; courseOrGrade = '' }

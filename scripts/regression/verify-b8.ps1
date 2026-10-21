@@ -173,10 +173,15 @@ Check "the instructor's group list and audience picker do not show the admin's g
 $own = Api 'POST' '/api/admin/groups' $ins.token @{ name = "$T-own"; description = 'B8 instructor group' }
 $ownId = $own.data.id
 Check 'instructor creates a group: 201, owner and creator are the instructor' ($own.status -eq 201 -and (Sql 'exam_db' "select (owner_id = created_by and owner_id = '$($ins.id)') from user_groups where id=$ownId") -eq 't') "status $($own.status) $($own.code), group $ownId"
-$addP1 = Api 'POST' "/api/admin/groups/$ownId/members" $ins.token @{ userId = $p1.id }
+# B13: a teacher adds somebody new by the 7-digit participant code; by email always a pending invite (nothing tells
+# whether the account exists), so p2 is invited and then added by code as well
+$codeP1 = Sql 'exam_auth' "select participant_code from users where id='$($p1.id)'"
+$codeP2 = Sql 'exam_auth' "select participant_code from users where id='$($p2.id)'"
+$addP1 = Api 'POST' "/api/admin/groups/$ownId/members" $ins.token @{ participantCode = [int]$codeP1 }
 $addP2 = Api 'POST' "/api/admin/groups/$ownId/members" $ins.token @{ email = $p2.email }
+$addP2Code = Api 'POST' "/api/admin/groups/$ownId/members" $ins.token @{ participantCode = [int]$codeP2 }
 $members = Api 'GET' "/api/admin/groups/$ownId/members" $ins.token $null
-Check 'instructor adds members to the own group (by id and by email) and lists them' ($addP1.status -in 200, 201 -and $addP2.status -in 200, 201 -and $members.status -eq 200 -and $members.data.totalElements -eq 2) "add $($addP1.status)/$($addP2.status), members $($members.data.totalElements)"
+Check 'instructor adds members to the own group (by code ADDED, by email INVITED) and lists them' ($addP1.status -in 200, 201 -and $addP1.data.status -eq 'ADDED' -and $addP2.status -in 200, 201 -and $addP2.data.status -eq 'INVITED' -and $addP2Code.data.status -eq 'ADDED' -and $members.status -eq 200 -and $members.data.totalElements -eq 2) "add $($addP1.status) $($addP1.data.status)/$($addP2.status) $($addP2.data.status)/$($addP2Code.data.status), members $($members.data.totalElements)"
 $renamed = Api 'PUT' "/api/admin/groups/$ownId" $ins.token @{ name = "$T-own"; description = 'B8 instructor group, edited' }
 Check 'instructor edits the own group: 200' ($renamed.status -eq 200 -and $renamed.data.description -eq 'B8 instructor group, edited') "status $($renamed.status) $($renamed.code)"
 $ownList = Api 'GET' "/api/admin/groups?name=$T&size=50" $ins.token $null
@@ -197,12 +202,19 @@ $unknown = @($preview.data.unknownGroupIds | ForEach-Object { [long]$_ } | Sort-
 Check "audience preview: the admin's group is listed as unknown like a missing one, its members are not counted" ($preview.status -eq 200 -and ($unknown -join ',') -eq "$gaId,$MISSING" -and $preview.data.distinctEligible -eq 2 -and -not (@($preview.data.perGroup) | Where-Object { $_.groupId -eq $gaId })) "unknown $($unknown -join ','), distinct $($preview.data.distinctEligible), groups $((@($preview.data.perGroup) | ForEach-Object { $_.groupId }) -join ',')"
 
 # ---------- 3. an INSTRUCTOR outside the groups: the admin paths are 403 ----------
+# B13: the audit trail, the participant list and bulk-by-filter are open to a teacher, limited to the own data
+$insAudit = Api 'GET' '/api/admin/audit?size=50' $ins.token $null
+Check 'instructor outside the groups, GET /api/admin/audit: 200 with only the own actions' ($insAudit.status -eq 200 -and @($insAudit.data.content | Where-Object { $_.actorId -ne $ins.id }).Count -eq 0) (Answer $insAudit)
+$insParticipants = Api 'GET' '/api/admin/participants?size=100' $ins.token $null
+$insIds = @($insParticipants.data.content | ForEach-Object { $_.id })
+Check 'instructor outside the groups, GET /api/admin/participants: 200 with only the members of the own group' ($insParticipants.status -eq 200 -and $insIds.Count -eq 2 -and $insIds -contains $p1.id -and $insIds -contains $p2.id) "$(Answer $insParticipants), $($insIds.Count) rows"
+$bulkOwn = Api 'POST' "/api/groups/$ownId/members/bulk-by-filter" $ins.token @{ filter = @{ q = 'be-b8' }; dryRun = $true }
+Check 'instructor outside the groups, bulk-by-filter on the own group: 200, a dry run within the own participants' ($bulkOwn.status -eq 200) (Answer $bulkOwn)
+$bulkAdmin = Api 'POST' "/api/groups/$gaId/members/bulk-by-filter" $ins.token @{ filter = @{ q = 'be-b8' }; dryRun = $true }
+$bulkMissing = Api 'POST' "/api/groups/$MISSING/members/bulk-by-filter" $ins.token @{ filter = @{ q = 'be-b8' }; dryRun = $true }
+Check "instructor outside the groups, bulk-by-filter on the admin's group: the same 404 as a missing group" ($bulkAdmin.status -eq 404 -and (Answer $bulkAdmin) -eq (Answer $bulkMissing)) "$(Answer $bulkAdmin) / $(Answer $bulkMissing)"
 $outside = [ordered]@{
-    'GET /api/admin/audit'                    = @('GET', '/api/admin/audit', $null)
-    'GET /api/admin/participants'             = @('GET', '/api/admin/participants', $null)
     'GET /api/admin/participants/summary'     = @('GET', '/api/admin/participants/summary', $null)
-    'bulk-by-filter on the own group'         = @('POST', "/api/groups/$ownId/members/bulk-by-filter", @{ filter = @{ q = 'be-b8' }; dryRun = $true })
-    "bulk-by-filter on the admin's group"     = @('POST', "/api/groups/$gaId/members/bulk-by-filter", @{ filter = @{ q = 'be-b8' }; dryRun = $true })
     'GET /auth/admin/users'                   = @('GET', '/auth/admin/users', $null)
     'POST /auth/admin/users/{id}/unlock'      = @('POST', "/auth/admin/users/$($p1.id)/unlock", $null)
     'POST /auth/admin/users/{id}/verify-email' = @('POST', "/auth/admin/users/$($p1.id)/verify-email", $null)

@@ -136,6 +136,8 @@ $anaExam = Api 'POST' '/api/exams' $ins.token (ExamBody "T-b4-$stamp-ana" $start
 $otherExam = Api 'POST' '/api/exams' $insTwo.token (ExamBody "T-b4-$stamp-other" $start $end 1 $monQuestions)
 $idMon = $monExam.data.id; $idAna = $anaExam.data.id; $idOther = $otherExam.data.id
 Check 'the T-b4 exams are created (monitoring, analytics with 5 question types, one of another instructor)' ($monExam.status -eq 201 -and $anaExam.status -eq 201 -and $otherExam.status -eq 201) "$($monExam.status), $($anaExam.status) $($anaExam.code), $($otherExam.status)"
+# B13: the instructors' exams are for groups; the participants of this script take them as PUBLIC exams
+foreach ($examId in $idMon, $idAna, $idOther) { if ((Open-ExamToEveryone $adm.token $examId).status -ne 200) { throw "open $examId to everybody failed" } }
 foreach ($examId in $idMon, $idAna) { if ((Api 'POST' "/api/exams/$examId/publish" $ins.token $null).status -ne 200) { throw "publish $examId failed" } }
 if ((Api 'POST' "/api/exams/$idOther/publish" $insTwo.token $null).status -ne 200) { throw 'publish other failed' }
 $wait = ($start - [DateTime]::UtcNow).TotalSeconds + 2

@@ -155,9 +155,9 @@ Check 'stats with no attempt: zeros and nulls' ($zero.status -eq 200 -and $zero.
 
 $now = [DateTime]::UtcNow
 # POST /api/exams refuses a start in the past (@Future): New-ActiveExam creates ahead, publishes and reschedules to an open window
-$shown = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-shown" $s $e $true @((Mc "$T s1"), (Mc "$T s2"), (Mc "$T s3"), (Mc "$T s4")) }
-$hidden = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-hidden" $s $e $false @((Mc "$T h1"), (Mc "$T h2")) }
-$essay = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-essay" $s $e $true @((Open "$T e1")) }
+$shown = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-shown" $s $e $true @((Mc "$T s1"), (Mc "$T s2"), (Mc "$T s3"), (Mc "$T s4")) } $adm.token
+$hidden = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-hidden" $s $e $false @((Mc "$T h1"), (Mc "$T h2")) } $adm.token
+$essay = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-essay" $s $e $true @((Open "$T e1")) } $adm.token
 foreach ($e in $shown, $hidden, $essay) {
     if ($e.status -ne 201 -or $e.published.status -ne 200 -or $e.rescheduled.status -ne 200) { throw "setup: an active exam was not made (create $(Answer $e), publish $(Answer $e.published), open window $(Answer $e.rescheduled))" }
 }
