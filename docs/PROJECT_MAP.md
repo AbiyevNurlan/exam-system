@@ -11,7 +11,7 @@ Digər sənədlər burada təkrar yazılmır, yalnız istinad olunur:
 
 | | |
 |---|---|
-| Son yenilənmə | 2026-10-21 16:08 (Bakı) |
+| Son yenilənmə | 2026-10-21 17:53 (Bakı) |
 | Analiz olunan kod | `cb19e65` (`feat/avatar` filialının son commit-i; `main` = `45138df`) |
 | Canlı baza | exam_db V19, exam_auth V8 (2026-10-21-də yalnız `SELECT` ilə oxundu) |
 | Frontend | `exam-frontend`, filial `feat/exam-lock-audit` (`79f7757`, `main`-dən 1 commit irəli; `main` = `ff97fb4`) |
@@ -51,7 +51,7 @@ auth-service ◄──► exam-service: /internal/** (X-Internal-Secret başlı�
 **İndiki vəziyyət, qısa:**
 - `main`-də B2–B12a hazırdır. B13 (müəllimlərin bir-birindən ayrılması) və profil şəkli (avatar) birləşməmiş
   filiallardadır. Canlı sayt isə artıq B13 kodu ilə işləyir (canlı bazada exam V19 və auth V8 tətbiq olunub).
-- Yeni sual növləri (ORDERING, MATCHING, SHORT_ANSWER, V21) `feat/question-types` filialında commit edilməmiş iş kimi durur.
+- Yeni sual növləri (ORDERING, MATCHING, SHORT_ANSWER, V21) `feat/question-types` filialında yarımçıq WIP commit-dir (`97d47a4`, testləri hələ kompilyasiya olunmur).
 - 224 avtomatik test var, hamısı keçir (2026-10-21).
 - Ən böyük risklər: canlı sayt və development eyni bazanı işlədir; ictimai saytda görünən 16 aktiv imtahanın
   hamısı `T-` test imtahanıdır; backup-lar yalnız eyni kompüterdədir və gecə backup tapşırığı yoxdur; sayt düşəndə
@@ -159,7 +159,7 @@ Sxemi yalnız Flyway dəyişir: `auth-service/src/main/resources/db/migration/` 
 
 ### Flyway versiyaları
 
-| | Kodda (`cb19e65`) | Canlı bazada (2026-10-21) | Commit edilməmiş |
+| | Kodda (`cb19e65`) | Canlı bazada (2026-10-21) | Yarımçıq (`feat/question-types`, `97d47a4`) |
 |---|---|---|---|
 | exam_auth | V1–V8 (8 fayl) | V8 | – |
 | exam_db | V1–V20 (20 fayl) | V19 | V21 (`feat/question-types` işçi qovluğunda) |
@@ -176,7 +176,7 @@ V8 əl ilə yoxlama (10-13) · V9 monitorinq indeksləri (10-13) · V10 qoşulma
 indeksləri (10-14) · V12 qrupun sahibi `owner_id` (10-15) · V13 istifadəçi üzrə qoşulma sorğuları (10-15) · V14 iştirakçı
 kartı indeksləri (10-16) · V15 `az_ci` (10-19) · V16 bloklar (10-19) · V17 tarixçə və snapshot (10-19) · V18 qrup adı
 sahib üzrə unikal (10-19) · V19 müəllim limitləri (10-19) · **V20 profil şəkli, canlıda yoxdur** · **V21 sual növləri,
-commit edilməyib**.
+yalnız `feat/question-types`-ın WIP commit-ində**.
 
 ### exam_auth cədvəlləri (8)
 
@@ -234,7 +234,7 @@ Triggerlər (exam_db): `trg_exams_main_block` (yeni imtahana "Əsas blok"), `trg
 ### Nə hazırdır, nə yarımçıqdır
 
 - Hazır: Flyway hər iki servisdə; tarixçə trigger ilə qorunur; iştirakçı kodu bazada təyin olunur.
-- Yarımçıq: V20 canlıya tətbiq olunmayıb; V21 commit edilməyib; `exam_monitoring` boşdur; iki köhnə token cədvəli
+- Yarımçıq: V20 canlıya tətbiq olunmayıb; V21 yalnız WIP commit-dədir; `exam_monitoring` boşdur; iki köhnə token cədvəli
   istifadə olunmur; `categories`-in API-si yoxdur.
 
 ---
@@ -395,8 +395,8 @@ olmadan 404.
 ### Nə hazırdır, nə yarımçıqdır
 
 - Hazır: hər endpoint-in sinfi var və test ilə qorunur; yeni endpoint sətirsiz əlavə oluna bilməz.
-- Yarımçıq: B13 commit mesajı və commit edilməmiş BACKLOG auth-service üçün "31 endpoint" yazır, amma reyestrdə
-  həmişə 29 sətir olub (`git show f55d383:auth-service/src/test/resources/endpoint-access.txt`). Düzgün rəqəm 29-dur.
+- Yarımçıq: B13 commit mesajı auth-service üçün "31 endpoint" yazır, amma reyestrdə həmişə 29 sətir olub
+  (`git show f55d383:auth-service/src/test/resources/endpoint-access.txt`). BACKLOG-da `d9dd6d9` ilə 29-a düzəldildi.
 
 ---
 
@@ -438,7 +438,7 @@ müəllim üçün öz id-si, başqası üçün heç kimin olmayan "nil UUID". Fi
 - Hazır (kodda): sahiblik qaydası, vahid 404, müəllim limitləri.
 - Yarımçıq: B13 hələ `main`-də deyil; frontend müəllimə qrup, iştirakçı və audit ekranlarını göstərmir (bölmə 13);
   B13-dən əvvəl müəllimlərin PUBLIC etdiyi imtahanlar PUBLIC qalıb (commit `ad8016f`); 17 köhnə müəllim
-  (`@example.com`) müvəqqəti parolsuzdur (commit edilməmiş BACKLOG sətri).
+  (`@example.com`) müvəqqəti parolsuzdur (BACKLOG, B13).
 
 ---
 
@@ -448,7 +448,7 @@ müəllim üçün öz id-si, başqası üçün heç kimin olmayan "nil UUID". Fi
 
 **Quruluş.** İmtahan bloklardan ibarətdir (ən azı biri, "Əsas blok"), blokda suallar, sualda variantlar və media.
 Sual növləri: `MULTIPLE_CHOICE`, `TRUE_FALSE`, `FILL_BLANK`, `OPEN_ENDED` (`CM/domain/entity/QuestionType.java`).
-`ORDERING`, `MATCHING`, `SHORT_ANSWER` commit edilməmiş işdədir (V21).
+`ORDERING`, `MATCHING`, `SHORT_ANSWER` yarımçıq WIP commit-dədir (V21, `97d47a4`).
 
 **Vaxt rejimi.** `EXAM_TIMER` (bütün imtahana bir taymer) və `BLOCK_TIMERS` (blok üzrə). Blok taymeri, fasilə,
 sərbəst naviqasiyanın bağlanması və əvvəlki bloka qayıtma iştirakçı tərəfində hələ yoxdur (B12b). Ona görə
@@ -510,7 +510,7 @@ CANCELLED statusu var, amma heç bir endpoint onu qoymur.
 ### Nə hazırdır, nə yarımçıqdır
 
 - Hazır: bloklar, tarixçə, snapshot, klon, hazırlıq, qruplar, linklər, kod, cəhd limitləri, əl ilə yoxlama, analitika.
-- Yarımçıq: B12b (iştirakçı tərəfində blok qaydaları); yeni sual növləri (V21, commit edilməyib); bunların heç birinin
+- Yarımçıq: B12b (iştirakçı tərəfində blok qaydaları); yeni sual növləri (V21, yarımçıq WIP); bunların heç birinin
   frontend-i yoxdur (bölmə 13); sual bankı, regrade və vaxt uzatma yoxdur (AUDIT_GAP).
 
 ---
@@ -540,9 +540,9 @@ CANCELLED statusu var, amma heç bir endpoint onu qoymur.
 
 | Məlumat | Admin | Müəllim | İştirakçı |
 |---|---|---|---|
-| Tam email | İştirakçı siyahısında, nəticələrdə, yoxlamada | Nəticələrdə və yoxlamada öz imtahanlarının iştirakçıları üçün; qrup üzvlərində maskalı | Yalnız özününkü |
+| Tam email | İştirakçı siyahısında, nəticələrdə, yoxlamada | Nəticələrdə, yoxlamada və iştirakçı kartında öz qruplarının və imtahanlarının iştirakçıları üçün; qrup üzvləri siyahısında maskalı | Yalnız özününkü |
 | Ad, soyad, kod | Hamının | Öz qruplarının üzvləri; kodla əlavədə maskalı ad | Özününkü |
-| Profil (müəssisə, doğum tarixi və s.) | Kartda | Öz qrupunun üzvünün kartında (hadisələr olmadan) | Özününkü |
+| Profil (müəssisə, doğum tarixi və s.), telefon, kilid vəziyyəti | Kartda | Yox: kartdan serverdə çıxarılır (`ES/service/ParticipantCardService.java`); kartda yalnız öz qrupları, öz imtahanlarındakı cəhdlər, hadisəsiz | Özününkü |
 | Cavab açarı | Bəli | Öz imtahanları | Heç vaxt |
 | Fırıldaq hadisələri | Bəli | Öz imtahanları | Yox |
 | Audit | Hamısı | Yalnız öz hərəkətləri, email-lər əlavə maskalanır | Yox |
@@ -615,7 +615,7 @@ Hamısı `scripts\` qovluğundadır. Heç biri `docker compose down -v` işlətm
 | `regression\verify-b*.ps1` (14 skript) | Köhnə iş paketlərini canlı development stack-ində yoxlayır | Böyük dəyişiklikdən sonra, **ictimai rejim bağlı olanda** | Yüksək: test məlumatı yaradır və canlı sayt eyni bazanı işlədir. b11, b11b, b12a, b13 ictimai rejimdə işləməkdən imtina edir |
 
 Regression skriptləri: verify-b2, b3, b4, b5-join, b6-buckets, b6-parallel, b7, b8, b9, b10, b11, b11b, b12a, b13 və
-ortaq `_common.ps1`. `scripts/regression/README.md`-də `verify-b13.ps1` yoxdur.
+ortaq `_common.ps1`. `verify-b13.ps1` README-yə `6acab43` ilə əlavə olundu (`feat/b13-teacher-isolation`).
 
 ---
 
@@ -649,10 +649,13 @@ müvəqqəti PostgreSQL-ini (`postgres:16-alpine`) qaldırır; canlı bazaya tox
 | Filial | Vəziyyət | Son commit | Qeyd |
 |---|---|---|---|
 | `main` | | `45138df`, 2026-10-19 19:36 | B11b, B12a tətbiq olunub |
-| `feat/b13-teacher-isolation` | birləşməyib, `main`-dən 19 commit irəli | `94e2511`, 2026-10-20 00:45 | B13 |
-| `feat/avatar` | birləşməyib, B13-ün üstündə 1 commit | `cb19e65`, 2026-10-20 10:38 | profil şəkli, exam V20 |
-| `feat/question-types` | `feat/avatar` ilə eyni commit, üstündə 41 dəyişdirilmiş və 3 yeni fayl commit edilməyib | `cb19e65` | sual növləri, V21; B13-ün BACKLOG və PROJECT_RULES yeniləmələri də burada commit edilməmiş durur |
+| `feat/b13-teacher-isolation` | birləşməyib, `main`-dən 21 commit irəli | `6acab43`, 2026-10-21 | B13; son iki commit B13 sənədləri (`d9dd6d9`) və regression skriptləri (`6acab43`) |
+| `feat/avatar` | birləşməyib, `94e2511` üstündə 1 commit (B13-ün son iki commit-i onda yoxdur) | `cb19e65`, 2026-10-20 10:38 | profil şəkli, exam V20 |
+| `feat/question-types` | `feat/avatar` üstündə 1 WIP commit | `97d47a4`, 2026-10-21 | sual növləri, V21; testləri kompilyasiya olunmur; birləşdirilməməlidir |
 | `docs/project-map` | bu sənəd, `cb19e65` üstündə | | `feat/avatar`-dan sonra birləşdirilməlidir |
+
+Birləşmə sırası `main` ← `feat/b13-teacher-isolation` ← `feat/avatar` ← `docs/project-map` 2026-10-21-də
+`git merge-tree --write-tree` ilə sınandı: hər üç addım konfliktsizdir.
 | Qalan 39 filial | `main`-ə birləşib | | silinə bilər (sahibin qərarı) |
 
 - Uzaq repo: `origin` (GitHub). Push edilmir (sahibin qaydası).
@@ -664,13 +667,13 @@ müvəqqəti PostgreSQL-ini (`postgres:16-alpine`) qaldırır; canlı bazaya tox
 
 | Sənəd | Nə üçündür | Son dəyişiklik | Vəziyyət |
 |---|---|---|---|
-| [BACKLOG.md](BACKLOG.md) | Açıq işlər | 2026-10-19 | B13 sətirləri commit edilməyib; bir neçə bənd köhnəlib (aşağıda) |
-| [PROJECT_RULES.md](PROJECT_RULES.md) | Qaydalar | 2026-10-19 | B13 qaydaları commit edilməyib; bir qayda köhnəlib |
+| [BACKLOG.md](BACKLOG.md) | Açıq işlər | 2026-10-21 (`feat/b13-teacher-isolation`) | B13 sətirləri `d9dd6d9`-dadır; bir neçə bənd köhnəlib (aşağıda) |
+| [PROJECT_RULES.md](PROJECT_RULES.md) | Qaydalar | 2026-10-21 (`feat/b13-teacher-isolation`) | B13 qaydaları `d9dd6d9`-dadır; bir qayda köhnəlib |
 | [AUDIT_GAP.md](AUDIT_GAP.md) | Boşluq auditi | 2026-10-15 (`main` `47c9d60`, V1–V13) | Tarixi sənəd; bəzi "YOX"-lar artıq var |
 | [PUBLIC_TEMP.md](PUBLIC_TEMP.md) | İctimai rejim | | Aktualdır, bir ziddiyyət var |
 | `README.md` | Ümumi təsvir | 2026-10-15 | Endpoint və sxem bölmələri köhnədir |
 | `START.md`, `PERFORMANCE.md`, `AUTH_SERVICE_IMPLEMENTATION_REPORT.md` | Köhnə təlimat və hesabatlar | 2026-03 – 2026-10-12 | Tarixidir |
-| `scripts/regression/README.md` | Regression skriptləri | | `verify-b13.ps1` yoxdur |
+| `scripts/regression/README.md` | Regression skriptləri | 2026-10-21 (`6acab43`) | `verify-b13.ps1` sətri əlavə olunub |
 | `AUDIT_REPORT.md` (kök qovluq) | Köhnə audit | – | Git-də yoxdur: yalnız bu kompüterin `.git/info/exclude` faylı ilə gizlədilib; PROJECT_RULES ona toxunmamağı deyir |
 | `exam-system/` (kök qovluqda) | Layihənin köhnə nüsxəsi, git-də izlənir | – | PROJECT_RULES-a görə dəyişdirilmir |
 
@@ -690,10 +693,10 @@ müvəqqəti PostgreSQL-ini (`postgres:16-alpine`) qaldırır; canlı bazaya tox
 8. **BACKLOG "Exam" sətir 21:** iki bənd bir sətirə yapışıb ("No change email flow" və "Submit response ignores...").
    Bölmələr arasında 13 bənd təkrarlanır ("Exam" və "Auth").
 9. **PROJECT_RULES (commit olunmuş):** "403 is only for an exam the caller can see but may not manage". B13-dən sonra
-   bu da 404-dür; düzəliş commit edilməmiş işdədir.
+   bu da 404-dür; düzəliş `d9dd6d9`-dadır (`main`-ə birləşəndə həll olunur).
 10. **PROJECT_RULES "Temporary public mode":** "Postgres 127.0.0.1:5432 only" yazır; `docker-compose.public.yml`
     Postgres-i ümumiyyətlə açmır (`ports: !reset []`).
-11. **B13 commit mesajı və commit edilməmiş BACKLOG:** auth-service üçün "31 endpoint". Real rəqəm 29-dur.
+11. **B13 commit mesajı:** auth-service üçün "31 endpoint". Real rəqəm 29-dur (BACKLOG-da `d9dd6d9` ilə düzəldildi).
 12. **README:** endpoint-lər `/api/v1/auth`, `/api/v1/exams` kimi göstərilir, qeydiyyat nümunəsində `username` və
     `role` var. Real yollar `/auth/*`, `/api/exams/*`; qeydiyyat rol qəbul etmir. Sxem diaqramı köhnədir (BACKLOG da qeyd edir).
 13. **PUBLIC_TEMP "Sayt düşəndə":** tapşırığı `-Once` olmadan, girişdə bir dəfə qurmağı təklif edir. Real tapşırıq
@@ -843,19 +846,19 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 | Flyway: exam_auth V8 | hazır, canlıda | 2026-10-19 |
 | Flyway: exam_db V19 | hazır, canlıda | 2026-10-19 |
 | exam V20 (avatar) | yarımçıq (filial birləşməyib, canlıda yoxdur) | 2026-10-20 |
-| exam V21 (sual növləri) | yarımçıq (commit edilməyib) | – |
+| exam V21 (sual növləri) | yarımçıq (WIP commit `97d47a4`) | 2026-10-21 |
 | Qeydiyyat, OTP, giriş, parol bərpası | hazır | 2026-10-12 |
 | Profil, iştirakçı kodu, iştirakçı kartı (B9–B11b) | hazır | 2026-10-19 |
 | İmtahan, bloklar, tarixçə, snapshot, klon, hazırlıq (B12a) | hazır (backend) | 2026-10-19 |
 | İştirakçı tərəfində blok qaydaları (B12b) | planlaşıb | – |
-| Müəllim izolyasiyası, müəllim hesabları, limitlər (B13) | hazır, `main`-də deyil | 2026-10-20 |
+| Müəllim izolyasiyası, müəllim hesabları, limitlər (B13) | hazır, `main`-də deyil; sənədləri commit olunub | 2026-10-21 |
 | Profil şəkli | hazır, `main`-də deyil | 2026-10-20 |
-| Yeni sual növləri | yarımçıq | – |
+| Yeni sual növləri | yarımçıq (testlər kompilyasiya olunmur) | 2026-10-21 |
 | Endpoint reyestri və testləri | hazır | 2026-10-20 |
 | Avtomatik testlər (224) | hazır | 2026-10-21 (işlədildi) |
-| Regression skriptləri | hazır, b13 README-də yoxdur | 2026-10-20 |
+| Regression skriptləri | hazır, B13-ə uyğunlaşdırılıb, B13-dən sonra işlədilməyib | 2026-10-21 |
 | Backup və bərpa testi | yarımçıq (eyni disk, gecə tapşırığı yoxdur) | 2026-10-21 (son backup) |
-| Test məlumatının təmizlənməsi | yarımçıq (canlıda qalıb) | – |
+| Test məlumatının təmizlənməsi | yarımçıq (quru qaçış edildi, `-Execute` sahibin əli ilə gözləyir) | 2026-10-21 |
 | Gizlilik siyasəti, saxlama müddəti | planlaşıb | – |
 | Frontend: B12a və B13 imkanları | planlaşıb (F6–F9) | – |
 | Bu xəritə və qaydası | hazır | 2026-10-21 |
@@ -864,8 +867,10 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 
 ## 15. Açıq məsələlər və risklər (ən vacibdən başlayaraq)
 
-1. İctimai saytda görünən 16 aktiv PUBLIC imtahanın hamısı `T-` testidir, 996 test hesabı canlı bazadadır.
-   `scripts\cleanup-test-data.ps1` əvvəl quru qaçışla, sonra `-Execute` ilə (sahibin qərarı).
+1. İctimai saytda görünən 16 aktiv PUBLIC imtahanın hamısı `T-` testidir, 996 test hesabı canlı bazadadır. Real
+   iştirakçılar bunları artıq verib: 2026-10-20-də iki real hesab (kodlar 7672474 və 6672457) `T-b12a` imtahanlarında
+   3 cəhd edib. Quru qaçış (2026-10-21 17:47): 996 hesab, 153 imtahan, 53 qrup silinəcək; 76 hesab, 56 imtahan, 29 qrup
+   qalacaq, #363 və #364 də qalır. `-Execute` canlı bazada təsdiq sözünü yalnız əl ilə qəbul edir (sahibin işi).
 2. Canlı sayt və development eyni bazadır; regression skriptləri canlıya yazır. Staging bazası və ya ikinci stack lazımdır.
 3. Backup yalnız eyni diskdədir, gecə tapşırığı yoxdur; kompüter xarab olsa hər şey itir.
 4. Canlı sayt birləşməmiş B13 kodu ilə işləyir; `main` geri qalıb. `feat/b13-teacher-isolation` və `feat/avatar`
@@ -873,12 +878,13 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 5. Frontend müəllimi dəstəkləmir: müvəqqəti parolla daxil olan müəllim ilişib qalır (kod üzrə; brauzerdə
    yoxlanılmadı), PUBLIC default 403 verir, qrup ekranı yoxdur. Admin müəllim yarada bilmir (UI yoxdur).
 6. Nəzarətçi söndürülüb; sayt düşəndə özü qalxmır, ünvan dəyişəndə iştirakçılar xəbər tutmur.
-7. B13 sənəd yeniləmələri (BACKLOG, PROJECT_RULES) commit edilməyib, `feat/question-types` işçi qovluğunda yarımçıq kodla
-   qarışıq durur.
+7. Müəllim iştirakçı kartında üzvün tam email-ini görür, qrup üzvləri siyahısında isə email maskalıdır. Bir qayda
+   seçilməlidir (BACKLOG-dakı açıq gizlilik qərarı).
 8. Gizlilik siyasəti, istifadə şərtləri və məlumat saxlama müddəti yoxdur.
 9. Stabil domen və server yoxdur; production compose yarımçıqdır.
 10. Development portları və parolsuz Redis LAN-a açıqdır.
-11. B13-dən əvvəl müəllimlərin PUBLIC etdiyi 20 imtahan və müvəqqəti parolsuz 17 köhnə müəllim hesabı (qərar lazımdır).
+11. B13-dən əvvəl müəllimlərin PUBLIC etdiyi 20 aktiv imtahan (14 COMPLETED, 4 ARCHIVED, 2 DRAFT; üstəlik yumşaq
+    silinmiş #6) və müvəqqəti parolsuz 17 köhnə müəllim hesabı (qərar lazımdır).
 12. Gateway-də ölü marşrutlar, iki boş servis, istifadə olunmayan iki token cədvəli, `MODERATOR` rolu.
 
 ---
@@ -908,6 +914,7 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 
 | Tarix (Bakı) | Filial | Nə dəyişdi | Hissələr |
 |---|---|---|---|
+| 2026-10-21 17:53 | `feat/b13-teacher-isolation`, `feat/question-types`, `docs/project-map` | B13 sənədləri (`d9dd6d9`, 31→29 düzəlişi ilə) və B13-ə uyğunlaşdırılmış regression skriptləri, README-də verify-b13 (`6acab43`) b13 filialına köçürüldü; sual növləri WIP commit oldu (`97d47a4`), işçi qovluq təmizdir; b13 ucunda 215 test keçdi; birləşmə sırası konfliktsiz sınandı; test məlumatının quru qaçışı, #363/#364, müəllimlərin PUBLIC imtahanları, kartın gizliliyi | 0, 2, 3, 4, 5, 6, 8, 10, 11, 14, 15 |
 | 2026-10-21 16:08 | `docs/project-map` | İlk analiz: backend başdan sona (`cb19e65`), canlı baza yalnız oxundu, 224 test işlədildi, frontend boşluq analizi; PROJECT_MAP.md, PROJECT_RULES-a xəritə qaydası, `scripts\check-project-map.ps1` | hamısı (0–18) |
 
 ---
