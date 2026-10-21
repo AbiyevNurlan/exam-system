@@ -79,7 +79,7 @@ public record ExamState(Long id, UUID createdBy, String title, String descriptio
                                 List<MediaRef> media, List<OptionState> options) {
     }
 
-    public record OptionState(Long id, int orderIndex, String optionText, boolean correct, List<MediaRef> media) {
+    public record OptionState(Long id, int orderIndex, String optionText, String matchText, boolean correct, List<MediaRef> media) {
     }
 
     /**

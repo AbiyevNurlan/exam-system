@@ -315,7 +315,9 @@ public class ExamMapper {
      * so those options are not sent at all.
      */
     public List<OptionResponse> participantOptions(QuestionType type, List<OptionResponse> options) {
-        if (options == null || isTextQuestion(type)) {
+        // ORDERING and MATCHING: their options are the answer (the order, the pairs); only a session gets them, in a
+        // form that does not tell it (ExamService.prepareQuestionsForSession)
+        if (options == null || isTextQuestion(type) || type == QuestionType.ORDERING || type == QuestionType.MATCHING) {
             return null;
         }
         return options.stream()
@@ -329,7 +331,7 @@ public class ExamMapper {
     }
 
     public boolean isTextQuestion(QuestionType type) {
-        return type == QuestionType.FILL_BLANK || type == QuestionType.OPEN_ENDED;
+        return type == QuestionType.FILL_BLANK || type == QuestionType.OPEN_ENDED || type == QuestionType.SHORT_ANSWER;
     }
 
     /**
@@ -340,6 +342,7 @@ public class ExamMapper {
                 .id(option.getId())
                 .questionId(option.getQuestionId())
                 .optionText(option.getOptionText())
+                .matchText(option.getMatchText())
                 .orderIndex(option.getOrderIndex())
                 .isCorrect(option.getIsCorrect())
                 .build();

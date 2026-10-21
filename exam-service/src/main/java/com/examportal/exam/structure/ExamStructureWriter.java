@@ -3,6 +3,7 @@ package com.examportal.exam.structure;
 import com.examportal.common.domain.dto.OptionDTO;
 import com.examportal.common.domain.dto.QuestionDTO;
 import com.examportal.common.domain.dto.media.QuestionMediaRef;
+import com.examportal.common.domain.entity.QuestionType;
 import com.examportal.exam.exception.MediaException;
 import com.examportal.exam.repository.MediaLinkRepository;
 import com.examportal.exam.structure.ExamState.BlockState;
@@ -154,7 +155,7 @@ public class ExamStructureWriter {
                 .map(row -> row.get("id", Long.class))
                 .one()
                 .flatMap(id -> attachQuestionMedia(id, question)
-                        .then(writeOptions(id, List.of(), question.getOptions())));
+                        .then(writeOptions(id, question.getQuestionType(), List.of(), question.getOptions())));
     }
 
     private Mono<Void> updateQuestion(Long examId, Long blockId, int orderIndex, QuestionState stored, QuestionDTO question) {
@@ -176,7 +177,7 @@ public class ExamStructureWriter {
         Mono<Void> media = sameMedia(stored.media(), requestedMedia(question)) ? Mono.empty()
                 : databaseClient.sql("DELETE FROM question_media WHERE question_id = :id").bind("id", stored.id()).then()
                         .then(attachQuestionMedia(stored.id(), question));
-        return row.then(media).then(writeOptions(stored.id(), stored.options(), question.getOptions()));
+        return row.then(media).then(writeOptions(stored.id(), question.getQuestionType(), stored.options(), question.getOptions()));
     }
 
     private DatabaseClient.GenericExecuteSpec bindQuestion(DatabaseClient.GenericExecuteSpec spec, Long examId, Long blockId,
@@ -203,7 +204,10 @@ public class ExamStructureWriter {
 
     // ==================== Options ====================
 
-    private Mono<Void> writeOptions(Long questionId, List<OptionState> stored, List<OptionDTO> requested) {
+    private Mono<Void> writeOptions(Long questionId, QuestionType type, List<OptionState> stored, List<OptionDTO> requested) {
+        // Every item of ORDERING and every pair of MATCHING is part of the answer key, and so is every accepted
+        // answer of SHORT_ANSWER; the right side of a pair exists only for MATCHING
+        boolean allCorrect = type == QuestionType.ORDERING || type == QuestionType.MATCHING || type == QuestionType.SHORT_ANSWER;
         Map<Long, OptionState> byId = new HashMap<>();
         stored.forEach(option -> byId.put(option.id(), option));
         List<OptionDTO> options = requested == null ? List.of() : requested;
@@ -214,12 +218,16 @@ public class ExamStructureWriter {
                     OptionDTO option = entry.value();
                     int orderIndex = entry.index();
                     option.setOrderIndex(orderIndex);
+                    if (allCorrect) {
+                        option.setIsCorrect(true);
+                    }
+                    String matchText = type == QuestionType.MATCHING ? blankToNull(option.getMatchText()) : null;
                     OptionState existing = option.getId() != null && !kept.contains(option.getId()) ? byId.get(option.getId()) : null;
                     if (existing == null) {
-                        return databaseClient.sql("""
-                                        INSERT INTO question_options (question_id, option_text, is_correct, order_index)
-                                        VALUES (:questionId, :text, :correct, :orderIndex) RETURNING id
-                                        """)
+                        return bindMatch(databaseClient.sql("""
+                                        INSERT INTO question_options (question_id, option_text, match_text, is_correct, order_index)
+                                        VALUES (:questionId, :text, :match, :correct, :orderIndex) RETURNING id
+                                        """), matchText)
                                 .bind("questionId", questionId)
                                 .bind("text", option.getOptionText())
                                 .bind("correct", Boolean.TRUE.equals(option.getIsCorrect()))
@@ -231,12 +239,13 @@ public class ExamStructureWriter {
                     kept.add(existing.id());
                     boolean same = existing.orderIndex() == orderIndex
                             && Objects.equals(existing.optionText(), option.getOptionText())
+                            && Objects.equals(existing.matchText(), matchText)
                             && existing.correct() == Boolean.TRUE.equals(option.getIsCorrect());
-                    Mono<Void> row = same ? Mono.empty() : databaseClient.sql("""
-                                    UPDATE question_options SET option_text = :text, is_correct = :correct,
+                    Mono<Void> row = same ? Mono.empty() : bindMatch(databaseClient.sql("""
+                                    UPDATE question_options SET option_text = :text, match_text = :match, is_correct = :correct,
                                            order_index = :orderIndex, updated_at = CURRENT_TIMESTAMP
                                     WHERE id = :id AND question_id = :questionId
-                                    """)
+                                    """), matchText)
                             .bind("id", existing.id())
                             .bind("questionId", questionId)
                             .bind("text", option.getOptionText())
@@ -257,6 +266,14 @@ public class ExamStructureWriter {
                     : databaseClient.sql("DELETE FROM question_options WHERE question_id = :questionId AND id = ANY(:ids)")
                             .bind("questionId", questionId).bind("ids", gone.toArray(new Long[0])).then();
         }));
+    }
+
+    private static DatabaseClient.GenericExecuteSpec bindMatch(DatabaseClient.GenericExecuteSpec spec, String matchText) {
+        return matchText != null ? spec.bind("match", matchText) : spec.bindNull("match", String.class);
+    }
+
+    private static String blankToNull(String text) {
+        return text == null || text.isBlank() ? null : text;
     }
 
     private Mono<Void> attachOptionMedia(Long optionId, List<java.util.UUID> mediaIds) {

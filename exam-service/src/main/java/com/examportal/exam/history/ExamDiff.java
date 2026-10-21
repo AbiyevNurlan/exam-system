@@ -474,7 +474,8 @@ public final class ExamDiff {
         List<String> correct = new ArrayList<>();
         for (int i = 0; i < options.size(); i++) {
             if (options.get(i).correct()) {
-                correct.add(ExamSnapshots.label(i) + "|" + options.get(i).optionText());
+                correct.add(ExamSnapshots.label(i) + "|" + options.get(i).optionText()
+                        + (options.get(i).matchText() != null ? "|" + options.get(i).matchText() : ""));
             }
         }
         return correct;
@@ -487,6 +488,9 @@ public final class ExamDiff {
                 Map<String, Object> option = new LinkedHashMap<>();
                 option.put("label", ExamSnapshots.label(i));
                 option.put("text", cut(options.get(i).optionText()));
+                if (options.get(i).matchText() != null) {
+                    option.put("matchText", cut(options.get(i).matchText()));
+                }
                 correct.add(option);
             }
         }

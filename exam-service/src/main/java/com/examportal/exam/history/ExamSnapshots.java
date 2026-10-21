@@ -144,6 +144,10 @@ public final class ExamSnapshots {
             map.put("id", option.id());
             map.put("label", label(i));
             map.put("text", option.optionText());
+            // MATCHING only: older versions (and every other type) keep exactly the keys they were hashed with
+            if (option.matchText() != null) {
+                map.put("matchText", option.matchText());
+            }
             map.put("correct", option.correct());
             map.put("mediaIds", option.media().stream().map(ref -> ref.mediaId().toString()).toList());
             list.add(map);

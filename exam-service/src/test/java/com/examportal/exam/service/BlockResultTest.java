@@ -61,7 +61,7 @@ class BlockResultTest {
                         .password(stack.postgres.getPassword()).build())));
         UserAnswerRepository userAnswers = repositories.getRepository(UserAnswerRepository.class);
         answers = new AnswerSubmissionService(stack.exams, stack.questions, stack.options, stack.sessions,
-                userAnswers, stack.cache, stack.accessPolicy, stack.tx, blockResults);
+                userAnswers, stack.cache, stack.accessPolicy, stack.tx, blockResults, new AnswerTokens("test-secret"));
         ParticipantDirectory directory = mock(ParticipantDirectory.class);
         when(directory.names(any())).thenReturn(Mono.just(Map.of()));
         results = new ExamResultsService(new ExamResultsRepository(stack.db), stack.sessions, stack.questions, stack.options,

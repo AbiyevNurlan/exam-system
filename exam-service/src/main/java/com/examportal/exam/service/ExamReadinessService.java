@@ -143,6 +143,19 @@ public class ExamReadinessService {
             if (options.stream().noneMatch(option -> option.optionText() != null && !option.optionText().isBlank())) {
                 code = "FILL_BLANK_INCOMPLETE";
             }
+        } else if (question.questionType() == QuestionType.SHORT_ANSWER) {
+            if (options.stream().noneMatch(option -> option.optionText() != null && !option.optionText().isBlank())) {
+                code = "SHORT_ANSWER_INCOMPLETE";
+            }
+        } else if (question.questionType() == QuestionType.ORDERING) {
+            if (options.size() < 2 || options.size() > 10 || options.stream().anyMatch(option -> option.optionText() == null || option.optionText().isBlank())) {
+                code = "ORDERING_INCOMPLETE";
+            }
+        } else if (question.questionType() == QuestionType.MATCHING) {
+            if (options.size() < 2 || options.size() > 10 || options.stream().anyMatch(option -> option.optionText() == null || option.optionText().isBlank()
+                    || option.matchText() == null || option.matchText().isBlank())) {
+                code = "MATCHING_INCOMPLETE";
+            }
         }
         if (code != null) {
             blocking.add(item(code, block.id(), blockNumber, question.id(), number, null));

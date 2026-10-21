@@ -58,6 +58,8 @@ public class AnswerSubmissionService {
     private final TransactionalOperator transactionalOperator;
     // B12a: results per block
     private final BlockResultRepository blockResults;
+    // ORDERING and MATCHING: the ids of this session the participant answers with
+    private final AnswerTokens answerTokens;
 
     private static final int MAX_PAGE_SIZE = 50;
 
@@ -144,17 +146,63 @@ public class AnswerSubmissionService {
      * The stored answers of a session whose owner the caller has already checked
      */
     public Mono<List<SavedAnswerResponse>> savedAnswers(ExamSession session) {
-        return answerRepository.findBySessionId(session.getId())
-                .map(answer -> SavedAnswerResponse.builder()
-                        .questionId(answer.getQuestionId())
-                        .selectedOptionIds(answer.getSelectedOptionIds() != null
-                                ? Arrays.asList(answer.getSelectedOptionIds())
-                                : List.of())
-                        .textAnswer(answer.getTextAnswer())
-                        .answeredAt(answer.getAnsweredAt())
-                        .build())
-                .sort(Comparator.comparing(SavedAnswerResponse::getQuestionId))
-                .collectList();
+        return Mono.zip(answerRepository.findBySessionId(session.getId()).collectList(),
+                        questionRepository.findActiveByExamIdOrderByOrderIndex(session.getExamId())
+                                .filter(this::answeredWithTokens)
+                                .collectMap(Question::getId, Question::getQuestionType))
+                .flatMap(loaded -> {
+                    List<UserAnswer> answers = loaded.getT1();
+                    Map<Long, QuestionType> tokenTypes = loaded.getT2();
+                    List<Long> tokenQuestions = answers.stream().map(UserAnswer::getQuestionId)
+                            .filter(tokenTypes::containsKey).toList();
+                    Mono<Map<Long, java.util.Collection<QuestionOption>>> options = tokenQuestions.isEmpty()
+                            ? Mono.just(Map.of())
+                            : optionRepository.findByQuestionIdIn(tokenQuestions).collectMultimap(QuestionOption::getQuestionId);
+                    return options.map(byQuestion -> answers.stream()
+                            .map(answer -> savedAnswer(session.getSessionId(), answer, tokenTypes.get(answer.getQuestionId()),
+                                    byQuestion.getOrDefault(answer.getQuestionId(), List.of())))
+                            .sorted(Comparator.comparing(SavedAnswerResponse::getQuestionId))
+                            .toList());
+                });
+    }
+
+    /**
+     * One stored answer as the participant gave it: ORDERING with the ids of this session in the participant's order,
+     * MATCHING as pairs of a left option and the id of this session of its right side
+     */
+    private SavedAnswerResponse savedAnswer(String sessionId, UserAnswer answer, QuestionType tokenType,
+                                            java.util.Collection<QuestionOption> options) {
+        List<Long> stored = answer.getSelectedOptionIds() != null ? Arrays.asList(answer.getSelectedOptionIds()) : List.of();
+        SavedAnswerResponse.SavedAnswerResponseBuilder saved = SavedAnswerResponse.builder()
+                .questionId(answer.getQuestionId())
+                .textAnswer(answer.getTextAnswer())
+                .answeredAt(answer.getAnsweredAt());
+        if (tokenType == QuestionType.ORDERING) {
+            return saved.selectedOptionIds(stored.stream().map(id -> answerTokens.token(sessionId, id)).toList()).build();
+        }
+        if (tokenType == QuestionType.MATCHING) {
+            List<QuestionOption> left = inOrder(options);
+            List<SubmitAnswerRequest.Match> matches = new ArrayList<>();
+            for (int i = 0; i < Math.min(left.size(), stored.size()); i++) {
+                Long right = stored.get(i);
+                if (right != null && right != 0) {
+                    matches.add(new SubmitAnswerRequest.Match(left.get(i).getId(), answerTokens.token(sessionId, right)));
+                }
+            }
+            return saved.selectedOptionIds(List.of()).matches(matches).build();
+        }
+        return saved.selectedOptionIds(stored).build();
+    }
+
+    private boolean answeredWithTokens(Question question) {
+        return question.getQuestionType() == QuestionType.ORDERING || question.getQuestionType() == QuestionType.MATCHING;
+    }
+
+    private static List<QuestionOption> inOrder(java.util.Collection<QuestionOption> options) {
+        return options.stream()
+                .sorted(Comparator.comparing(QuestionOption::getOrderIndex, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(QuestionOption::getId))
+                .toList();
     }
 
     /**
@@ -327,6 +375,11 @@ public class AnswerSubmissionService {
                         String text = request.getTextAnswer() != null ? request.getTextAnswer().trim() : null;
                         return answerRepository.upsertAnswer(session.getId(), questionId, null, text, now);
                     }
+                    if (answeredWithTokens(question)) {
+                        return optionRepository.findByQuestionId(questionId).collectList()
+                                .flatMap(options -> tokenAnswer(session, question, request, options))
+                                .flatMap(stored -> answerRepository.upsertAnswer(session.getId(), questionId, stored, null, now));
+                    }
 
                     List<Long> optionIds = requestedOptionIds(request);
                     if (optionIds.isEmpty()) {
@@ -381,7 +434,56 @@ public class AnswerSubmissionService {
 
     private boolean isTextQuestion(Question question) {
         return question.getQuestionType() == QuestionType.FILL_BLANK
-                || question.getQuestionType() == QuestionType.OPEN_ENDED;
+                || question.getQuestionType() == QuestionType.OPEN_ENDED
+                || question.getQuestionType() == QuestionType.SHORT_ANSWER;
+    }
+
+    /**
+     * What is stored for ORDERING (every item exactly once, real ids in the participant's order) and MATCHING (for each
+     * left option in its order the real id of the chosen right side, 0 = none; a right side at most once)
+     */
+    private Mono<Long[]> tokenAnswer(ExamSession session, Question question, SubmitAnswerRequest request,
+                                     List<QuestionOption> options) {
+        Map<Long, Long> byToken = answerTokens.resolver(session.getSessionId(), options.stream().map(QuestionOption::getId).toList());
+        if (question.getQuestionType() == QuestionType.ORDERING) {
+            List<Long> tokens = request.getSelectedOptionIds() == null ? List.of() : request.getSelectedOptionIds();
+            if (tokens.isEmpty()) {
+                return Mono.error(ExamException.selectionRequired());
+            }
+            List<Long> ids = new ArrayList<>();
+            for (Long token : tokens) {
+                Long id = token == null ? null : byToken.get(token);
+                if (id == null) {
+                    return Mono.error(ExamException.invalidOption());
+                }
+                ids.add(id);
+            }
+            if (ids.size() != options.size() || new HashSet<>(ids).size() != ids.size()) {
+                return Mono.error(ExamException.orderIncomplete());
+            }
+            return Mono.just(ids.toArray(new Long[0]));
+        }
+        List<SubmitAnswerRequest.Match> matches = request.getMatches() == null ? List.of() : request.getMatches();
+        if (matches.isEmpty()) {
+            return Mono.error(ExamException.selectionRequired());
+        }
+        List<QuestionOption> left = inOrder(options);
+        Map<Long, Integer> position = new java.util.HashMap<>();
+        for (int i = 0; i < left.size(); i++) {
+            position.put(left.get(i).getId(), i);
+        }
+        Long[] stored = new Long[left.size()];
+        Arrays.fill(stored, 0L);
+        Set<Long> usedRights = new HashSet<>();
+        for (SubmitAnswerRequest.Match match : matches) {
+            Integer at = match == null || match.getOptionId() == null ? null : position.get(match.getOptionId());
+            Long right = match == null || match.getMatchId() == null ? null : byToken.get(match.getMatchId());
+            if (at == null || right == null || stored[at] != 0 || !usedRights.add(right)) {
+                return Mono.error(ExamException.invalidOption());
+            }
+            stored[at] = right;
+        }
+        return Mono.just(stored);
     }
 
     private boolean allowsMultipleAnswers(Question question) {
@@ -553,6 +655,13 @@ public class AnswerSubmissionService {
         if (correctOptions.isEmpty()) {
             // No answer key: nothing to compare against
             return false;
+        }
+
+        if (answeredWithTokens(question)) {
+            // ORDERING: the items in their stored order; MATCHING: every left side with its own right side
+            Long[] selected = answer.getSelectedOptionIds();
+            List<Long> expected = inOrder(correctOptions).stream().map(QuestionOption::getId).toList();
+            return selected != null && Arrays.asList(selected).equals(expected);
         }
 
         if (isTextQuestion(question)) {

@@ -32,6 +32,10 @@ public class QuestionOption {
     @Column("option_text")
     private String optionText;
 
+    // MATCHING: the right side of the pair (exam V21); null for every other type
+    @Column("match_text")
+    private String matchText;
+
     @Column("is_correct")
     private Boolean isCorrect;
 

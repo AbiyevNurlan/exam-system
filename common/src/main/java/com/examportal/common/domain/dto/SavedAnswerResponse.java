@@ -26,8 +26,11 @@ public class SavedAnswerResponse {
     // Chosen options; empty for a text answer
     private List<Long> selectedOptionIds;
 
-    // Only for FILL_BLANK and OPEN_ENDED
+    // Only for FILL_BLANK, SHORT_ANSWER and OPEN_ENDED
     private String textAnswer;
+
+    // MATCHING: the stored pairs, with the ids of this session's matchOptions
+    private List<SubmitAnswerRequest.Match> matches;
 
     private LocalDateTime answeredAt;
 }

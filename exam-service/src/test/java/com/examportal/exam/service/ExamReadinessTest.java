@@ -61,7 +61,7 @@ class ExamReadinessTest {
     }
 
     private static OptionState option(String text, boolean correct, String mediaStatus) {
-        return new OptionState(1L, 0, text, correct, mediaStatus == null ? List.of()
+        return new OptionState(1L, 0, text, null, correct, mediaStatus == null ? List.of()
                 : List.of(new MediaRef(UUID.randomUUID(), 0, null, mediaStatus)));
     }
 

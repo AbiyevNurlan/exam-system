@@ -540,6 +540,7 @@ public class ExamResultsService {
                             .map(option -> SessionReviewResponse.OptionReview.builder()
                                     .id(option.getId())
                                     .optionText(option.getOptionText())
+                                    .matchText(option.getMatchText())
                                     .orderIndex(option.getOrderIndex())
                                     .correct(Boolean.TRUE.equals(option.getIsCorrect()))
                                     .selected(selected.contains(option.getId()))

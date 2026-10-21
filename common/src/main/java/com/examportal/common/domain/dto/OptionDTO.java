@@ -28,6 +28,10 @@ public class OptionDTO {
     @Size(max = 1000, message = "Option text cannot exceed 1000 characters")
     private String optionText;
 
+    // MATCHING: the right side of the pair
+    @Size(max = 1000, message = "Match text cannot exceed 1000 characters")
+    private String matchText;
+
     @Builder.Default
     private Boolean isCorrect = false;
 

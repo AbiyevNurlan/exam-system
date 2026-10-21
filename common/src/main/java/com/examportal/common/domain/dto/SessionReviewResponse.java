@@ -107,6 +107,8 @@ public class SessionReviewResponse {
     public static class OptionReview {
         private Long id;
         private String optionText;
+        // MATCHING: the right side of the pair; ORDERING: orderIndex is the right position
+        private String matchText;
         private Integer orderIndex;
         private boolean correct;
         private boolean selected;

@@ -49,7 +49,7 @@ public class ExamStateRepository {
                                boolean multiple, boolean required, String explanation) {
     }
 
-    private record OptionRow(Long id, Long questionId, int orderIndex, String text, boolean correct) {
+    private record OptionRow(Long id, Long questionId, int orderIndex, String text, String matchText, boolean correct) {
     }
 
     private record LinkRow(String target, Long targetId, UUID mediaId, int position, Integer maxPlays, String status) {
@@ -108,13 +108,14 @@ public class ExamStateRepository {
                 .all().collectList();
 
         Mono<List<OptionRow>> options = databaseClient.sql("""
-                        SELECT o.id, o.question_id, o.order_index, o.option_text, o.is_correct
+                        SELECT o.id, o.question_id, o.order_index, o.option_text, o.match_text, o.is_correct
                         FROM question_options o JOIN questions q ON q.id = o.question_id
                         WHERE q.exam_id = :examId AND q.active = true ORDER BY o.question_id, o.order_index, o.id
                         """)
                 .bind("examId", examId)
                 .map(row -> new OptionRow(row.get("id", Long.class), row.get("question_id", Long.class),
-                        number(row, "order_index"), row.get("option_text", String.class), flag(row, "is_correct")))
+                        number(row, "order_index"), row.get("option_text", String.class), row.get("match_text", String.class),
+                        flag(row, "is_correct")))
                 .all().collectList();
 
         // Every link, whatever the status of its media: a link to a media that is no longer ACTIVE is
@@ -161,7 +162,7 @@ public class ExamStateRepository {
         Map<Long, List<OptionState>> optionsByQuestion = new HashMap<>();
         for (OptionRow option : options) {
             optionsByQuestion.computeIfAbsent(option.questionId(), id -> new ArrayList<>())
-                    .add(new OptionState(option.id(), option.orderIndex(), option.text(), option.correct(),
+                    .add(new OptionState(option.id(), option.orderIndex(), option.text(), option.matchText(), option.correct(),
                             List.copyOf(optionMedia.getOrDefault(option.id(), List.of()))));
         }
         Map<Long, List<QuestionState>> questionsByBlock = new HashMap<>();

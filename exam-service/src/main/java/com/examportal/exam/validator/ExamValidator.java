@@ -157,7 +157,9 @@ public class ExamValidator {
         switch (question.getQuestionType()) {
             case MULTIPLE_CHOICE -> validateMultipleChoiceQuestion(question, questionNumber);
             case TRUE_FALSE -> validateTrueFalseQuestion(question, questionNumber);
-            case FILL_BLANK, OPEN_ENDED -> {
+            case ORDERING -> validateItems(question, questionNumber, false);
+            case MATCHING -> validateItems(question, questionNumber, true);
+            case FILL_BLANK, OPEN_ENDED, SHORT_ANSWER -> {
                 // These types may not require options
             }
         }
@@ -190,6 +192,26 @@ public class ExamValidator {
             OptionDTO option = options.get(i);
             if (option.getOptionText() == null || option.getOptionText().isBlank()) {
                 throw new ValidationException("Question " + questionNumber + ", Option " + (i + 1) + ": Option text is required");
+            }
+        }
+    }
+
+    /**
+     * ORDERING: 2..10 items, each with a text (their order is the answer). MATCHING: 2..10 pairs, each with both sides.
+     */
+    private void validateItems(QuestionDTO question, int questionNumber, boolean pairs) {
+        List<OptionDTO> options = question.getOptions();
+        String what = pairs ? "pairs" : "items";
+        if (options == null || options.size() < 2 || options.size() > 10) {
+            throw new ValidationException("Question " + questionNumber + ": " + (pairs ? "Matching" : "Ordering")
+                    + " questions must have 2 to 10 " + what);
+        }
+        for (int i = 0; i < options.size(); i++) {
+            OptionDTO option = options.get(i);
+            if (option.getOptionText() == null || option.getOptionText().isBlank()
+                    || (pairs && (option.getMatchText() == null || option.getMatchText().isBlank()))) {
+                throw new ValidationException("Question " + questionNumber + ", " + (pairs ? "Pair " : "Item ") + (i + 1)
+                        + ": " + (pairs ? "Both sides are required" : "Item text is required"));
             }
         }
     }

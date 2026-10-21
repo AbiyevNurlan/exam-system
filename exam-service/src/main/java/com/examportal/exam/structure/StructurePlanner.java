@@ -115,6 +115,7 @@ public class StructurePlanner {
         for (OptionState option : question.options()) {
             options.add(OptionDTO.builder()
                     .optionText(option.optionText())
+                    .matchText(option.matchText())
                     .isCorrect(option.correct())
                     .orderIndex(option.orderIndex())
                     .mediaIds(option.media().stream().filter(ref -> "ACTIVE".equals(ref.status()))

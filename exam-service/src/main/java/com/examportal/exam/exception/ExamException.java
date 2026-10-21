@@ -196,6 +196,10 @@ public class ExamException extends ApplicationException {
         return new ExamException("This question accepts exactly one option", HttpStatus.BAD_REQUEST, "ANSWER_SINGLE_SELECTION_ONLY");
     }
 
+    public static ExamException orderIncomplete() {
+        return new ExamException("Every item must be placed exactly once", HttpStatus.BAD_REQUEST, "ANSWER_ORDER_INCOMPLETE");
+    }
+
     public static ExamException invalidOption() {
         return new ExamException("Selected option does not belong to this question", HttpStatus.BAD_REQUEST, "ANSWER_INVALID_OPTION");
     }
