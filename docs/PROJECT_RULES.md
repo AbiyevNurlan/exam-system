@@ -149,7 +149,10 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
   its active audience groups. Every endpoint that touches an exam asks the policy; lists filter in
   SQL with the policy's condition (`ExamRepository.ACCESS_CONDITION`), never in memory.
 - **An exam the caller may not access is a 404 (`EXAM_NOT_FOUND`), never a 403**, exactly like an
-  exam that does not exist. 403 is only for an exam the caller can see but may not manage.
+  exam that does not exist. B13: also an exam the caller can see but may not manage (a PUBLIC exam
+  of another owner) is that 404 on every management endpoint (`ExamAccessPolicy.findManageableExam`
+  and `findManageableSession`, the ownership in the SQL condition); `EXAM_NOT_OWNER` is gone. 403 is
+  left for a role that may not use an endpoint at all.
 - **Losing access blocks new starts only.** A session that is already IN_PROGRESS belongs to its
   user and can be continued, submitted and read after the user left the group.
 - **An exam's audience is the union of its groups** (`exam_audience`, up to 50): somebody in two of
@@ -167,12 +170,44 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
   in SQL (`GroupAccessPolicy.ownerFilter`). Adding by filter is ADMIN only: a filter reaches every
   participant of the platform. An exam audience may use, for an INSTRUCTOR, the own groups and
   those already stored on the exam; the audience preview lists other groups as unknown.
+- **Teachers are isolated from each other (B13).** What a teacher owns is decided by
+  `OwnershipPolicy.ownerFilter` (ADMIN: no filter, INSTRUCTOR: the own id, anybody else: the nil UUID
+  nobody owns) and always applied in SQL: exams, sessions, results, grading, monitoring, analytics,
+  history, groups, members, invites, join links, media, the participant list and card, the audit
+  trail, `/api/me/stats`. Another teacher's row is the same 404 and code as an id that does not exist,
+  and nothing is written. Group names are unique per owner (exam V18), so a name tells nothing about
+  somebody else's groups. A teacher adding a member by email always gets a pending invite (the same
+  answer for a known and an unknown address); by participant code an exact match with a masked name,
+  at most 10 a minute (`MEMBER_CODE_RATE_LIMITED`). `TeacherIsolationMatrixTest` is the matrix of two
+  teachers on a real database.
+- **A PUBLIC audience is for ADMIN only** (403 `PUBLIC_EXAM_ADMIN_ONLY`): a teacher's new exam is GROUP,
+  a teacher's copy of a PUBLIC exam becomes GROUP.
+- **Every endpoint has an access class** in `src/test/resources/endpoint-access.txt` of its service
+  (ADMIN_ONLY, OWNER_SCOPED, OWN_DATA, STUDENT_ONLY, PUBLIC, INTERNAL). `EndpointRegistryTest` reads the
+  endpoints through `RequestMappingHandlerMapping` and asks the real security chain with `@PreAuthorize`
+  who gets through: a new endpoint needs its line, and its path rule and annotation must match the class.
+- **Teacher accounts are made by ADMIN only** (`/api/admin/instructors`, auth-service; registration
+  always makes a STUDENT). The temporary password (16 characters) is shown once, in the create or
+  reset answer, never stored in clear or audited; it ends after 7 days (401
+  `TEMPORARY_PASSWORD_EXPIRED`) and a token of it (`pwc` claim) works only for
+  `POST /auth/change-password` and `POST /auth/logout` (403 `PASSWORD_CHANGE_REQUIRED`). Deactivation,
+  a password reset and a password change end the access tokens at once
+  (`auth:tokens-valid-after:<user>` in Redis); when Redis cannot be written the change is refused (503
+  `TOKEN_REVOCATION_UNAVAILABLE`), never done half. Deactivating a teacher with ACTIVE or SCHEDULED
+  exams needs `confirm=true`.
+- **Teacher limits** (`instructor_limits`, exam V19; null = the default `exam.instructor-limits.*`: 50
+  groups, 2 000 members, 200 exams, 1 GiB of media) are checked before anything is written (409
+  `TEACHER_LIMIT_REACHED` with `{limit, max, used}`); lowering a limit removes nothing. ADMIN has none.
 - **No service ever holds the whole user table.** The admin's participant list
   (`GET /api/admin/participants`, `ParticipantService`) is filtered, sorted and paged in
   auth-service's database (`POST /internal/users/participants`), a group filter is handed over as
   the set of member ids, and the group names of the page come from one statement in exam-service.
   Day filters are calendar days of `EXAM_DAY_ZONE` turned into UTC moments. Participant means a
   user with the role STUDENT; the email is not masked here, because the list is for admins only.
+  B13: a teacher gets the same list limited to the members of the own groups (the ids handed over as
+  `includeIds`), without the lock state, the admin filters (`blocked`, `noGroup`, profile) and other
+  owners' group names; within 300 ms for 20 000 participants (`TeacherScopePerformanceTest`,
+  `TeacherParticipantsPerformanceTest`).
 - **Names sort in the Azerbaijani alphabet, on the server.** A paged list can only be sorted where
   it is paged: in SQL by `btrim(name) COLLATE az_ci` (auth V6, exam V15; never `lower()`, which turns
   I into i), in Java by `AzerbaijaniOrder`. Every ORDER BY of a page ends with a unique key
