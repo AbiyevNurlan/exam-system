@@ -76,7 +76,39 @@ public record ExamState(Long id, UUID createdBy, String title, String descriptio
 
     public record QuestionState(Long id, Long blockId, int orderIndex, String questionText, QuestionType questionType,
                                 BigDecimal points, boolean allowMultipleAnswers, boolean required, String explanation,
-                                List<MediaRef> media, List<OptionState> options) {
+                                List<MediaRef> media, List<OptionState> options, ScaleState scale) {
+
+        // Every question type but LINEAR_SCALE has no scale
+        public QuestionState(Long id, Long blockId, int orderIndex, String questionText, QuestionType questionType,
+                             BigDecimal points, boolean allowMultipleAnswers, boolean required, String explanation,
+                             List<MediaRef> media, List<OptionState> options) {
+            this(id, blockId, orderIndex, questionText, questionType, points, allowMultipleAnswers, required, explanation,
+                    media, options, null);
+        }
+    }
+
+    /**
+     * The scale of a LINEAR_SCALE question (exam V22); null for every other type
+     */
+    public record ScaleState(int min, int max, String minLabel, String maxLabel) {
+
+        // What the editor sent, with blank labels as null; null when the request has no complete scale
+        public static ScaleState of(com.examportal.common.domain.dto.ScaleSettings settings) {
+            if (settings == null || settings.getMin() == null || settings.getMax() == null) {
+                return null;
+            }
+            return new ScaleState(settings.getMin(), settings.getMax(), blankToNull(settings.getMinLabel()),
+                    blankToNull(settings.getMaxLabel()));
+        }
+
+        public com.examportal.common.domain.dto.ScaleSettings toSettings() {
+            return com.examportal.common.domain.dto.ScaleSettings.builder()
+                    .min(min).max(max).minLabel(minLabel).maxLabel(maxLabel).build();
+        }
+
+        private static String blankToNull(String text) {
+            return text == null || text.isBlank() ? null : text.strip();
+        }
     }
 
     public record OptionState(Long id, int orderIndex, String optionText, String matchText, boolean correct, List<MediaRef> media) {

@@ -341,6 +341,7 @@ public final class ExamDiff {
                     | put(changes, "questionType", name(was.questionType()), name(question.questionType()))
                     | put(changes, "allowMultipleAnswers", was.allowMultipleAnswers(), question.allowMultipleAnswers())
                     | put(changes, "required", was.required(), question.required())
+                    | put(changes, "scale", ExamSnapshots.scale(was.scale()), ExamSnapshots.scale(question.scale()))
                     | put(changes, "media", ExamSnapshots.media(was.media()), ExamSnapshots.media(question.media()))) {
                 kinds.add("UPDATED");
             }

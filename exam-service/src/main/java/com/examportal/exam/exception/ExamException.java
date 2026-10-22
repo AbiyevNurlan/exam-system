@@ -196,6 +196,11 @@ public class ExamException extends ApplicationException {
         return new ExamException("This question accepts exactly one option", HttpStatus.BAD_REQUEST, "ANSWER_SINGLE_SELECTION_ONLY");
     }
 
+    public static ExamException scaleOutOfRange() {
+        return new ExamException("The answer must be a whole number of the question's scale", HttpStatus.BAD_REQUEST,
+                "ANSWER_SCALE_OUT_OF_RANGE");
+    }
+
     public static ExamException orderIncomplete() {
         return new ExamException("Every item must be placed exactly once", HttpStatus.BAD_REQUEST, "ANSWER_ORDER_INCOMPLETE");
     }

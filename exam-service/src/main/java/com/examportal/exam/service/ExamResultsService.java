@@ -557,6 +557,8 @@ public class ExamResultsService {
                             .maxPoints(question.getPoints())
                             .explanation(question.getExplanation())
                             .media(data.media().forQuestion(question.getId()))
+                            .scale(com.examportal.common.domain.dto.ScaleSettings.of(question.getScaleMin(), question.getScaleMax(),
+                                    question.getScaleMinLabel(), question.getScaleMaxLabel()))
                             .options(options)
                             .answered(answer != null);
                     if (answer == null) {

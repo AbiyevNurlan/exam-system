@@ -131,6 +131,7 @@ public class StructurePlanner {
                 .isRequired(question.required())
                 .explanation(question.explanation())
                 .options(options)
+                .scale(question.scale() == null ? null : question.scale().toSettings())
                 .media(question.media().stream().filter(ref -> "ACTIVE".equals(ref.status()))
                         .map(ref -> com.examportal.common.domain.dto.media.QuestionMediaRef.builder()
                                 .mediaId(ref.mediaId()).position(ref.position()).maxPlays(ref.maxPlays()).build())

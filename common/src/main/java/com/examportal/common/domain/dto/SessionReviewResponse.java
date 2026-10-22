@@ -80,6 +80,8 @@ public class SessionReviewResponse {
         private List<MediaItemResponse> media;
         // Choice questions: every option; text questions: the expected answers
         private List<OptionReview> options;
+        // LINEAR_SCALE: the numbers and their end labels (the right number is the only option)
+        private ScaleSettings scale;
 
         // What the participant did
         private boolean answered;

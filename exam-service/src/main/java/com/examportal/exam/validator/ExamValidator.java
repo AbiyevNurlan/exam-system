@@ -4,6 +4,7 @@ import com.examportal.common.domain.dto.CreateExamRequest;
 import com.examportal.common.domain.dto.ExamBlockDTO;
 import com.examportal.common.domain.dto.OptionDTO;
 import com.examportal.common.domain.dto.QuestionDTO;
+import com.examportal.common.domain.dto.ScaleSettings;
 import com.examportal.common.domain.dto.UpdateExamRequest;
 import com.examportal.common.domain.entity.TimingMode;
 import com.examportal.common.exception.ValidationException;
@@ -159,10 +160,46 @@ public class ExamValidator {
             case TRUE_FALSE -> validateTrueFalseQuestion(question, questionNumber);
             case ORDERING -> validateItems(question, questionNumber, false);
             case MATCHING -> validateItems(question, questionNumber, true);
+            case LINEAR_SCALE -> validateScale(question, questionNumber);
             case FILL_BLANK, OPEN_ENDED, SHORT_ANSWER -> {
                 // These types may not require options
             }
         }
+    }
+
+    /**
+     * LINEAR_SCALE ("Diapazon"): a scale from 0 or 1 up to 2..10 and exactly one option, the right number, a whole
+     * number on the scale. Its text is stored as the plain number ("07" becomes "7"), so the answer is compared exactly.
+     */
+    private void validateScale(QuestionDTO question, int questionNumber) {
+        ScaleSettings scale = question.getScale();
+        if (scale == null || scale.getMin() == null || scale.getMax() == null) {
+            throw new ValidationException("Question " + questionNumber + ": A scale question needs its lowest and highest number");
+        }
+        if (scale.getMin() < 0 || scale.getMin() > 1 || scale.getMax() < 2 || scale.getMax() > 10) {
+            throw new ValidationException("Question " + questionNumber + ": The scale goes from 0 or 1 up to a number from 2 to 10");
+        }
+        List<OptionDTO> options = question.getOptions();
+        if (options == null || options.size() != 1) {
+            throw new ValidationException("Question " + questionNumber + ": A scale question needs exactly one right number");
+        }
+        OptionDTO right = options.get(0);
+        Integer value = scaleValue(right.getOptionText());
+        if (value == null || value < scale.getMin() || value > scale.getMax()) {
+            throw new ValidationException("Question " + questionNumber + ": The right number must be a whole number from "
+                    + scale.getMin() + " to " + scale.getMax());
+        }
+        right.setOptionText(Integer.toString(value));
+        right.setIsCorrect(true);
+    }
+
+    // A whole number of at most two digits, or null
+    public static Integer scaleValue(String text) {
+        if (text == null) {
+            return null;
+        }
+        String trimmed = text.strip();
+        return trimmed.matches("[0-9]{1,2}") ? Integer.valueOf(trimmed) : null;
     }
 
     /**

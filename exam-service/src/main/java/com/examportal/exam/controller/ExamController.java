@@ -119,7 +119,7 @@ public class ExamController {
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
     @Operation(summary = "Can the exam be published?", description = "B12a: blocking (code, messageKey, blockId/questionId "
             + "with their numbers): NO_QUESTIONS, EMPTY_BLOCK, MULTIPLE_CHOICE_INCOMPLETE, NO_CORRECT_ANSWER, TRUE_FALSE_INCOMPLETE, "
-            + "FILL_BLANK_INCOMPLETE, ZERO_POINTS, MEDIA_MISSING, BLOCK_TIME_LIMIT_MISSING, DURATION_EXCEEDS_WINDOW, WINDOW_ENDED, "
+            + "FILL_BLANK_INCOMPLETE, SHORT_ANSWER_INCOMPLETE, ORDERING_INCOMPLETE, MATCHING_INCOMPLETE, LINEAR_SCALE_INCOMPLETE, ZERO_POINTS, MEDIA_MISSING, BLOCK_TIME_LIMIT_MISSING, DURATION_EXCEEDS_WINDOW, WINDOW_ENDED, "
             + "FEATURE_NOT_AVAILABLE (block rules before B12b); warnings: AUDIENCE_EMPTY, START_IN_PAST, BLOCK_TIME_LIMIT_IGNORED. "
             + "Publishing runs the same check (409 EXAM_NOT_READY / FEATURE_NOT_AVAILABLE with the list). ADMIN or the owning INSTRUCTOR.")
     public Mono<ApiResponse<ExamReadinessResponse>> readiness(

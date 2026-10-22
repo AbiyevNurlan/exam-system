@@ -14,5 +14,8 @@ public enum QuestionType {
     // Pairs: option_text on the left, match_text the right side that belongs to it (2..10 pairs)
     MATCHING,
     // A short typed answer, compared like FILL_BLANK with the accepted answers (the options)
-    SHORT_ANSWER
+    SHORT_ANSWER,
+    // "Diapazon": one whole number of a scale (ScaleSettings: 0 or 1 up to 2..10, end labels); the right number is
+    // the only option, compared exactly
+    LINEAR_SCALE
 }

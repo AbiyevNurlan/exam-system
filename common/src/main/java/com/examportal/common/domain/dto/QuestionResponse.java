@@ -37,6 +37,8 @@ public class QuestionResponse {
     private List<OptionResponse> options;
     // MATCHING, for participants: the right sides, shuffled, each with an id of this session only
     private List<OptionResponse> matchOptions;
+    // LINEAR_SCALE: the numbers and their end labels (the right number is an option, so participants never get it)
+    private ScaleSettings scale;
     // Attached media in display order; without URLs for participants
     private List<MediaItemResponse> media;
     // B12a, for ADMIN and the owner only: who changed the question last and when (its newest history row)

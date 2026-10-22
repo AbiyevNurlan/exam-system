@@ -56,6 +56,19 @@ public class Question {
     @Column("explanation")
     private String explanation;
 
+    // LINEAR_SCALE only (exam V22): from scale_min (0 or 1) to scale_max (2..10), with optional end labels
+    @Column("scale_min")
+    private Integer scaleMin;
+
+    @Column("scale_max")
+    private Integer scaleMax;
+
+    @Column("scale_min_label")
+    private String scaleMinLabel;
+
+    @Column("scale_max_label")
+    private String scaleMaxLabel;
+
     @Column("active")
     private Boolean active;
 

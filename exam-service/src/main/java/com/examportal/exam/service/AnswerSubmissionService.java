@@ -371,6 +371,18 @@ public class AnswerSubmissionService {
                 .flatMap(question -> {
                     LocalDateTime now = LocalDateTime.now();
 
+                    if (question.getQuestionType() == QuestionType.LINEAR_SCALE) {
+                        // One whole number of the question's own scale, stored as the plain number
+                        Integer value = com.examportal.exam.validator.ExamValidator.scaleValue(request.getTextAnswer());
+                        if (request.getTextAnswer() == null || request.getTextAnswer().isBlank()) {
+                            return Mono.error(ExamException.selectionRequired());
+                        }
+                        if (value == null || question.getScaleMin() == null || question.getScaleMax() == null
+                                || value < question.getScaleMin() || value > question.getScaleMax()) {
+                            return Mono.error(ExamException.scaleOutOfRange());
+                        }
+                        return answerRepository.upsertAnswer(session.getId(), questionId, null, Integer.toString(value), now);
+                    }
                     if (isTextQuestion(question)) {
                         String text = request.getTextAnswer() != null ? request.getTextAnswer().trim() : null;
                         return answerRepository.upsertAnswer(session.getId(), questionId, null, text, now);
@@ -435,7 +447,9 @@ public class AnswerSubmissionService {
     private boolean isTextQuestion(Question question) {
         return question.getQuestionType() == QuestionType.FILL_BLANK
                 || question.getQuestionType() == QuestionType.OPEN_ENDED
-                || question.getQuestionType() == QuestionType.SHORT_ANSWER;
+                || question.getQuestionType() == QuestionType.SHORT_ANSWER
+                // LINEAR_SCALE: the stored plain number against the right number (its only option)
+                || question.getQuestionType() == QuestionType.LINEAR_SCALE;
     }
 
     /**

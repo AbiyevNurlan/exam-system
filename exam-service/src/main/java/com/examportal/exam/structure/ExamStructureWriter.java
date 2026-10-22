@@ -148,8 +148,10 @@ public class ExamStructureWriter {
     private Mono<Void> insertQuestion(Long examId, Long blockId, int orderIndex, QuestionDTO question) {
         return bindQuestion(databaseClient.sql("""
                         INSERT INTO questions (exam_id, block_id, question_text, question_type, points, order_index,
-                                               allow_multiple_answers, is_required, explanation, active)
-                        VALUES (:examId, :blockId, :text, :type, :points, :orderIndex, :multiple, :required, :explanation, true)
+                                               allow_multiple_answers, is_required, explanation, scale_min, scale_max,
+                                               scale_min_label, scale_max_label, active)
+                        VALUES (:examId, :blockId, :text, :type, :points, :orderIndex, :multiple, :required, :explanation, :scaleMin,
+                                :scaleMax, :scaleMinLabel, :scaleMaxLabel, true)
                         RETURNING id
                         """), examId, blockId, orderIndex, question)
                 .map(row -> row.get("id", Long.class))
@@ -166,12 +168,14 @@ public class ExamStructureWriter {
                 && samePoints(stored.points(), points(question))
                 && stored.allowMultipleAnswers() == Boolean.TRUE.equals(question.getAllowMultipleAnswers())
                 && stored.required() == required(question)
-                && Objects.equals(stored.explanation(), question.getExplanation());
+                && Objects.equals(stored.explanation(), question.getExplanation())
+                && Objects.equals(stored.scale(), scale(question));
         Mono<Void> row = same ? Mono.empty() : bindQuestion(databaseClient.sql("""
                         UPDATE questions
                         SET block_id = :blockId, question_text = :text, question_type = :type, points = :points,
                             order_index = :orderIndex, allow_multiple_answers = :multiple, is_required = :required,
-                            explanation = :explanation, updated_at = CURRENT_TIMESTAMP, version = COALESCE(version, 0) + 1
+                            explanation = :explanation, scale_min = :scaleMin, scale_max = :scaleMax,
+                            scale_min_label = :scaleMinLabel, scale_max_label = :scaleMaxLabel, updated_at = CURRENT_TIMESTAMP, version = COALESCE(version, 0) + 1
                         WHERE id = :id AND exam_id = :examId
                         """).bind("id", stored.id()), examId, blockId, orderIndex, question).then();
         Mono<Void> media = sameMedia(stored.media(), requestedMedia(question)) ? Mono.empty()
@@ -190,8 +194,20 @@ public class ExamStructureWriter {
                 .bind("orderIndex", orderIndex)
                 .bind("multiple", Boolean.TRUE.equals(question.getAllowMultipleAnswers()))
                 .bind("required", required(question));
-        return question.getExplanation() != null ? spec.bind("explanation", question.getExplanation())
+        spec = question.getExplanation() != null ? spec.bind("explanation", question.getExplanation())
                 : spec.bindNull("explanation", String.class);
+        // Only LINEAR_SCALE has a scale (CHECK of exam V22): another type writes NULL, also after a change of type
+        ExamState.ScaleState scale = scale(question);
+        spec = scale != null ? spec.bind("scaleMin", scale.min()).bind("scaleMax", scale.max())
+                : spec.bindNull("scaleMin", Integer.class).bindNull("scaleMax", Integer.class);
+        spec = scale != null && scale.minLabel() != null ? spec.bind("scaleMinLabel", scale.minLabel())
+                : spec.bindNull("scaleMinLabel", String.class);
+        return scale != null && scale.maxLabel() != null ? spec.bind("scaleMaxLabel", scale.maxLabel())
+                : spec.bindNull("scaleMaxLabel", String.class);
+    }
+
+    private static ExamState.ScaleState scale(QuestionDTO question) {
+        return question.getQuestionType() == QuestionType.LINEAR_SCALE ? ExamState.ScaleState.of(question.getScale()) : null;
     }
 
     private Mono<Void> attachQuestionMedia(Long questionId, QuestionDTO question) {
@@ -206,8 +222,9 @@ public class ExamStructureWriter {
 
     private Mono<Void> writeOptions(Long questionId, QuestionType type, List<OptionState> stored, List<OptionDTO> requested) {
         // Every item of ORDERING and every pair of MATCHING is part of the answer key, and so is every accepted
-        // answer of SHORT_ANSWER; the right side of a pair exists only for MATCHING
-        boolean allCorrect = type == QuestionType.ORDERING || type == QuestionType.MATCHING || type == QuestionType.SHORT_ANSWER;
+        // answer of SHORT_ANSWER and the right number of LINEAR_SCALE; the right side of a pair exists only for MATCHING
+        boolean allCorrect = type == QuestionType.ORDERING || type == QuestionType.MATCHING || type == QuestionType.SHORT_ANSWER
+                || type == QuestionType.LINEAR_SCALE;
         Map<Long, OptionState> byId = new HashMap<>();
         stored.forEach(option -> byId.put(option.id(), option));
         List<OptionDTO> options = requested == null ? List.of() : requested;

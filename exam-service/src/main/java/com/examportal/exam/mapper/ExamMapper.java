@@ -129,6 +129,10 @@ public class ExamMapper {
                 .allowMultipleAnswers(dto.getAllowMultipleAnswers())
                 .isRequired(dto.getIsRequired() != null ? dto.getIsRequired() : true)
                 .explanation(dto.getExplanation())
+                .scaleMin(dto.getQuestionType() == QuestionType.LINEAR_SCALE && dto.getScale() != null ? dto.getScale().getMin() : null)
+                .scaleMax(dto.getQuestionType() == QuestionType.LINEAR_SCALE && dto.getScale() != null ? dto.getScale().getMax() : null)
+                .scaleMinLabel(dto.getQuestionType() == QuestionType.LINEAR_SCALE && dto.getScale() != null ? dto.getScale().getMinLabel() : null)
+                .scaleMaxLabel(dto.getQuestionType() == QuestionType.LINEAR_SCALE && dto.getScale() != null ? dto.getScale().getMaxLabel() : null)
                 .active(true)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
@@ -222,7 +226,17 @@ public class ExamMapper {
                 .allowMultipleAnswers(question.getAllowMultipleAnswers())
                 .isRequired(question.getIsRequired())
                 .explanation(question.getExplanation())
+                .scale(scale(question))
                 .build();
+    }
+
+    // LINEAR_SCALE: the numbers and their end labels (never the right number, which is an option)
+    public ScaleSettings scale(Question question) {
+        if (question.getQuestionType() != QuestionType.LINEAR_SCALE || question.getScaleMin() == null || question.getScaleMax() == null) {
+            return null;
+        }
+        return ScaleSettings.builder().min(question.getScaleMin()).max(question.getScaleMax())
+                .minLabel(question.getScaleMinLabel()).maxLabel(question.getScaleMaxLabel()).build();
     }
 
     /**
@@ -250,6 +264,7 @@ public class ExamMapper {
                 .isRequired(question.getIsRequired())
                 .options(options)
                 // explanation is hidden for participants during exam
+                .scale(scale(question))
                 .build();
     }
 
@@ -270,6 +285,7 @@ public class ExamMapper {
                         .allowMultipleAnswers(q.getAllowMultipleAnswers())
                         .isRequired(q.getIsRequired())
                         .options(participantOptions(q.getQuestionType(), q.getOptions()))
+                        .scale(q.getScale())
                         .build())
                 .toList();
 
@@ -331,7 +347,9 @@ public class ExamMapper {
     }
 
     public boolean isTextQuestion(QuestionType type) {
-        return type == QuestionType.FILL_BLANK || type == QuestionType.OPEN_ENDED || type == QuestionType.SHORT_ANSWER;
+        // LINEAR_SCALE too: its only option is the right number
+        return type == QuestionType.FILL_BLANK || type == QuestionType.OPEN_ENDED || type == QuestionType.SHORT_ANSWER
+                || type == QuestionType.LINEAR_SCALE;
     }
 
     /**

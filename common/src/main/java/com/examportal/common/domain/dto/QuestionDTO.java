@@ -60,6 +60,10 @@ public class QuestionDTO {
     @Valid
     private List<OptionDTO> options;
 
+    // LINEAR_SCALE only: the numbers and their end labels; the right number is the only option (its text)
+    @Valid
+    private ScaleSettings scale;
+
     // Up to 3 ACTIVE media of the editor (ADMIN: anyone's); maxPlays only for AUDIO/VIDEO
     @Size(max = 3, message = "A question cannot have more than 3 media")
     @Valid
