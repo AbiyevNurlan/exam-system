@@ -13,7 +13,7 @@ Digər sənədlər burada təkrar yazılmır, yalnız istinad olunur:
 |---|---|
 | Son yenilənmə | 2026-10-22 (Bakı) |
 | Analiz olunan kod | `cb19e65` (`feat/avatar` filialının son commit-i; `main` = `45138df`) |
-| Canlı baza | exam_db V22, exam_auth V8 (2026-10-22, yükləmədən sonra) |
+| Canlı baza | exam_db V23, exam_auth V8 (2026-10-22, yükləmədən sonra) |
 | Frontend | `exam-frontend`, filial `feat/exam-lock-audit` (`79f7757`, `main`-dən 1 commit irəli; `main` = `ff97fb4`) |
 
 Yolların qısaltmaları (AUDIT_GAP-dakı kimi):
@@ -160,10 +160,10 @@ Sxemi yalnız Flyway dəyişir: `auth-service/src/main/resources/db/migration/` 
 
 ### Flyway versiyaları
 
-| | Kodda (`cb19e65`) | Canlı bazada (2026-10-21) | `feat/question-types` (`b756907`) |
-|---|---|---|---|
-| exam_auth | V1–V8 (8 fayl) | V8 | – |
-| exam_db | V1–V20 (20 fayl) | V19 | V21, V22 (22 fayl) |
+| | Kodda (`main`) | Canlı bazada (2026-10-22) |
+|---|---|---|
+| exam_auth | V1–V8 (8 fayl) | V8 |
+| exam_db | V1–V23 (23 fayl) | V23 |
 
 **exam_auth migrasiyaları** (canlıda tətbiq tarixi):
 V1 baseline (10-12) · V2 email OTP (10-12) · V3 7 rəqəmli iştirakçı kodu (10-16) · V4 iştirakçı profili və kateqoriyalar
@@ -176,8 +176,9 @@ V5 istifadəçi üzrə sessiya indeksi (10-13) · V6 fırıldaq hadisələri (10
 V8 əl ilə yoxlama (10-13) · V9 monitorinq indeksləri (10-13) · V10 qoşulma linkləri (10-13) · V11 admin icmal
 indeksləri (10-14) · V12 qrupun sahibi `owner_id` (10-15) · V13 istifadəçi üzrə qoşulma sorğuları (10-15) · V14 iştirakçı
 kartı indeksləri (10-16) · V15 `az_ci` (10-19) · V16 bloklar (10-19) · V17 tarixçə və snapshot (10-19) · V18 qrup adı
-sahib üzrə unikal (10-19) · V19 müəllim limitləri (10-19) · **V20 profil şəkli, canlıda yoxdur** · **V21 uyğunlaşdırmanın sağ tərəfi (`match_text`)** ·
-**V22 Diapazon (`questions.scale_*`, CHECK ilə)**; V21 və V22 yalnız `feat/question-types`-dadır.
+sahib üzrə unikal (10-19) · V19 müəllim limitləri (10-19) · V20 profil şəkli (10-22) · V21 uyğunlaşdırmanın sağ tərəfi
+(`match_text`, 10-22) · V22 Diapazon (`questions.scale_*`, CHECK ilə, 10-22) · **V23 sessiyanın blokları
+(`session_block_progress`, 10-22)**.
 
 ### exam_auth cədvəlləri (8)
 
@@ -200,6 +201,7 @@ sahib üzrə unikal (10-19) · V19 müəllim limitləri (10-19) · **V20 profil 
 | `exam_blocks` | Bloklar (hər imtahanda ən azı "Əsas blok") | `position`, `title`, `time_limit_minutes`, `break_after_minutes`, `free_navigation`, `show_result_to_participant` | `exams` (CASCADE) | 233 |
 | `questions` | Suallar | `question_text`, `question_type`, `points`, `order_index`, `block_id` | `exams` (CASCADE), `exam_blocks` | 745 |
 | `question_options` | Variantlar və cavab açarı | `option_text`, `is_correct`, `order_index` | `questions` (CASCADE) | 1743 |
+| `session_block_progress` | Sessiyanın bloklar üzrə yolu (B12b): hər daxil olduğu blok üçün bir sətir | `position`, `block_id`, `started_at`, `deadline`, `finished_at`, `break_until`, `cursor` | `exam_sessions` (CASCADE) | 0 |
 | `exam_sessions` | Cəhdlər | `session_id`, `user_id`, `status`, `score`, `total_points` (maksimum), `percentage`, `passed`, `grading_status` | `exams` | 208 |
 | `user_answers` | Cavablar | `selected_option_ids`, `text_answer`, `points_earned`, `needs_manual_review`, `grade_version` | `exam_sessions` (CASCADE), `questions` | 524 |
 | `session_fraud_events` | Brauzerin bildirdiyi pozuntular | `type`, `occurred_at`, `details` | `exam_sessions` (CASCADE) | 247 |
@@ -456,10 +458,28 @@ Sessiya sıralama bəndlərini və uyğunlaşdırmanın sağ tərəflərini yaln
 Hamısı avtomatik və "hamısı və ya heç nə" qaydası ilə qiymətləndirilir. Qaydası: PROJECT_RULES, "Question types with a
 structured answer".
 
-**Vaxt rejimi.** `EXAM_TIMER` (bütün imtahana bir taymer) və `BLOCK_TIMERS` (blok üzrə). Blok taymeri, fasilə,
-sərbəst naviqasiyanın bağlanması və əvvəlki bloka qayıtma iştirakçı tərəfində hələ yoxdur (B12b). Ona görə
-`EXAM_BLOCK_RULES_ENABLED=false`-dır (default, `exam-service/src/main/resources/application.yml`) və bu qaydaları
-istəyən imtahan dərc olunmur: 409 `FEATURE_NOT_AVAILABLE` (`ES/service/ExamFeatures.java`).
+**Vaxt rejimi.** `EXAM_TIMER` (bütün imtahana bir taymer) və `BLOCK_TIMERS` (hər blokun öz vaxtı, aralarında fasilə).
+
+**İştirakçı tərəfində bloklar (B12b).** Qaydalar yalnız bloklu imtahanlara aiddir: birdən çox blok, blok taymerləri və ya
+"yalnız irəli" blok. Bir bloklu, ümumi taymerli, sərbəst naviqasiyalı imtahan (B12a-dan əvvəlki hər imtahan) əvvəlki kimi
+işləyir: sətir yazılmır, yoxlama yoxdur.
+- Ardıcıl rejim (blok taymerləri, və ya ümumi taymer + "geri qayıtmaq olmaz"): bir anda bir blok açıqdır. Blok iştirakçı
+  onu bitirəndə və ya vaxtı bitəndə bağlanır və bir daha açılmır. Blok taymerlərində sonra fasilə gələ bilər; növbəti blok
+  fasilə bitəndə özü başlayır, imtahan icazə verirsə iştirakçı fasiləni erkən bitirə bilər.
+- Açıq rejim (ümumi taymer + "geri qayıtmaq olar"): bütün bloklar sessiya bitənə qədər açıqdır.
+- "Yalnız irəli" blok: keçilən suala qayıtmaq olmur (`cursor`).
+- Vaxt xətti yalnız vaxtlardan hesablanır (`ES/session/BlockTimeline.java`): iştirakçı baxmasa da blok öz vaxtında
+  bitir, fasilə öz vaxtında bitir. Yalnız iştirakçının seçdiyi anlar yazılır. Hər addım sessiya sətrini kilidləyib
+  `session_block_progress`-ə yazılır (`ES/session/SessionBlockService.java`); sessiyanın `end_time`-ı vaxt xəttinə uyğun
+  yalnız irəli çəkilir, ona görə scheduler sessiyanı əsl sonunda bitirir.
+- Sessiya bağlı blokun sualını görmür (`/questions` və `/blocks` süzür); cavab isə yoxlanılır: 409 `BLOCK_CLOSED`,
+  `SESSION_ON_BREAK`, `QUESTION_LOCKED`; son blok bitibsə sessiya tamamlanır və 410 `SESSION_EXPIRED`.
+- Sualların sırası sessiyaya görə toxumla qarışdırılır (`ES/session/SessionOrder.java`): eyni sessiya hər dəfə eyni sıranı
+  görür, sual blokundan çıxmır.
+- Endpoint-lər: `GET /api/exams/session/{id}/blocks`, `POST .../blocks/finish`, `POST .../blocks/end-break`,
+  `POST .../blocks/reach/{questionId}`; start cavabında `blocks`.
+- Açar: `EXAM_BLOCK_RULES_ENABLED` (default `true`); `false` olsa belə imtahanlar dərc olunmur (409 `FEATURE_NOT_AVAILABLE`).
+- Hazırlıq xəbərdarlıqları: `BREAK_IGNORED` (ümumi taymerdə fasilə), `RETURN_IGNORED` (blok taymerlərində geri qayıtma).
 
 **Revizyon tarixçəsi.** İmtahanın hər dəyişikliyi `exam_revisions`-a bir sətir yazır, dəyişikliyin öz
 tranzaksiyasında. Sətirlər dəyişdirilə və silinə bilməz (trigger). İmtahan silinsə də tarixçə qalır. Cavab açarı
@@ -516,8 +536,8 @@ CANCELLED statusu var, amma heç bir endpoint onu qoymur.
 ### Nə hazırdır, nə yarımçıqdır
 
 - Hazır: bloklar, tarixçə, snapshot, klon, hazırlıq, qruplar, linklər, kod, cəhd limitləri, əl ilə yoxlama, analitika.
-- Yarımçıq: B12b (iştirakçı tərəfində blok qaydaları); yeni sual növləri `main`-də deyil və canlı bazada V21/V22 yoxdur; bunların heç birinin
-  frontend-i yoxdur (bölmə 13); sual bankı, regrade və vaxt uzatma yoxdur (AUDIT_GAP).
+- Hazır (2026-10-22): iştirakçı tərəfində blok qaydaları (B12b) və frontend-də blok redaktoru ilə imtahan ekranı; yeni sual növləri `main`-də və canlıdadır.
+- Yarımçıq: blokların vaxt xəttini admin monitorinqdə görmür; sual bankı, regrade və vaxt uzatma yoxdur (AUDIT_GAP).
 
 ---
 
@@ -769,7 +789,6 @@ işlədir (verify-b5-join, b7, b8, b13), ona görə onlar "c-namizəd" kimi qal�
 | Klon ("nüsxə yarat"). Frontend-də ölü funksiya `/exams/{id}/duplicate` çağırır, belə endpoint yoxdur | `POST /api/exams/{id}/clone` | Admin, Müəllim | a | orta | F8 |
 | Revizyon tarixçəsi | `GET /api/exams/{id}/history`, `/history/{revisionId}` | Admin, Müəllim | a | orta | F8 |
 | Cəhdi olan imtahanın adını və təsvirini dəyişmək | `PATCH /api/exams/{id}/meta` | Admin, Müəllim | a | orta | F8 |
-| Bloklar redaktoru (`blocks`, `timingMode`, blok ayarları). Frontend sualları düz siyahı kimi göndərir; çox bloklu imtahanı frontend-də saxlamağın nəticəsi yoxlanılmadı | `POST/PUT /api/exams` | Admin, Müəllim | a | orta (B12b-dən asılı) | F8 |
 | Qoşulma sorğularım (status, `canRequestAgainAt`; `JOIN_REQUEST_COOLDOWN` frontend-də var) | `GET /api/join/requests/mine` | İştirakçı | a | orta | F9 |
 | Dərc versiyaları və SHA-256 | `GET /api/exams/{id}/versions`, `/versions/{versionNo}` | Admin, Müəllim | a | aşağı | F8 |
 | Son dəyişən (`lastModifiedBy`, `lastModifiedAt`) idarə siyahısında | `GET /api/exams/manage` | Admin, Müəllim | a | aşağı | F8 |
@@ -857,13 +876,11 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 | Nəzarətçi (watch-public) | yarımçıq (tapşırıq söndürülüb) | 2026-10-20 |
 | Production compose, server, domen | planlaşıb | 2026-10-15 |
 | Flyway: exam_auth V8 | hazır, canlıda | 2026-10-19 |
-| Flyway: exam_db V19 | hazır, canlıda | 2026-10-19 |
-| exam V20 (avatar) | yarımçıq (filial birləşməyib, canlıda yoxdur) | 2026-10-20 |
-| exam V21, V22 (sual növləri) | hazır, `main`-də və canlıda deyil | 2026-10-22 |
+| Flyway: exam_db V23 | hazır, canlıda | 2026-10-22 |
 | Qeydiyyat, OTP, giriş, parol bərpası | hazır | 2026-10-12 |
 | Profil, iştirakçı kodu, iştirakçı kartı (B9–B11b) | hazır | 2026-10-19 |
 | İmtahan, bloklar, tarixçə, snapshot, klon, hazırlıq (B12a) | hazır (backend) | 2026-10-19 |
-| İştirakçı tərəfində blok qaydaları (B12b) | planlaşıb | – |
+| İştirakçı tərəfində blok qaydaları (B12b), blok redaktoru və imtahan ekranında bölmələr | hazır, canlıda | 2026-10-22 |
 | Müəllim izolyasiyası, müəllim hesabları, limitlər (B13) | hazır, `main`-də deyil; sənədləri commit olunub | 2026-10-21 |
 | Profil şəkli | hazır, `main`-də deyil | 2026-10-20 |
 | Yeni sual növləri (backend və frontend) | hazır, `main`-də deyil, brauzerdə yoxlanılmayıb | 2026-10-22 |

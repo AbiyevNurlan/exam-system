@@ -35,6 +35,10 @@ GET    /api/exams/session/{sessionId}/answers                STUDENT_ONLY
 POST   /api/exams/session/{sessionId}/fraud-event            STUDENT_ONLY
 POST   /api/exams/session/{sessionId}/answer                 STUDENT_ONLY
 POST   /api/exams/session/{sessionId}/submit                 STUDENT_ONLY
+GET    /api/exams/session/{sessionId}/blocks                 STUDENT_ONLY
+POST   /api/exams/session/{sessionId}/blocks/finish          STUDENT_ONLY
+POST   /api/exams/session/{sessionId}/blocks/end-break       STUDENT_ONLY
+POST   /api/exams/session/{sessionId}/blocks/reach/{questionId} STUDENT_ONLY
 GET    /api/exams/session/{sessionId}/result                 STUDENT_ONLY
 GET    /api/exams/{id}/results                               OWNER_SCOPED
 GET    /api/exams/{id}/results/export                        OWNER_SCOPED

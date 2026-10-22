@@ -178,7 +178,7 @@ services:
       # Hours before a user whose join request was rejected may ask the same group again (0 = at once)
       GROUP_JOIN_REJECT_COOLDOWN_HOURS: ${GROUP_JOIN_REJECT_COOLDOWN_HOURS:-24}
       # B12a: block timers, fixed navigation and returning to earlier blocks can be published once B12b is in place
-      EXAM_BLOCK_RULES_ENABLED: ${EXAM_BLOCK_RULES_ENABLED:-false}
+      EXAM_BLOCK_RULES_ENABLED: ${EXAM_BLOCK_RULES_ENABLED:-true}
       # B12a: a sensitive change of a SCHEDULED or ACTIVE exam needs changeReason (400 CHANGE_REASON_REQUIRED)
       REQUIRE_CHANGE_REASON_AFTER_PUBLISH: ${REQUIRE_CHANGE_REASON_AFTER_PUBLISH:-false}
       DB_HOST: postgres

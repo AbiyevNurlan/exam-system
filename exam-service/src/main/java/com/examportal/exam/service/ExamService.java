@@ -16,6 +16,8 @@ import com.examportal.exam.history.ChangeContext;
 import com.examportal.exam.history.ExamDiff;
 import com.examportal.exam.history.ExamHistoryService;
 import com.examportal.exam.history.ExamSnapshotService;
+import com.examportal.exam.session.SessionBlockService;
+import com.examportal.exam.session.SessionOrder;
 import com.examportal.exam.structure.ExamState;
 import com.examportal.exam.structure.ExamStateRepository;
 import com.examportal.exam.structure.ExamStructureWriter;
@@ -74,6 +76,8 @@ public class ExamService {
     // B12a: the same check for GET /readiness and for publishing
     private final ExamReadinessService readiness;
     private final AnswerTokens answerTokens;
+    // B12b: where a session is among the blocks of its exam
+    private final SessionBlockService blockSessions;
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
@@ -509,9 +513,84 @@ public class ExamService {
                     if (!session.isActive()) {
                         return Mono.error(ExamException.sessionAlreadyCompleted());
                     }
-                    return cacheService.getCachedQuestions(sessionId, batch, DEFAULT_BATCH_SIZE)
+                    Mono<List<QuestionResponse>> page = cacheService.getCachedQuestions(sessionId, batch, DEFAULT_BATCH_SIZE)
                             .collectList();
+                    // B12b: never a question of a block that is closed or has not started
+                    return examRepository.findById(session.getExamId())
+                            .flatMap(blockSessions::layout)
+                            .flatMap(layout -> layout.isEmpty()
+                                    ? page
+                                    : blockSessions.current(session, layout.get())
+                                            .flatMap(snapshot -> page.map(questions -> questions.stream()
+                                                    .filter(question -> snapshot.openBlockIds().contains(question.getBlockId()))
+                                                    .toList())));
                 });
+    }
+
+    // ==================== B12b: the blocks of a session ====================
+
+    /**
+     * Where the caller's own session is among the blocks, with the questions that may be seen now
+     */
+    public Mono<SessionBlocksResponse> sessionBlocks(String sessionId, UUID userId) {
+        return blockStep(sessionId, userId, (session, layout) -> blockSessions.current(session, layout));
+    }
+
+    /**
+     * The participant leaves the current block before its time is up (409 BLOCK_NOT_FINISHABLE when that is not
+     * possible now). The last block is left by submitting the exam.
+     */
+    public Mono<SessionBlocksResponse> finishBlock(String sessionId, UUID userId) {
+        return blockStep(sessionId, userId, (session, layout) -> blockSessions.finishBlock(session, layout));
+    }
+
+    /**
+     * The participant ends the break early (409 BREAK_NOT_SKIPPABLE when the exam does not allow it)
+     */
+    public Mono<SessionBlocksResponse> endBreak(String sessionId, UUID userId) {
+        return blockStep(sessionId, userId, (session, layout) -> blockSessions.endBreak(session, layout));
+    }
+
+    /**
+     * A block that goes forward only: the participant moved on to this question; the ones before it close
+     */
+    public Mono<SessionBlocksResponse> reachQuestion(String sessionId, Long questionId, UUID userId) {
+        return blockStep(sessionId, userId, (session, layout) -> blockSessions.reach(session, layout, questionId));
+    }
+
+    private Mono<SessionBlocksResponse> blockStep(String sessionId, UUID userId,
+            java.util.function.BiFunction<ExamSession, SessionBlockService.Layout, Mono<SessionBlockService.Snapshot>> step) {
+        return sessionRepository.findBySessionId(sessionId)
+                .switchIfEmpty(Mono.error(ExamException.sessionNotFound(sessionId)))
+                // Someone else's session answers 404, same as an unknown id
+                .flatMap(session -> accessPolicy.requireOwnSession(userId, session))
+                .flatMap(session -> {
+                    if (!session.isActive()) {
+                        return Mono.error(ExamException.sessionAlreadyCompleted());
+                    }
+                    return examRepository.findById(session.getExamId())
+                            .flatMap(exam -> blockSessions.layout(exam)
+                                    .flatMap(layout -> layout.isEmpty()
+                                            ? Mono.<SessionBlocksResponse>error(ExamException.noBlockRules())
+                                            : step.apply(session, layout.get())
+                                                    .flatMap(snapshot -> blocksResponse(exam, session, snapshot))));
+                });
+    }
+
+    /**
+     * The screen of a session with block rules. When the last block is over the session is completed here, through
+     * the one completion path, and the answer says DONE.
+     */
+    private Mono<SessionBlocksResponse> blocksResponse(Exam exam, ExamSession session, SessionBlockService.Snapshot snapshot) {
+        Mono<Void> completion = snapshot.phase() == com.examportal.exam.session.BlockTimeline.Phase.DONE
+                ? answerService.completeExpiredSession(session) : Mono.empty();
+        return completion.then(sessionQuestions(exam, session.getSessionId()))
+                .map(questions -> blockSessions.response(session, snapshot, questions));
+    }
+
+    private Mono<List<QuestionResponse>> sessionQuestions(Exam exam, String sessionId) {
+        return cacheService.getAllCachedQuestions(sessionId)
+                .flatMap(cached -> cached.isEmpty() ? prepareQuestionsForSession(exam, sessionId) : Mono.just(cached));
     }
 
     // The results of an exam (list, summary, review of a session): ExamResultsService
@@ -1121,6 +1200,20 @@ public class ExamService {
                             .questions(firstBatch)
                             .build();
                 })
+                // B12b: with block rules the participant gets the blocks and only what may be seen now
+                .flatMap(response -> blockSessions.layout(exam)
+                        .flatMap(layout -> layout.isEmpty()
+                                ? Mono.just(response)
+                                : blockSessions.current(session, layout.get())
+                                        .flatMap(snapshot -> blocksResponse(exam, session, snapshot))
+                                        .map(blocks -> {
+                                            response.setBlocks(blocks);
+                                            response.setQuestions(blocks.getQuestions());
+                                            response.setEndTime(blocks.getSessionEndTime());
+                                            response.setCurrentBatch(0);
+                                            response.setTotalBatches(1);
+                                            return response;
+                                        })))
                 // A resumed session comes with what was already answered, so the screen can be restored
                 .flatMap(response -> answerService.savedAnswers(session)
                         .map(saved -> {
@@ -1180,16 +1273,34 @@ public class ExamService {
                                         })
                                         .collect(Collectors.toList());
                                 
-                                // Shuffle questions if configured
-                                if (Boolean.TRUE.equals(exam.getShuffleQuestions())) {
-                                    responses = mapper.shuffleList(responses);
-                                }
-                                
                                 return responses;
                             });
                 })
+                // B12b: blocks by position, inside a block its own order, shuffled when it shuffles (seeded by the
+                // session, so the same session always sees the same order); questions never leave their block
+                .flatMap(responses -> blockRepository.findByExamIdOrderByPosition(exam.getId()).collectList()
+                        .map(blocks -> inSessionOrder(exam, sessionId, blocks, responses)))
                 .flatMap(questions -> cacheService.cacheSessionQuestions(sessionId, questions, 
                         exam.getDurationMinutes()).thenReturn(questions));
+    }
+
+    // Package-private for the tests
+    static List<QuestionResponse> inSessionOrder(Exam exam, String sessionId, List<ExamBlock> blocks,
+                                                 List<QuestionResponse> inStoredOrder) {
+        if (blocks.isEmpty()) {
+            return SessionOrder.of(inStoredOrder, Boolean.TRUE.equals(exam.getShuffleQuestions()), sessionId, null);
+        }
+        List<QuestionResponse> ordered = new ArrayList<>();
+        for (ExamBlock block : blocks) {
+            List<QuestionResponse> own = inStoredOrder.stream().filter(question -> block.getId().equals(question.getBlockId())).toList();
+            // One block: the exam's own setting, as before B12a; several: each block's (SessionBlockService.Layout)
+            boolean shuffle = blocks.size() > 1 ? Boolean.TRUE.equals(block.getShuffleQuestions())
+                    : Boolean.TRUE.equals(exam.getShuffleQuestions());
+            ordered.addAll(SessionOrder.of(own, shuffle, sessionId, block.getId()));
+        }
+        Set<Long> placed = blocks.stream().map(ExamBlock::getId).collect(Collectors.toSet());
+        inStoredOrder.stream().filter(question -> !placed.contains(question.getBlockId())).forEach(ordered::add);
+        return ordered;
     }
 
     /**

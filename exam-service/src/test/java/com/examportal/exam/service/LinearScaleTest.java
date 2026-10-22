@@ -60,7 +60,7 @@ class LinearScaleTest {
         UserAnswerRepository userAnswers = repositories.getRepository(UserAnswerRepository.class);
         answers = new AnswerSubmissionService(stack.exams, stack.questions, stack.options, stack.sessions,
                 userAnswers, stack.cache, stack.accessPolicy, stack.tx, new BlockResultRepository(stack.db),
-                new AnswerTokens("test-secret"));
+                new AnswerTokens("test-secret"), stack.blockSessions());
     }
 
     @AfterAll

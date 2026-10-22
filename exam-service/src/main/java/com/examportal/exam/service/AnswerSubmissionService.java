@@ -18,6 +18,8 @@ import com.examportal.common.domain.entity.QuestionType;
 import com.examportal.common.domain.entity.UserAnswer;
 import com.examportal.exam.exception.ExamException;
 import com.examportal.exam.repository.*;
+import com.examportal.exam.session.BlockTimeline;
+import com.examportal.exam.session.SessionBlockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -60,6 +62,8 @@ public class AnswerSubmissionService {
     private final BlockResultRepository blockResults;
     // ORDERING and MATCHING: the ids of this session the participant answers with
     private final AnswerTokens answerTokens;
+    // B12b: an answer only for a question of a block that is open now
+    private final SessionBlockService blockSessions;
 
     private static final int MAX_PAGE_SIZE = 50;
 
@@ -85,7 +89,7 @@ public class AnswerSubmissionService {
                     }
                     return Mono.just(session);
                 })
-                .flatMap(session -> processAnswer(session, request))
+                .flatMap(session -> admitByBlocks(session, request.getQuestionId()).then(Mono.defer(() -> processAnswer(session, request))))
                 .doOnSuccess(response -> log.debug("Answer submitted successfully for question {}", 
                         request.getQuestionId()));
     }
@@ -361,6 +365,26 @@ public class AnswerSubmissionService {
     }
 
     // ==================== Private Helper Methods ====================
+
+    /**
+     * B12b: with block rules a question may be answered only while its block is open (409 BLOCK_CLOSED,
+     * SESSION_ON_BREAK, QUESTION_LOCKED). When the last block is already over the session is completed here and the
+     * answer is refused like any answer after the end (410 SESSION_EXPIRED).
+     */
+    private Mono<Void> admitByBlocks(ExamSession session, Long questionId) {
+        if (questionId == null) {
+            return Mono.empty();
+        }
+        return examRepository.findById(session.getExamId())
+                .flatMap(blockSessions::layout)
+                .flatMap(layout -> layout.isEmpty()
+                        ? Mono.<Void>empty()
+                        : blockSessions.admitAnswer(session, layout.get(), questionId)
+                                .flatMap(snapshot -> snapshot.phase() == BlockTimeline.Phase.DONE
+                                        ? completeSession(session).then(Mono.<Void>error(ExamException.sessionExpired()))
+                                        : Mono.<Void>empty()));
+    }
+
 
     private Mono<SubmitAnswerResponse> processAnswer(ExamSession session, SubmitAnswerRequest request) {
         Long questionId = request.getQuestionId();

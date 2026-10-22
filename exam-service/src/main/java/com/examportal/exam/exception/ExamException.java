@@ -196,6 +196,34 @@ public class ExamException extends ApplicationException {
         return new ExamException("This question accepts exactly one option", HttpStatus.BAD_REQUEST, "ANSWER_SINGLE_SELECTION_ONLY");
     }
 
+    // B12b: the blocks of a session
+
+    public static ExamException blockClosed() {
+        return new ExamException("This question belongs to a block that is closed or has not started", HttpStatus.CONFLICT,
+                "BLOCK_CLOSED");
+    }
+
+    public static ExamException onBreak() {
+        return new ExamException("The session is on a break between blocks", HttpStatus.CONFLICT, "SESSION_ON_BREAK");
+    }
+
+    public static ExamException questionLocked() {
+        return new ExamException("This block goes forward only: an earlier question cannot be answered again",
+                HttpStatus.CONFLICT, "QUESTION_LOCKED");
+    }
+
+    public static ExamException breakNotSkippable() {
+        return new ExamException("This exam does not let a break end early", HttpStatus.CONFLICT, "BREAK_NOT_SKIPPABLE");
+    }
+
+    public static ExamException blockNotFinishable() {
+        return new ExamException("No block can be left now", HttpStatus.CONFLICT, "BLOCK_NOT_FINISHABLE");
+    }
+
+    public static ExamException noBlockRules() {
+        return new ExamException("This exam has no block rules", HttpStatus.CONFLICT, "NO_BLOCK_RULES");
+    }
+
     public static ExamException scaleOutOfRange() {
         return new ExamException("The answer must be a whole number of the question's scale", HttpStatus.BAD_REQUEST,
                 "ANSWER_SCALE_OUT_OF_RANGE");

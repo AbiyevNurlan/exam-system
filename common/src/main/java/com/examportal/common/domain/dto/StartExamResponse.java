@@ -33,4 +33,7 @@ public class StartExamResponse {
 
     // What the participant has already answered in this session (empty for a new one); no answer key
     private List<SavedAnswerResponse> savedAnswers;
+
+    // B12b: where the session is among the blocks (exams with block rules only); questions then holds what may be seen now
+    private SessionBlocksResponse blocks;
 }
