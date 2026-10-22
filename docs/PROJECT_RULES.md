@@ -98,6 +98,18 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
   (`AnswerSubmissionService.resultsWithheld`), used by submit, the result endpoint and
   `my-sessions`. Do not repeat that condition anywhere else. A session whose `grading_status` is
   PENDING never shows a score (and no `resultsAvailableAt`); all three carry `gradingStatus`.
+- **Question types with a structured answer.** ORDERING: the options in their `order_index` are the right order.
+  MATCHING: `option_text` is the left side, `match_text` (exam V21) the right side of the same pair. SHORT_ANSWER:
+  the options are the accepted answers, as FILL_BLANK. LINEAR_SCALE ("Diapazon"): the scale is on the question
+  (`scale_min` 0 or 1, `scale_max` 2..10, optional labels; exam V22, CHECKed) and the right number is its only
+  option. Every option of these four is part of the answer key (`ExamStructureWriter` marks them correct). A session
+  gets the ordering items and the matching right sides only with ids of that session (`AnswerTokens`, an HMAC) and
+  never in their right order; a participant never gets the options of SHORT_ANSWER or LINEAR_SCALE
+  (`ExamMapper.participantOptions`). Stored: ORDERING the real ids in the participant's order, MATCHING for each left
+  side the real id of its chosen right side (0 = none), both in `selected_option_ids`; LINEAR_SCALE the plain number
+  in `text_answer`. All four are graded automatically, all or nothing. A new question type needs: `ExamValidator`,
+  `ExamReadinessService`, `ExamMapper` (participant options), `AnswerSubmissionService` (store and grade),
+  `ExamStructureWriter`, the analytics, the review and the frontend kinds.
 - **Open-ended answers are graded by a person.** At submit an OPEN_ENDED answer with text gets zero
   points, no verdict and `needs_manual_review = true`, and the session becomes PENDING
   (`exam_sessions.grading_status`: NOT_REQUIRED, PENDING, COMPLETE); FILL_BLANK stays automatic.
