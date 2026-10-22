@@ -11,7 +11,7 @@ Digər sənədlər burada təkrar yazılmır, yalnız istinad olunur:
 
 | | |
 |---|---|
-| Son yenilənmə | 2026-10-21 17:53 (Bakı) |
+| Son yenilənmə | 2026-10-22 (Bakı) |
 | Analiz olunan kod | `cb19e65` (`feat/avatar` filialının son commit-i; `main` = `45138df`) |
 | Canlı baza | exam_db V19, exam_auth V8 (2026-10-21-də yalnız `SELECT` ilə oxundu) |
 | Frontend | `exam-frontend`, filial `feat/exam-lock-audit` (`79f7757`, `main`-dən 1 commit irəli; `main` = `ff97fb4`) |
@@ -51,7 +51,8 @@ auth-service ◄──► exam-service: /internal/** (X-Internal-Secret başlı�
 **İndiki vəziyyət, qısa:**
 - `main`-də B2–B12a hazırdır. B13 (müəllimlərin bir-birindən ayrılması) və profil şəkli (avatar) birləşməmiş
   filiallardadır. Canlı sayt isə artıq B13 kodu ilə işləyir (canlı bazada exam V19 və auth V8 tətbiq olunub).
-- Yeni sual növləri (ORDERING, MATCHING, SHORT_ANSWER, V21) `feat/question-types` filialında yarımçıq WIP commit-dir (`97d47a4`, testləri hələ kompilyasiya olunmur).
+- Yeni sual növləri hazırdır, amma `main`-də deyil: Uyğunlaşdırma, Sıralama, Qısa cavab və Diapazon (exam V21, V22),
+  backend `feat/question-types`-da, frontend `exam-frontend`-in eyni adlı filialında (2026-10-22).
 - 224 avtomatik test var, hamısı keçir (2026-10-21).
 - Ən böyük risklər: canlı sayt və development eyni bazanı işlədir; ictimai saytda görünən 16 aktiv imtahanın
   hamısı `T-` test imtahanıdır; backup-lar yalnız eyni kompüterdədir və gecə backup tapşırığı yoxdur; sayt düşəndə
@@ -159,10 +160,10 @@ Sxemi yalnız Flyway dəyişir: `auth-service/src/main/resources/db/migration/` 
 
 ### Flyway versiyaları
 
-| | Kodda (`cb19e65`) | Canlı bazada (2026-10-21) | Yarımçıq (`feat/question-types`, `97d47a4`) |
+| | Kodda (`cb19e65`) | Canlı bazada (2026-10-21) | `feat/question-types` (`b756907`) |
 |---|---|---|---|
 | exam_auth | V1–V8 (8 fayl) | V8 | – |
-| exam_db | V1–V20 (20 fayl) | V19 | V21 (`feat/question-types` işçi qovluğunda) |
+| exam_db | V1–V20 (20 fayl) | V19 | V21, V22 (22 fayl) |
 
 **exam_auth migrasiyaları** (canlıda tətbiq tarixi):
 V1 baseline (10-12) · V2 email OTP (10-12) · V3 7 rəqəmli iştirakçı kodu (10-16) · V4 iştirakçı profili və kateqoriyalar
@@ -175,8 +176,8 @@ V5 istifadəçi üzrə sessiya indeksi (10-13) · V6 fırıldaq hadisələri (10
 V8 əl ilə yoxlama (10-13) · V9 monitorinq indeksləri (10-13) · V10 qoşulma linkləri (10-13) · V11 admin icmal
 indeksləri (10-14) · V12 qrupun sahibi `owner_id` (10-15) · V13 istifadəçi üzrə qoşulma sorğuları (10-15) · V14 iştirakçı
 kartı indeksləri (10-16) · V15 `az_ci` (10-19) · V16 bloklar (10-19) · V17 tarixçə və snapshot (10-19) · V18 qrup adı
-sahib üzrə unikal (10-19) · V19 müəllim limitləri (10-19) · **V20 profil şəkli, canlıda yoxdur** · **V21 sual növləri,
-yalnız `feat/question-types`-ın WIP commit-ində**.
+sahib üzrə unikal (10-19) · V19 müəllim limitləri (10-19) · **V20 profil şəkli, canlıda yoxdur** · **V21 uyğunlaşdırmanın sağ tərəfi (`match_text`)** ·
+**V22 Diapazon (`questions.scale_*`, CHECK ilə)**; V21 və V22 yalnız `feat/question-types`-dadır.
 
 ### exam_auth cədvəlləri (8)
 
@@ -234,7 +235,7 @@ Triggerlər (exam_db): `trg_exams_main_block` (yeni imtahana "Əsas blok"), `trg
 ### Nə hazırdır, nə yarımçıqdır
 
 - Hazır: Flyway hər iki servisdə; tarixçə trigger ilə qorunur; iştirakçı kodu bazada təyin olunur.
-- Yarımçıq: V20 canlıya tətbiq olunmayıb; V21 yalnız WIP commit-dədir; `exam_monitoring` boşdur; iki köhnə token cədvəli
+- Yarımçıq: V20 canlıya tətbiq olunmayıb; V21 və V22 yalnız `feat/question-types`-dadır; `exam_monitoring` boşdur; iki köhnə token cədvəli
   istifadə olunmur; `categories`-in API-si yoxdur.
 
 ---
@@ -447,8 +448,13 @@ müəllim üçün öz id-si, başqası üçün heç kimin olmayan "nil UUID". Fi
 ### Nə var
 
 **Quruluş.** İmtahan bloklardan ibarətdir (ən azı biri, "Əsas blok"), blokda suallar, sualda variantlar və media.
-Sual növləri: `MULTIPLE_CHOICE`, `TRUE_FALSE`, `FILL_BLANK`, `OPEN_ENDED` (`CM/domain/entity/QuestionType.java`).
-`ORDERING`, `MATCHING`, `SHORT_ANSWER` yarımçıq WIP commit-dədir (V21, `97d47a4`).
+Sual növləri: `MULTIPLE_CHOICE` (tək və çox seçimli), `TRUE_FALSE`, `FILL_BLANK`, `OPEN_ENDED`
+(`CM/domain/entity/QuestionType.java`). `feat/question-types`-da əlavə olaraq: `ORDERING` (Sıralama: bəndlərin düzgün
+sırası), `MATCHING` (Uyğunlaşdırma: sol və sağ tərəf, V21), `SHORT_ANSWER` (Qısa cavab, FILL_BLANK kimi), `LINEAR_SCALE`
+(Diapazon: 0 və ya 1-dən 2..10-a qədər bir rəqəm, kənar yazıları ilə, V22; düzgün rəqəm sualın yeganə variantıdır).
+Sessiya sıralama bəndlərini və uyğunlaşdırmanın sağ tərəflərini yalnız həmin sessiyanın id-ləri ilə alır (`AnswerTokens`).
+Hamısı avtomatik və "hamısı və ya heç nə" qaydası ilə qiymətləndirilir. Qaydası: PROJECT_RULES, "Question types with a
+structured answer".
 
 **Vaxt rejimi.** `EXAM_TIMER` (bütün imtahana bir taymer) və `BLOCK_TIMERS` (blok üzrə). Blok taymeri, fasilə,
 sərbəst naviqasiyanın bağlanması və əvvəlki bloka qayıtma iştirakçı tərəfində hələ yoxdur (B12b). Ona görə
@@ -510,7 +516,7 @@ CANCELLED statusu var, amma heç bir endpoint onu qoymur.
 ### Nə hazırdır, nə yarımçıqdır
 
 - Hazır: bloklar, tarixçə, snapshot, klon, hazırlıq, qruplar, linklər, kod, cəhd limitləri, əl ilə yoxlama, analitika.
-- Yarımçıq: B12b (iştirakçı tərəfində blok qaydaları); yeni sual növləri (V21, yarımçıq WIP); bunların heç birinin
+- Yarımçıq: B12b (iştirakçı tərəfində blok qaydaları); yeni sual növləri `main`-də deyil və canlı bazada V21/V22 yoxdur; bunların heç birinin
   frontend-i yoxdur (bölmə 13); sual bankı, regrade və vaxt uzatma yoxdur (AUDIT_GAP).
 
 ---
@@ -634,6 +640,9 @@ müvəqqəti PostgreSQL-ini (`postgres:16-alpine`) qaldırır; canlı bazaya tox
 | api-gateway, monitoring, websocket | 0 | 0 | – | – | – |
 | **Cəmi** | **62** | **224** | **0** | **0** | **0** |
 
+`feat/question-types` (`b756907`, 2026-10-22): 237 test, hamısı keçir (common 14, auth 65, exam 158; `LinearScaleTest` 7,
+`QuestionTypesTest` 6). Frontend `feat/question-types` (`0d59528`): 618 test keçir, 13 atlanır (əvvəl 605); tsc, lint, build təmiz.
+
 - `src/test`-də 63 Java faylı var: 62 test sinfi və köməkçi `ExamTestStack`.
 - 32 fayl Testcontainers işlədir (31 test sinfi və `ExamTestStack`).
 - `BackupMigrationTest` 0 test göstərir: yalnız `-Db13.backup=<backup qovluğu>` verildikdə işləyir (`assumeTrue`).
@@ -651,7 +660,7 @@ müvəqqəti PostgreSQL-ini (`postgres:16-alpine`) qaldırır; canlı bazaya tox
 | `main` | | `45138df`, 2026-10-19 19:36 | B11b, B12a tətbiq olunub |
 | `feat/b13-teacher-isolation` | birləşməyib, `main`-dən 21 commit irəli | `6acab43`, 2026-10-21 | B13; son iki commit B13 sənədləri (`d9dd6d9`) və regression skriptləri (`6acab43`) |
 | `feat/avatar` | birləşməyib, `94e2511` üstündə 1 commit (B13-ün son iki commit-i onda yoxdur) | `cb19e65`, 2026-10-20 10:38 | profil şəkli, exam V20 |
-| `feat/question-types` | `feat/avatar` üstündə 1 WIP commit | `97d47a4`, 2026-10-21 | sual növləri, V21; testləri kompilyasiya olunmur; birləşdirilməməlidir |
+| `feat/question-types` | `feat/avatar` üstündə; `feat/b13-teacher-isolation` ona birləşdirilib | `b756907`, 2026-10-22 | dörd yeni sual növü, V21, V22; 237 test keçir |
 | `docs/project-map` | bu sənəd, `cb19e65` üstündə | | `feat/avatar`-dan sonra birləşdirilməlidir |
 
 Birləşmə sırası `main` ← `feat/b13-teacher-isolation` ← `feat/avatar` ← `docs/project-map` 2026-10-21-də
@@ -819,6 +828,10 @@ istifadəçi sınıq görmür. Silinməlidir (F10, kateqoriya c, frontend tərə
 
 `FE/config/constants.ts`-də də `/exams/my-results`, `/fraud/alerts` kimi mövcud olmayan sabitlər var.
 
+Qeyd (2026-10-22): yeni sual növləri bu cədvəldə yox idi, çünki backend-də hələ yox idi. İndi onların frontend-i
+`exam-frontend`-in `feat/question-types` filialındadır (yaradıcı, imtahan ekranı, önizləmə, yoxlanış), backend ilə birlikdə
+birləşdirilməlidir.
+
 ### Təklif olunan frontend fazaları
 
 - **F6 – Müəllimin iş axını (B13):** ilk giriş və parol dəyişmə, GROUP default, qruplar və iştirakçılar menyusu,
@@ -846,14 +859,14 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 | Flyway: exam_auth V8 | hazır, canlıda | 2026-10-19 |
 | Flyway: exam_db V19 | hazır, canlıda | 2026-10-19 |
 | exam V20 (avatar) | yarımçıq (filial birləşməyib, canlıda yoxdur) | 2026-10-20 |
-| exam V21 (sual növləri) | yarımçıq (WIP commit `97d47a4`) | 2026-10-21 |
+| exam V21, V22 (sual növləri) | hazır, `main`-də və canlıda deyil | 2026-10-22 |
 | Qeydiyyat, OTP, giriş, parol bərpası | hazır | 2026-10-12 |
 | Profil, iştirakçı kodu, iştirakçı kartı (B9–B11b) | hazır | 2026-10-19 |
 | İmtahan, bloklar, tarixçə, snapshot, klon, hazırlıq (B12a) | hazır (backend) | 2026-10-19 |
 | İştirakçı tərəfində blok qaydaları (B12b) | planlaşıb | – |
 | Müəllim izolyasiyası, müəllim hesabları, limitlər (B13) | hazır, `main`-də deyil; sənədləri commit olunub | 2026-10-21 |
 | Profil şəkli | hazır, `main`-də deyil | 2026-10-20 |
-| Yeni sual növləri | yarımçıq (testlər kompilyasiya olunmur) | 2026-10-21 |
+| Yeni sual növləri (backend və frontend) | hazır, `main`-də deyil, brauzerdə yoxlanılmayıb | 2026-10-22 |
 | Endpoint reyestri və testləri | hazır | 2026-10-20 |
 | Avtomatik testlər (224) | hazır | 2026-10-21 (işlədildi) |
 | Regression skriptləri | hazır, B13-ə uyğunlaşdırılıb, B13-dən sonra işlədilməyib | 2026-10-21 |
@@ -914,6 +927,7 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 
 | Tarix (Bakı) | Filial | Nə dəyişdi | Hissələr |
 |---|---|---|---|
+| 2026-10-22 10:42 | `feat/question-types` (backend və `exam-frontend`), `docs/project-map` | Sual növləri: Sıralama, Uyğunlaşdırma, Qısa cavab tamamlandı, Diapazon (LINEAR_SCALE, exam V22) əlavə olundu; yaradıcıda doqquz növ, "Tək seçimli" və "Çox seçimli" adları, "Tezliklə" yoxdur; imtahan ekranı, önizləmə və yoxlanış; backend 237, frontend 618 test | 0, 2, 5, 9, 10, 13, 14 |
 | 2026-10-21 17:53 | `feat/b13-teacher-isolation`, `feat/question-types`, `docs/project-map` | B13 sənədləri (`d9dd6d9`, 31→29 düzəlişi ilə) və B13-ə uyğunlaşdırılmış regression skriptləri, README-də verify-b13 (`6acab43`) b13 filialına köçürüldü; sual növləri WIP commit oldu (`97d47a4`), işçi qovluq təmizdir; b13 ucunda 215 test keçdi; birləşmə sırası konfliktsiz sınandı; test məlumatının quru qaçışı, #363/#364, müəllimlərin PUBLIC imtahanları, kartın gizliliyi | 0, 2, 3, 4, 5, 6, 8, 10, 11, 14, 15 |
 | 2026-10-21 16:08 | `docs/project-map` | İlk analiz: backend başdan sona (`cb19e65`), canlı baza yalnız oxundu, 224 test işlədildi, frontend boşluq analizi; PROJECT_MAP.md, PROJECT_RULES-a xəritə qaydası, `scripts\check-project-map.ps1` | hamısı (0–18) |
 
