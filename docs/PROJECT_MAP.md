@@ -13,7 +13,7 @@ Digər sənədlər burada təkrar yazılmır, yalnız istinad olunur:
 |---|---|
 | Son yenilənmə | 2026-10-22 (Bakı) |
 | Analiz olunan kod | `cb19e65` (`feat/avatar` filialının son commit-i; `main` = `45138df`) |
-| Canlı baza | exam_db V19, exam_auth V8 (2026-10-21-də yalnız `SELECT` ilə oxundu) |
+| Canlı baza | exam_db V22, exam_auth V8 (2026-10-22, yükləmədən sonra) |
 | Frontend | `exam-frontend`, filial `feat/exam-lock-audit` (`79f7757`, `main`-dən 1 commit irəli; `main` = `ff97fb4`) |
 
 Yolların qısaltmaları (AUDIT_GAP-dakı kimi):
@@ -927,6 +927,7 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 
 | Tarix (Bakı) | Filial | Nə dəyişdi | Hissələr |
 |---|---|---|---|
+| 2026-10-22 11:05 | `main` | `feat/avatar`, `docs/project-map`, `feat/question-types` `main`-ə birləşdi; `clean package` (237 test keçdi), exam-service image yeniləndi, `go-public.ps1 start` (backup, ünvan dəyişmədi, tüstü testləri keçdi); canlı bazada exam V20, V21, V22; sayt frontend `feat/question-types` (`0d59528`) build-ini verir | 2, 10, 14 |
 | 2026-10-22 10:42 | `feat/question-types` (backend və `exam-frontend`), `docs/project-map` | Sual növləri: Sıralama, Uyğunlaşdırma, Qısa cavab tamamlandı, Diapazon (LINEAR_SCALE, exam V22) əlavə olundu; yaradıcıda doqquz növ, "Tək seçimli" və "Çox seçimli" adları, "Tezliklə" yoxdur; imtahan ekranı, önizləmə və yoxlanış; backend 237, frontend 618 test | 0, 2, 5, 9, 10, 13, 14 |
 | 2026-10-21 17:53 | `feat/b13-teacher-isolation`, `feat/question-types`, `docs/project-map` | B13 sənədləri (`d9dd6d9`, 31→29 düzəlişi ilə) və B13-ə uyğunlaşdırılmış regression skriptləri, README-də verify-b13 (`6acab43`) b13 filialına köçürüldü; sual növləri WIP commit oldu (`97d47a4`), işçi qovluq təmizdir; b13 ucunda 215 test keçdi; birləşmə sırası konfliktsiz sınandı; test məlumatının quru qaçışı, #363/#364, müəllimlərin PUBLIC imtahanları, kartın gizliliyi | 0, 2, 3, 4, 5, 6, 8, 10, 11, 14, 15 |
 | 2026-10-21 16:08 | `docs/project-map` | İlk analiz: backend başdan sona (`cb19e65`), canlı baza yalnız oxundu, 224 test işlədildi, frontend boşluq analizi; PROJECT_MAP.md, PROJECT_RULES-a xəritə qaydası, `scripts\check-project-map.ps1` | hamısı (0–18) |
