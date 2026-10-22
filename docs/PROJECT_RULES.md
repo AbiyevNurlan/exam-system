@@ -316,3 +316,21 @@ Build the jars with `.\mvnw.cmd clean package` (with `clean`): an IDE that compi
 - `AUDIT_REPORT.md` and the nested `exam-system/exam-system/` folder are not to be modified.
 - Verify changes against the running stack (health on 8080-8084, the real HTTP flow), not only by
   compiling.
+
+## Project map rule
+
+[PROJECT_MAP.md](PROJECT_MAP.md) is the living map of the backend (architecture, databases, endpoints, roles, the
+exam model, security, scripts, tests, branches, risks, what the frontend does not use yet), in Azerbaijani:
+
+> Hər tapşırığın sonunda, commit-dən əvvəl docs\PROJECT_MAP.md yenilənməlidir: əlaqəli bölmə düzəldilməli, status
+> cədvəli yenilənməli və Dəyişikliklər jurnalına yeni sətir əlavə olunmalıdır. Sənəd yenilənməyibsə tapşırıq bitmiş
+> sayılmır.
+
+- Every task, before its commit: fix the section of what changed (a new endpoint: sections 3 and 13; a migration:
+  section 2; a script: section 8; ...), update the status table (section 14) and add a line at the top of the change
+  log (section 17: date and time in Baku, branch, what changed, which sections).
+- Check with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-project-map.ps1` (against `main`;
+  `-Base <branch>` for another base, `-Staged` for the next commit only). Exit 1 means code changed and the map did
+  not: the task is not finished.
+- Counts in the map (endpoints, migrations, tests) are counted with the commands of its section 16, never estimated.
+  What was not checked is written as "yoxlanılmadı" with the reason.
