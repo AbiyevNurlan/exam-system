@@ -168,7 +168,9 @@ $default = @((Page '').data.content | ForEach-Object { [DateTime]$_.registeredAt
 Check 'without sortBy: newest registrations first, as before' ((($default | Sort-Object -Descending) -join ',') -eq ($default -join ','))
 $legacy = Page 'sort=name'
 Check 'sort=name (older form): still 200, by last name' ($legacy.status -eq 200 -and (FirstNames $legacy) -ceq $expected) (Answer $legacy)
-Check 'INSTRUCTOR: 403 with sortBy too' ((Api 'GET' "/api/admin/participants?sortBy=firstName" $ins.token $null).status -eq 403)
+# B13: a teacher gets the list of the own participants, sorted the same way; this teacher has no group: an empty page
+$insSorted = Api 'GET' "/api/admin/participants?sortBy=firstName" $ins.token $null
+Check 'INSTRUCTOR: 200 with sortBy too, only the own participants (none: no group)' ($insSorted.status -eq 200 -and $insSorted.data.totalElements -eq 0) (Answer $insSorted)
 } finally {
     # The test account gets the participant role back, whatever happened above: no test account stays INSTRUCTOR
     if ($ins.email -like '*@x.test') {

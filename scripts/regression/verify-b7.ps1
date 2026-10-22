@@ -192,7 +192,8 @@ foreach ($p in $pB, $pC) { $null = Api 'POST' "/api/admin/groups/$g2/members" $a
 # B8: an INSTRUCTOR picks only the own groups for an audience, so z owns the group of E5 (same members as g2).
 # Its name is outside "$T-" on purpose: the group list and audit checks below count the admin's three groups.
 $gz = (Api 'POST' '/api/admin/groups' $insZ.token @{ name = "T-b7z-$stamp-own" }).data.id
-foreach ($p in $pB, $pC) { $null = Api 'POST' "/api/admin/groups/$gz/members" $insZ.token @{ userId = $p.id } }
+# B13: a teacher adds somebody new by the 7-digit participant code (by id only people already in the own groups)
+foreach ($p in $pB, $pC) { $code = Sql 'exam_auth' "select participant_code from users where id='$($p.id)'"; $null = Api 'POST' "/api/admin/groups/$gz/members" $insZ.token @{ participantCode = [int]$code } }
 $invite = Api 'POST' "/api/admin/groups/$g1/members" $adm.token @{ email = "be-b7-inv-$stamp@x.test" }
 $link = Api 'POST' "/api/groups/$g1/join-link" $adm.token @{ requiresApproval = $true; maxUses = 10 }
 $joinCode = $link.data.code
@@ -428,7 +429,9 @@ do {
     $page++
 } while ($p.data.hasNext -and $page -lt 200)
 Check 'audit: no join code, no OTP of this run and no secret key=value anywhere in the list' ($leak.Count -eq 0 -and $seen -eq $auditAll.data.totalElements) "$seen rows read; $($script:otps.Count) OTPs and 1 join code looked for; $($leak -join ', ')"
-Check 'audit: participant and instructor 403; deep page and bad input 400' ((Api 'GET' '/api/admin/audit' $pA.token $null).status -eq 403 -and (Api 'GET' '/api/admin/audit' $insZ.token $null).status -eq 403 -and (Api 'GET' '/api/admin/audit?page=1000&size=50' $adm.token $null).status -eq 400 -and (Api 'GET' '/api/admin/audit?actorId=nope' $adm.token $null).status -eq 400 -and (Api 'GET' '/api/admin/audit?from=yesterday' $adm.token $null).status -eq 400)
+$zAudit = Api 'GET' '/api/admin/audit?size=50' $insZ.token $null
+# B13: a teacher reads the own audit trail (only the own actions), a participant still gets 403
+Check 'audit: participant 403, instructor 200 with only the own actions; deep page and bad input 400' ((Api 'GET' '/api/admin/audit' $pA.token $null).status -eq 403 -and $zAudit.status -eq 200 -and @($zAudit.data.content | Where-Object { $_.actorId -ne $insZ.id }).Count -eq 0 -and (Api 'GET' '/api/admin/audit?page=1000&size=50' $adm.token $null).status -eq 400 -and (Api 'GET' '/api/admin/audit?actorId=nope' $adm.token $null).status -eq 400 -and (Api 'GET' '/api/admin/audit?from=yesterday' $adm.token $null).status -eq 400)
 
 # ---------- 7. start before the start time ----------
 $e6Row = Api 'POST' "/api/exams/$e6/publish" $adm.token $null

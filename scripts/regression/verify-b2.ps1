@@ -184,6 +184,8 @@ $oldExam = Api 'GET' '/api/exams/1' $adm.token $null
 Check 'an exam from before the migration: no daily limit, unchanged maxAttempts' ($oldExam.status -eq 200 -and -not ($oldExam.data.PSObject.Properties.Name -contains 'maxAttemptsPerDay') -and (Sql 'exam_db' 'select count(*) from exams where id <= 90 and max_attempts_per_day is not null') -eq '0')
 
 foreach ($examId in $idDaily, $idPar, $idResch) { if ((Api 'POST' "/api/exams/$examId/publish" $ins.token $null).status -ne 200) { throw "publish $examId failed" } }
+# B13: the instructor's exams are for groups; the participants of this script take them as PUBLIC exams
+foreach ($examId in $idDaily, $idPar, $idResch) { if ((Open-ExamToEveryone $adm.token $examId).status -ne 200) { throw "open $examId to everybody failed" } }
 if ((Api 'POST' "/api/exams/$idOnce/publish" $admTwo.token $null).status -ne 200) { throw 'publish once failed' }
 $wait = ($start - [DateTime]::UtcNow).TotalSeconds + 2
 if ($wait -gt 0) { Start-Sleep -Seconds ([int][Math]::Ceiling($wait)) }

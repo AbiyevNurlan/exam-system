@@ -1,6 +1,6 @@
 # Regression checks
 
-Live checks of earlier work packages (B2-B7) against the **development** stack: gateway on
+Live checks of earlier work packages (B2-B13) against the **development** stack: gateway on
 `http://127.0.0.1:8080`, Mailpit on `http://127.0.0.1:8025` (codes are read from there), Postgres
 through `docker exec`. They do not work against the public mode (no Mailpit) and must never be run
 against a stack that serves real users: they create test data.
@@ -20,6 +20,7 @@ against a stack that serves real users: they create test data.
 | `verify-b11b.ps1` | participant list order: `sortBy` (code, firstName, lastName, email, registeredAt) and `dir`, Azerbaijani alphabet ignoring case and spaces, both directions, pages without a repeat or a gap, the whitelist (400), sorting with the category, institution and code filters, the older `sort`/`order`, INSTRUCTOR 403. Refuses to run while the public mode is up; needs no mail | `be-b11b-*@x.test` |
 | `verify-b12a.ps1` | exam blocks (create with blocks and the older flat questions, validation, totalMinutes, EXAM_DURATION_EXCEEDS_WINDOW), update in place (question and option ids kept, a question moved, EXAM_HAS_SESSIONS kept), the history (answer key and points as sensitive rows of one save, META_CHANGED, PUBLISHED, DELETE_ATTEMPTED, CLONED_FROM; UPDATE and DELETE of a row refused by the database), version 1 with its SHA-256, readiness and the publish gate (EXAM_NOT_READY, FEATURE_NOT_AVAILABLE), clone, block results hidden from the participant and shown to the administrator, who may read the history. Refuses to run while the public mode is up | `T-b12a-*` exams, `be-b12a-*@x.test` |
 | `verify-b8.ps1` | group ownership of an INSTRUCTOR (another owner's group is 404 like a missing one), admin paths 403 for an INSTRUCTOR, `GET /api/join/requests/mine`, rejection cooldown | `T-b8-*` groups and exams, `be-b8-*@x.test` |
+| `verify-b13.ps1` | teacher accounts by ADMIN (`/api/admin/instructors`, reset-password: temporary password shown once, change forced first, 7 days, tokens ended on deactivation and reset, audit without passwords), two teachers isolated (another teacher's exam, group and results are the 404 of a missing id, own rows only, PUBLIC for ADMIN only), the own audit trail, the start flags of `/api/me/stats`, teacher limits. Refuses to run while the public mode is up | `T-b13-*` exams and groups, `be-b13-*@x.test` |
 
 Every script starts with `Wait-Gateway` (`_common.ps1`, up to 120 s for `/actuator/health` to answer 200 UP), so a stack that is still starting does not show up as `admin login answered 0`. `New-ActiveExam` in the same file makes an exam ACTIVE with an open window (`POST /api/exams` refuses a start in the past).
 

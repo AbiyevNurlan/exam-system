@@ -127,7 +127,7 @@ Check 'an exam without attempts: PUT 200, questions, points and duration replace
 
 # ---------- 2. an exam with attempts keeps what decided their results ----------
 # POST /api/exams refuses a start in the past (@Future): New-ActiveExam creates ahead, publishes and reschedules to an open window
-$live = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-live" $s $e 30 @((Question "$T a1" 2), (Question "$T a2" 3)) }
+$live = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-live" $s $e 30 @((Question "$T a1" 2), (Question "$T a2" 3)) } $adm.token
 $liveId = $live.data.id
 $published = $live.published
 $started = if ($liveId) { Api 'POST' "/api/exams/$liveId/start" $p1.token @{} } else { @{ status = 0; code = 'no exam'; data = $null } }
@@ -182,7 +182,7 @@ $laterCompleted = Api 'POST' "/api/exams/$liveId/reschedule" $ins.token @{ start
 Check 'a completed exam with attempts to a later start: 409 EXAM_HAS_SESSIONS' ($laterCompleted.status -eq 409 -and $laterCompleted.code -eq 'EXAM_HAS_SESSIONS') (Answer $laterCompleted)
 $atOnce = Api 'POST' "/api/exams/$liveId/reschedule" $ins.token @{ startTime = (Utc $now.AddMinutes(-1)); endTime = (Utc $now.AddDays(1)) }
 Check 'reopening it at once: 200 ACTIVE, the attempt kept' ($atOnce.status -eq 200 -and $atOnce.data.status -eq 'ACTIVE' -and (Sql 'exam_db' "select count(*) from exam_sessions where exam_id=$liveId") -eq '1') (Answer $atOnce)
-$empty = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-empty" $s $e 30 @((Question "$T e1" 1)) }
+$empty = New-ActiveExam $ins.token { param($s, $e) ExamBody "$T-empty" $s $e 30 @((Question "$T e1" 1)) } $adm.token
 $null = Api 'POST' "/api/exams/$($empty.data.id)/archive" $ins.token $null
 $emptyLater = Api 'POST' "/api/exams/$($empty.data.id)/reschedule" $ins.token @{ startTime = (Utc $now.AddDays(1)); endTime = (Utc $now.AddDays(2)) }
 Check 'an archived exam without attempts to a later start: 200 SCHEDULED (unchanged)' ($emptyLater.status -eq 200 -and $emptyLater.data.status -eq 'SCHEDULED') (Answer $emptyLater)
