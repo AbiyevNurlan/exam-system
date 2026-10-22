@@ -173,6 +173,15 @@ public class GroupBulkService {
             String q = filter.getQ().trim();
             parts.add("q=" + (q.contains("@") ? LogMaskUtils.maskEmail(q) : q));
         }
+        if (filter.getName() != null && !filter.getName().isBlank()) {
+            parts.add("name=" + filter.getName().trim());
+        }
+        if (filter.getEmail() != null && !filter.getEmail().isBlank()) {
+            parts.add("email=" + LogMaskUtils.maskEmail(filter.getEmail().trim()));
+        }
+        if (filter.getCode() != null && !filter.getCode().isBlank()) {
+            parts.add("code=" + filter.getCode().trim());
+        }
         if (filter.getGroupId() != null) {
             parts.add("groupId=" + filter.getGroupId());
         }

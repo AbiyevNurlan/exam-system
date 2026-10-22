@@ -57,6 +57,9 @@ public class ParticipantAdminController {
             @RequestParam(required = false) @Parameter(description = "Locked right now or not") Boolean blocked,
             @RequestParam(required = false) @Parameter(description = "First day, yyyy-MM-dd") String registeredFrom,
             @RequestParam(required = false) @Parameter(description = "Last day, yyyy-MM-dd") String registeredTo,
+            @RequestParam(required = false) @Parameter(description = "Start of the first name, last name or \"first last\" (at least 2 characters)") String name,
+            @RequestParam(required = false) @Parameter(description = "Start of the email (at least 2 characters)") String email,
+            @RequestParam(required = false) @Parameter(description = "Start of the 7-digit participant code (2 to 7 digits)") String code,
             @RequestParam(required = false) @Parameter(description = "Profile category, e.g. UNIVERSITY_STUDENT") String category,
             @RequestParam(required = false) @Parameter(description = "Start of the profile institution (at least 2 characters)") String institution,
             @RequestParam(required = false) @Parameter(description = "code, firstName, lastName, email or registeredAt "
@@ -72,7 +75,7 @@ public class ParticipantAdminController {
             @AuthenticationPrincipal UserPrincipal principal) {
 
         ParticipantDtos.Filter filter = ParticipantDtos.Filter.builder()
-                .q(q).groupId(groupId).noGroup(noGroup).verified(verified).blocked(blocked)
+                .q(q).name(name).email(email).code(code).groupId(groupId).noGroup(noGroup).verified(verified).blocked(blocked)
                 .registeredFrom(registeredFrom).registeredTo(registeredTo)
                 .category(category).institution(institution)
                 .build();
