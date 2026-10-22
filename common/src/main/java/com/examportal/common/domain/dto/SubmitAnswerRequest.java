@@ -29,4 +29,19 @@ public class SubmitAnswerRequest {
     
     @Size(max = 10000, message = "Text answer cannot exceed 10000 characters")
     private String textAnswer;
+
+    // MATCHING: which right side (an id of matchOptions) belongs to which left option
+    @Size(max = 10, message = "At most 10 pairs can be matched")
+    private List<Match> matches;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Match {
+        @NotNull(message = "Option ID is required")
+        private Long optionId;
+        @NotNull(message = "Match ID is required")
+        private Long matchId;
+    }
 }

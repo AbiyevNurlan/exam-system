@@ -80,6 +80,8 @@ public class SessionReviewResponse {
         private List<MediaItemResponse> media;
         // Choice questions: every option; text questions: the expected answers
         private List<OptionReview> options;
+        // LINEAR_SCALE: the numbers and their end labels (the right number is the only option)
+        private ScaleSettings scale;
 
         // What the participant did
         private boolean answered;
@@ -107,6 +109,8 @@ public class SessionReviewResponse {
     public static class OptionReview {
         private Long id;
         private String optionText;
+        // MATCHING: the right side of the pair; ORDERING: orderIndex is the right position
+        private String matchText;
         private Integer orderIndex;
         private boolean correct;
         private boolean selected;

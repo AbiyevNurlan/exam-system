@@ -125,7 +125,8 @@ public class ExamReadinessService {
                 .build();
     }
 
-    private static void questionProblems(QuestionState question, BlockState block, int blockNumber, int number, List<Item> blocking) {
+    // Package-private for the tests (ExamReadinessTestAccess)
+    static void questionProblems(QuestionState question, BlockState block, int blockNumber, int number, List<Item> blocking) {
         List<OptionState> options = question.options();
         long correct = options.stream().filter(OptionState::correct).count();
         String code = null;
@@ -142,6 +143,27 @@ public class ExamReadinessService {
         } else if (question.questionType() == QuestionType.FILL_BLANK) {
             if (options.stream().noneMatch(option -> option.optionText() != null && !option.optionText().isBlank())) {
                 code = "FILL_BLANK_INCOMPLETE";
+            }
+        } else if (question.questionType() == QuestionType.SHORT_ANSWER) {
+            if (options.stream().noneMatch(option -> option.optionText() != null && !option.optionText().isBlank())) {
+                code = "SHORT_ANSWER_INCOMPLETE";
+            }
+        } else if (question.questionType() == QuestionType.ORDERING) {
+            if (options.size() < 2 || options.size() > 10 || options.stream().anyMatch(option -> option.optionText() == null || option.optionText().isBlank())) {
+                code = "ORDERING_INCOMPLETE";
+            }
+        } else if (question.questionType() == QuestionType.MATCHING) {
+            if (options.size() < 2 || options.size() > 10 || options.stream().anyMatch(option -> option.optionText() == null || option.optionText().isBlank()
+                    || option.matchText() == null || option.matchText().isBlank())) {
+                code = "MATCHING_INCOMPLETE";
+            }
+        } else if (question.questionType() == QuestionType.LINEAR_SCALE) {
+            // A scale and exactly one right number on it (ExamValidator refuses anything else; this also covers rows
+            // written before a check existed)
+            Integer value = options.size() == 1
+                    ? com.examportal.exam.validator.ExamValidator.scaleValue(options.get(0).optionText()) : null;
+            if (question.scale() == null || value == null || value < question.scale().min() || value > question.scale().max()) {
+                code = "LINEAR_SCALE_INCOMPLETE";
             }
         }
         if (code != null) {

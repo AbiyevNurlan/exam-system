@@ -25,6 +25,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  */
 class ExamBlocksMigrationTest {
 
+    private static final String OPTIONS_FINGERPRINT = "SELECT md5(string_agg(id || ':' || question_id || ':' || option_text || ':' "
+            + "|| COALESCE(is_correct::text, '') || ':' || order_index, ',' ORDER BY id)) FROM question_options";
+
     private static PostgreSQLContainer<?> postgres;
     private static DatabaseClient db;
 
@@ -92,7 +95,8 @@ class ExamBlocksMigrationTest {
         String questionsBefore = text("SELECT md5(string_agg(id || ':' || exam_id || ':' || order_index || ':' || points, ',' ORDER BY id)) FROM questions");
         String sessionsBefore = text("SELECT md5(string_agg(s::text, ',' ORDER BY id)) FROM exam_sessions s");
         String answersBefore = text("SELECT md5(string_agg(a::text, ',' ORDER BY id)) FROM user_answers a");
-        String optionsBefore = text("SELECT md5(string_agg(o::text, ',' ORDER BY id)) FROM question_options o");
+        // The columns of V15 only: later migrations add columns (V21 match_text), which change o::text but no value
+        String optionsBefore = text(OPTIONS_FINGERPRINT);
 
         Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                 .locations("classpath:db/migration").load().migrate();
@@ -115,7 +119,7 @@ class ExamBlocksMigrationTest {
                 .isEqualTo(questionsBefore);
         assertThat(text("SELECT md5(string_agg(s::text, ',' ORDER BY id)) FROM exam_sessions s")).isEqualTo(sessionsBefore);
         assertThat(text("SELECT md5(string_agg(a::text, ',' ORDER BY id)) FROM user_answers a")).isEqualTo(answersBefore);
-        assertThat(text("SELECT md5(string_agg(o::text, ',' ORDER BY id)) FROM question_options o")).isEqualTo(optionsBefore);
+        assertThat(text(OPTIONS_FINGERPRINT)).isEqualTo(optionsBefore);
         assertThat(text("SELECT is_nullable FROM information_schema.columns WHERE table_name = 'questions' AND column_name = 'block_id'"))
                 .isEqualTo("NO");
 

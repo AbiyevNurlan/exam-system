@@ -167,7 +167,7 @@ public class AnalyticsRepository {
                             FROM user_answers a
                             JOIN best b ON b.id = a.session_id
                             JOIN questions q ON q.id = a.question_id
-                            WHERE q.exam_id = :examId AND q.active = true AND q.question_type = 'FILL_BLANK'
+                            WHERE q.exam_id = :examId AND q.active = true AND q.question_type IN ('FILL_BLANK', 'SHORT_ANSWER', 'LINEAR_SCALE')
                               AND btrim(COALESCE(a.text_answer, '')) <> ''
                             GROUP BY a.question_id, LEFT(lower(btrim(a.text_answer)), 200)
                         ), ranked AS (

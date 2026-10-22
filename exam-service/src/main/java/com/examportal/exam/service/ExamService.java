@@ -73,6 +73,7 @@ public class ExamService {
     private final ExamSnapshotService snapshots;
     // B12a: the same check for GET /readiness and for publishing
     private final ExamReadinessService readiness;
+    private final AnswerTokens answerTokens;
 
     private static final int DEFAULT_BATCH_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
@@ -1131,7 +1132,8 @@ public class ExamService {
     /**
      * Prepare and cache questions for a session
      */
-    private Mono<List<QuestionResponse>> prepareQuestionsForSession(Exam exam, String sessionId) {
+    // Package-private for QuestionTypesTest
+    Mono<List<QuestionResponse>> prepareQuestionsForSession(Exam exam, String sessionId) {
         return questionRepository.findActiveByExamIdOrderByOrderIndex(exam.getId())
                 .collectList()
                 .flatMap(questions -> {
@@ -1148,6 +1150,13 @@ public class ExamService {
                                 ExamMediaService.MediaIndex media = loaded.getT2();
                                 List<QuestionResponse> responses = questions.stream()
                                         .map(q -> {
+                                            // ORDERING and MATCHING: ids of this session, so the stored order tells nothing
+                                            if (q.getQuestionType() == QuestionType.ORDERING || q.getQuestionType() == QuestionType.MATCHING) {
+                                                QuestionResponse response = sessionView(q, new ArrayList<>(optionsMap.getOrDefault(q.getId(), List.of())),
+                                                        sessionId, media, Boolean.TRUE.equals(exam.getShuffleOptions()));
+                                                response.setMedia(media.forQuestion(q.getId()));
+                                                return response;
+                                            }
                                             // Text questions keep their expected answer as an option: never send it
                                             List<OptionResponse> options = mapper.isTextQuestion(q.getQuestionType())
                                                     ? null
@@ -1181,5 +1190,53 @@ public class ExamService {
                 })
                 .flatMap(questions -> cacheService.cacheSessionQuestions(sessionId, questions, 
                         exam.getDurationMinutes()).thenReturn(questions));
+    }
+
+    /**
+     * ORDERING: every item with an id of this session, in an order other than the right one. MATCHING: the left
+     * sides as they are (shuffled when the exam shuffles options), the right sides as matchOptions with ids of this
+     * session, in an order other than the pairs'. No orderIndex: it is the answer.
+     */
+    private QuestionResponse sessionView(Question question, List<QuestionOption> stored, String sessionId,
+                                         ExamMediaService.MediaIndex media, boolean shuffleOptions) {
+        stored.sort(Comparator.comparing(QuestionOption::getOrderIndex, Comparator.nullsLast(Comparator.naturalOrder())));
+        List<OptionResponse> options;
+        List<OptionResponse> matchOptions = null;
+        if (question.getQuestionType() == QuestionType.ORDERING) {
+            options = shuffledAway(stored.stream()
+                    .map(option -> participantItem(option, answerTokens.token(sessionId, option.getId()), option.getOptionText(),
+                            media.forOption(option.getId())))
+                    .toList());
+        } else {
+            options = stored.stream()
+                    .map(option -> participantItem(option, option.getId(), option.getOptionText(), media.forOption(option.getId())))
+                    .collect(Collectors.toList());
+            if (shuffleOptions) {
+                options = mapper.shuffleList(options);
+            }
+            matchOptions = shuffledAway(stored.stream()
+                    .map(option -> participantItem(option, answerTokens.token(sessionId, option.getId()), option.getMatchText(), null))
+                    .toList());
+        }
+        QuestionResponse response = mapper.toParticipantResponse(question, options);
+        response.setMatchOptions(matchOptions);
+        return response;
+    }
+
+    private static OptionResponse participantItem(QuestionOption option, long id, String text,
+                                                  List<com.examportal.common.domain.dto.media.MediaItemResponse> media) {
+        return OptionResponse.builder().id(id).questionId(option.getQuestionId()).optionText(text).media(media).build();
+    }
+
+    // A random order, never the stored one when there are two or more items
+    private static List<OptionResponse> shuffledAway(List<OptionResponse> inOrder) {
+        List<OptionResponse> shuffled = new ArrayList<>(inOrder);
+        if (shuffled.size() < 2) {
+            return shuffled;
+        }
+        do {
+            Collections.shuffle(shuffled);
+        } while (shuffled.equals(inOrder));
+        return shuffled;
     }
 }

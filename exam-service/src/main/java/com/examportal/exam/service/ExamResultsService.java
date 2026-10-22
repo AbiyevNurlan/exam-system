@@ -540,6 +540,7 @@ public class ExamResultsService {
                             .map(option -> SessionReviewResponse.OptionReview.builder()
                                     .id(option.getId())
                                     .optionText(option.getOptionText())
+                                    .matchText(option.getMatchText())
                                     .orderIndex(option.getOrderIndex())
                                     .correct(Boolean.TRUE.equals(option.getIsCorrect()))
                                     .selected(selected.contains(option.getId()))
@@ -556,6 +557,8 @@ public class ExamResultsService {
                             .maxPoints(question.getPoints())
                             .explanation(question.getExplanation())
                             .media(data.media().forQuestion(question.getId()))
+                            .scale(com.examportal.common.domain.dto.ScaleSettings.of(question.getScaleMin(), question.getScaleMax(),
+                                    question.getScaleMinLabel(), question.getScaleMaxLabel()))
                             .options(options)
                             .answered(answer != null);
                     if (answer == null) {

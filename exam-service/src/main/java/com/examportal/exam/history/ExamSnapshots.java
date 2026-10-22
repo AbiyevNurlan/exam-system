@@ -131,8 +131,25 @@ public final class ExamSnapshots {
         map.put("allowMultipleAnswers", question.allowMultipleAnswers());
         map.put("required", question.required());
         map.put("explanation", question.explanation());
+        // LINEAR_SCALE only: every other question keeps exactly the keys it was hashed with
+        if (question.scale() != null) {
+            map.put("scale", scale(question.scale()));
+        }
         map.put("media", media(question.media()));
         map.put("options", options(question.options()));
+        return map;
+    }
+
+    // The scale of LINEAR_SCALE as plain values (null for every other question)
+    public static Map<String, Object> scale(ExamState.ScaleState scale) {
+        if (scale == null) {
+            return null;
+        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("min", scale.min());
+        map.put("max", scale.max());
+        map.put("minLabel", scale.minLabel());
+        map.put("maxLabel", scale.maxLabel());
         return map;
     }
 
@@ -144,6 +161,10 @@ public final class ExamSnapshots {
             map.put("id", option.id());
             map.put("label", label(i));
             map.put("text", option.optionText());
+            // MATCHING only: older versions (and every other type) keep exactly the keys they were hashed with
+            if (option.matchText() != null) {
+                map.put("matchText", option.matchText());
+            }
             map.put("correct", option.correct());
             map.put("mediaIds", option.media().stream().map(ref -> ref.mediaId().toString()).toList());
             list.add(map);

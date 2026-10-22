@@ -24,6 +24,8 @@ public class OptionResponse {
     private Long id;
     private Long questionId;
     private String optionText;
+    // MATCHING: the right side of the pair (never sent to participants with the left side)
+    private String matchText;
     private Integer orderIndex;
     private Boolean isCorrect; // Only shown after submission or to instructors
     // Attached image (at most one); without URL for participants

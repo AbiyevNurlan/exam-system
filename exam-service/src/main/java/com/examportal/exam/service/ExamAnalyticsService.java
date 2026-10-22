@@ -148,7 +148,8 @@ public class ExamAnalyticsService {
                     .gradedCount(stats.graded())
                     .pendingGradingCount(stats.pendingAnswers())
                     .averageGradePercent(stats.averageGradePercent());
-            case FILL_BLANK -> question.topAnswers(textAnswers.stream()
+            // LINEAR_SCALE: how often each number was picked
+            case FILL_BLANK, SHORT_ANSWER, LINEAR_SCALE -> question.topAnswers(textAnswers.stream()
                     .map(answer -> QuestionAnalyticsResponse.TextAnswer.builder()
                             .text(answer.text())
                             .count(answer.count())
