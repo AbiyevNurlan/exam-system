@@ -132,6 +132,23 @@ public class GroupMembershipRepository {
     }
 
     /**
+     * The first `limit` of the given users who are members of the group already (stable order by user id)
+     */
+    public Mono<List<UUID>> findMembersAmong(Long groupId, Collection<UUID> userIds, int limit) {
+        return databaseClient.sql("""
+                        SELECT user_id FROM user_group_members
+                        WHERE group_id = :groupId AND user_id = ANY(:userIds)
+                        ORDER BY user_id LIMIT :limit
+                        """)
+                .bind("groupId", groupId)
+                .bind("userIds", userIds.toArray(new UUID[0]))
+                .bind("limit", limit)
+                .map(row -> row.get("user_id", UUID.class))
+                .all()
+                .collectList();
+    }
+
+    /**
      * Add the users as members; returns how many were new. Idempotent: a user who is a member
      * already is skipped (ON CONFLICT DO NOTHING), also when two requests add the same user at once.
      */
