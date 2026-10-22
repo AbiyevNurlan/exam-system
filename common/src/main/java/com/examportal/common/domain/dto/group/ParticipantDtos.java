@@ -125,6 +125,20 @@ public final class ParticipantDtos {
         private boolean dryRun;
     }
 
+    public static final int SAMPLE_SIZE = 50;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AlreadyMember {
+        private java.util.UUID id;
+        // 7-digit participant code, for telling two people of the same name apart
+        private Integer participantCode;
+        private String firstName;
+        private String lastName;
+    }
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -144,5 +158,7 @@ public final class ParticipantDtos {
         private Long added;
         // Real runs only: matched users that were members already (also when someone else added them meanwhile)
         private Long skipped;
+        // Of the matched users who are members already: the first SAMPLE_SIZE with their names (the figure above is the total)
+        private java.util.List<AlreadyMember> alreadyMembersSample;
     }
 }

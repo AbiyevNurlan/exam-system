@@ -2,6 +2,7 @@ package com.examportal.exam.service;
 
 import com.examportal.common.domain.dto.group.ParticipantDtos;
 import com.examportal.common.domain.dto.internal.ParticipantQuery;
+import com.examportal.common.domain.dto.internal.UserLookupResponse;
 import com.examportal.common.domain.entity.GroupMemberSource;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.common.utils.LogMaskUtils;
@@ -44,6 +45,7 @@ public class GroupBulkService {
     private final GroupAccessPolicy accessPolicy;
     private final GroupMembershipRepository membershipRepository;
     private final ParticipantService participantService;
+    private final ParticipantDirectory participantDirectory;
     private final UserDirectoryClient userDirectory;
     private final GroupAuditService auditService;
     private final TransactionalOperator transactionalOperator;
@@ -97,14 +99,15 @@ public class GroupBulkService {
                         return Mono.error(GroupException.tooManyMatches(ParticipantDtos.BULK_CAP));
                     }
                     Mono<Long> already = ids.isEmpty() ? Mono.just(0L) : membershipRepository.countMembersAmong(groupId, ids);
-                    return already.flatMap(alreadyMembers -> {
+                    return already.flatMap(alreadyMembers -> alreadySample(groupId, ids, alreadyMembers).flatMap(sample -> {
                         long willAdd = matched - alreadyMembers;
                         ParticipantDtos.BulkResult.BulkResultBuilder result = ParticipantDtos.BulkResult.builder()
                                 .dryRun(dryRun)
                                 .matched(matched)
                                 .alreadyMembers(alreadyMembers)
                                 .willAdd(willAdd)
-                                .cap(ParticipantDtos.BULK_CAP);
+                                .cap(ParticipantDtos.BULK_CAP)
+                                .alreadyMembersSample(sample);
                         if (dryRun) {
                             return Mono.just(result.build());
                         }
@@ -118,8 +121,30 @@ public class GroupBulkService {
                                 .map(added -> result.added(added).skipped(matched - added).build())
                                 .doOnSuccess(done -> log.info("Bulk addition to group {} by {}: {} matched, {} added",
                                         groupId, actorId, matched, done.getAdded()));
-                    });
+                    }));
                 });
+    }
+
+    /**
+     * Who of the matched users is a member already, by name, so that the administrator can see them: the first
+     * SAMPLE_SIZE only. A failed name lookup leaves the names out; the people are still listed by code.
+     */
+    private Mono<List<ParticipantDtos.AlreadyMember>> alreadySample(Long groupId, List<UUID> ids, long alreadyMembers) {
+        if (alreadyMembers == 0 || ids.isEmpty()) {
+            return Mono.just(List.of());
+        }
+        return membershipRepository.findMembersAmong(groupId, ids, ParticipantDtos.SAMPLE_SIZE)
+                .flatMap(members -> participantDirectory.names(members).map(names -> members.stream()
+                        .map(id -> {
+                            UserLookupResponse.UserRef ref = names.get(id);
+                            return ParticipantDtos.AlreadyMember.builder()
+                                    .id(id)
+                                    .participantCode(ref != null ? ref.getParticipantCode() : null)
+                                    .firstName(ref != null ? ref.getFirstName() : null)
+                                    .lastName(ref != null ? ref.getLastName() : null)
+                                    .build();
+                        })
+                        .toList()));
     }
 
     /**
