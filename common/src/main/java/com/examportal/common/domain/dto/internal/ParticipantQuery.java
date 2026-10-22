@@ -36,6 +36,10 @@ public final class ParticipantQuery {
     public static class Filter {
         // Prefix of the first name, last name, "first last" or email (ignoring case), or a full user id
         private String q;
+        // Separate searches on one field each (see ParticipantDtos.Filter): name, email, participant code prefix
+        private String name;
+        private String email;
+        private String code;
         private Boolean verified;
         // Locked right now (a temporary lock that has run out does not count)
         private Boolean blocked;

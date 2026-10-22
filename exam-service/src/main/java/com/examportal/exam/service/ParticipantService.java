@@ -191,6 +191,20 @@ public class ParticipantService {
             return Mono.error(new ValidationException("Search text must be between " + ParticipantQuery.MIN_SEARCH_LENGTH
                     + " and " + ParticipantQuery.MAX_SEARCH_LENGTH + " characters"));
         }
+        String name = given.getName() == null || given.getName().isBlank() ? null : given.getName().trim();
+        if (name != null && (name.length() < ParticipantQuery.MIN_SEARCH_LENGTH || name.length() > ParticipantQuery.MAX_SEARCH_LENGTH)) {
+            return Mono.error(new ValidationException("name must be between " + ParticipantQuery.MIN_SEARCH_LENGTH
+                    + " and " + ParticipantQuery.MAX_SEARCH_LENGTH + " characters"));
+        }
+        String email = given.getEmail() == null || given.getEmail().isBlank() ? null : given.getEmail().trim();
+        if (email != null && (email.length() < ParticipantQuery.MIN_SEARCH_LENGTH || email.length() > ParticipantQuery.MAX_SEARCH_LENGTH)) {
+            return Mono.error(new ValidationException("email must be between " + ParticipantQuery.MIN_SEARCH_LENGTH
+                    + " and " + ParticipantQuery.MAX_SEARCH_LENGTH + " characters"));
+        }
+        String code = given.getCode() == null || given.getCode().isBlank() ? null : given.getCode().trim();
+        if (code != null && !code.matches("[0-9]{2,7}")) {
+            return Mono.error(new ValidationException("code must be 2 to 7 digits"));
+        }
         LocalDate from;
         LocalDate to;
         try {
@@ -215,6 +229,9 @@ public class ParticipantService {
 
         ParticipantQuery.Filter.FilterBuilder resolved = ParticipantQuery.Filter.builder()
                 .q(term)
+                .name(name)
+                .email(email)
+                .code(code)
                 .category(category)
                 .institution(institution)
                 .verified(given.getVerified())

@@ -171,6 +171,43 @@ public class ParticipantQueryRepository {
             }
             where.append(")");
         }
+        // Separate searches, each on one field and all of them ANDed with q and the rest (the name box, the email box and
+        // the code box of the list)
+        if (StringUtils.hasText(filter.getName())) {
+            String term = filter.getName().trim().toLowerCase(Locale.ROOT);
+            if (term.length() < ParticipantQuery.MIN_SEARCH_LENGTH || term.length() > ParticipantQuery.MAX_SEARCH_LENGTH) {
+                throw new ValidationException("name", "must be between " + ParticipantQuery.MIN_SEARCH_LENGTH
+                        + " and " + ParticipantQuery.MAX_SEARCH_LENGTH + " characters");
+            }
+            params.put("name", term.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%");
+            where.append(" AND (lower(first_name) LIKE :name ESCAPE '!' OR lower(last_name) LIKE :name ESCAPE '!'"
+                    + " OR lower(first_name || ' ' || last_name) LIKE :name ESCAPE '!')");
+        }
+        if (StringUtils.hasText(filter.getEmail())) {
+            String term = filter.getEmail().trim().toLowerCase(Locale.ROOT);
+            if (term.length() < ParticipantQuery.MIN_SEARCH_LENGTH || term.length() > ParticipantQuery.MAX_SEARCH_LENGTH) {
+                throw new ValidationException("email", "must be between " + ParticipantQuery.MIN_SEARCH_LENGTH
+                        + " and " + ParticipantQuery.MAX_SEARCH_LENGTH + " characters");
+            }
+            params.put("emailPrefix", term.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%");
+            where.append(" AND lower(email) LIKE :emailPrefix ESCAPE '!'");
+        }
+        if (StringUtils.hasText(filter.getCode())) {
+            // The start of the 7-digit code as a range of numbers (the unique index of participant_code serves it):
+            // 12 is every code from 1200000 to 1299999
+            String digits = filter.getCode().trim();
+            if (!digits.matches("[0-9]{2,7}")) {
+                throw new ValidationException("code", "must be 2 to 7 digits");
+            }
+            long scale = 1;
+            for (int i = digits.length(); i < 7; i++) {
+                scale *= 10;
+            }
+            long start = Long.parseLong(digits);
+            params.put("codeFrom", (int) (start * scale));
+            params.put("codeTo", (int) ((start + 1) * scale));
+            where.append(" AND participant_code >= :codeFrom AND participant_code < :codeTo");
+        }
         if (filter.getVerified() != null) {
             where.append(filter.getVerified()
                     ? " AND email_verified = true"

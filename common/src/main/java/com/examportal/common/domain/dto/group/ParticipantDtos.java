@@ -36,6 +36,11 @@ public final class ParticipantDtos {
     public static class Filter {
         // First name, last name, "first last" or email prefix (ignoring case), or a full user id; at least 2 characters
         private String q;
+        // Separate searches, each on its own field (combined with AND, and with q): the start of the first name, last
+        // name or "first last"; the start of the email; the start of the 7-digit participant code (2 to 7 digits)
+        private String name;
+        private String email;
+        private String code;
         // Members of this group only
         private Long groupId;
         // Only participants who are in no group at all; cannot be combined with groupId
