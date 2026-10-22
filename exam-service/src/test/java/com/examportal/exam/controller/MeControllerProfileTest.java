@@ -3,6 +3,7 @@ package com.examportal.exam.controller;
 import com.examportal.common.domain.dto.profile.ParticipantProfileDtos;
 import com.examportal.common.security.UserPrincipal;
 import com.examportal.exam.client.UserDirectoryClient;
+import com.examportal.exam.service.AvatarService;
 import com.examportal.exam.repository.MyStatsRepository;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
@@ -23,7 +24,7 @@ import static org.mockito.Mockito.when;
 class MeControllerProfileTest {
 
     private final UserDirectoryClient directory = mock(UserDirectoryClient.class);
-    private final MeController controller = new MeController(mock(MyStatsRepository.class), directory);
+    private final MeController controller = new MeController(mock(MyStatsRepository.class), directory, mock(AvatarService.class));
 
     private static UserPrincipal principal(UUID id) {
         UserPrincipal principal = mock(UserPrincipal.class);

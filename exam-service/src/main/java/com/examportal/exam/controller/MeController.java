@@ -2,7 +2,12 @@ package com.examportal.exam.controller;
 
 import com.examportal.common.domain.dto.ApiResponse;
 import com.examportal.common.domain.dto.MyStatsResponse;
+import com.examportal.common.domain.dto.profile.AvatarDtos;
 import com.examportal.common.domain.dto.profile.ParticipantProfileDtos;
+import com.examportal.exam.service.AvatarService;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import com.examportal.exam.client.UserDirectoryClient;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,6 +38,7 @@ public class MeController {
 
     private final MyStatsRepository statsRepository;
     private final UserDirectoryClient userDirectory;
+    private final AvatarService avatarService;
 
     @GetMapping("/stats")
     @PreAuthorize("isAuthenticated()")
@@ -76,5 +82,40 @@ public class MeController {
     public Mono<ApiResponse<ParticipantProfileDtos.Profile>> saveMyProfile(@AuthenticationPrincipal UserPrincipal principal,
                                                                          @RequestBody ParticipantProfileDtos.UpdateRequest request) {
         return userDirectory.saveProfile(principal.getId(), principal.getId(), request).map(ApiResponse::success);
+    }
+
+    @GetMapping("/avatar")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "My profile picture", description = "url: a short-lived download URL (expiresIn seconds); "
+            + "url = null when there is no picture.")
+    public Mono<ApiResponse<AvatarDtos.Avatar>> myAvatar(@AuthenticationPrincipal UserPrincipal principal) {
+        return avatarService.get(principal.getId()).map(ApiResponse::success);
+    }
+
+    @PostMapping("/avatar/upload-url")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get an upload URL for my profile picture", description = "image/jpeg, image/png or image/webp "
+            + "up to exam.media.avatar-max-bytes (2 MB). PUT the file to uploadUrl with exactly the returned headers, then "
+            + "call confirm. An earlier upload that was not confirmed is dropped.")
+    public Mono<ApiResponse<AvatarDtos.Upload>> avatarUploadUrl(@AuthenticationPrincipal UserPrincipal principal,
+                                                                @Valid @RequestBody AvatarDtos.UploadRequest request) {
+        return avatarService.createUpload(principal.getId(), request).map(ApiResponse::success);
+    }
+
+    @PostMapping("/avatar/confirm")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Confirm my profile picture", description = "Checks the stored file (size and magic bytes) and "
+            + "makes it the picture; the one before is deleted. 409 MEDIA_NOT_UPLOADED while nothing was uploaded, "
+            + "400 MEDIA_INVALID deletes the upload, 404 MEDIA_NOT_FOUND without an upload.")
+    public Mono<ApiResponse<AvatarDtos.Avatar>> confirmAvatar(@AuthenticationPrincipal UserPrincipal principal) {
+        return avatarService.confirm(principal.getId()).map(ApiResponse::success);
+    }
+
+    @DeleteMapping("/avatar")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Remove my profile picture", description = "Also when there is none.")
+    public Mono<ApiResponse<Void>> deleteAvatar(@AuthenticationPrincipal UserPrincipal principal) {
+        return avatarService.delete(principal.getId())
+                .then(Mono.fromSupplier(() -> ApiResponse.<Void>success(null, "Avatar removed")));
     }
 }

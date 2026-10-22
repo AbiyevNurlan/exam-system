@@ -121,7 +121,8 @@ class BackupMigrationTest {
                 + ", exam_auth " + auth.initialSchemaVersion + " -> " + auth.targetSchemaVersion);
         assertThat(exam.success).isTrue();
         assertThat(auth.success).isTrue();
-        assertThat(exam.targetSchemaVersion).isEqualTo("19");
+        // V20 (user_avatars) only adds an empty table
+        assertThat(exam.targetSchemaVersion).isEqualTo("20");
         assertThat(auth.targetSchemaVersion).isEqualTo("8");
 
         Map<String, Long> examAfter = rows("exam_db");
