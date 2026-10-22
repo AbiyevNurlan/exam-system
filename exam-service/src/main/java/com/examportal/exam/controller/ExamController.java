@@ -334,6 +334,51 @@ public class ExamController {
                 .map(result -> ApiResponse.success(result, "Exam submitted successfully"));
     }
 
+    // ==================== B12b: the blocks of a session ====================
+
+    @GetMapping("/session/{sessionId}/blocks")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Where the session is among the blocks", description = "Exams with block rules only (409 NO_BLOCK_RULES "
+            + "otherwise): the phase (BLOCK, BREAK, DONE), the blocks with their state, the deadline of the current block or "
+            + "the end of the break, and the questions that may be seen now. A session whose last block is over is completed.")
+    public Mono<ApiResponse<SessionBlocksResponse>> getSessionBlocks(
+            @PathVariable String sessionId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return examService.sessionBlocks(sessionId, principal.getId()).map(ApiResponse::success);
+    }
+
+    @PostMapping("/session/{sessionId}/blocks/finish")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Leave the current block", description = "The block closes for good; a break or the next block "
+            + "follows. 409 BLOCK_NOT_FINISHABLE when every block is open or no block is being taken. The last block is left "
+            + "by submitting the exam.")
+    public Mono<ApiResponse<SessionBlocksResponse>> finishBlock(
+            @PathVariable String sessionId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return examService.finishBlock(sessionId, principal.getId()).map(ApiResponse::success);
+    }
+
+    @PostMapping("/session/{sessionId}/blocks/end-break")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "End the break early", description = "The next block starts now. 409 BREAK_NOT_SKIPPABLE when the "
+            + "exam does not allow it.")
+    public Mono<ApiResponse<SessionBlocksResponse>> endBreak(
+            @PathVariable String sessionId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return examService.endBreak(sessionId, principal.getId()).map(ApiResponse::success);
+    }
+
+    @PostMapping("/session/{sessionId}/blocks/reach/{questionId}")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Move on in a forward-only block", description = "The questions before this one close. 409 "
+            + "QUESTION_LOCKED for a question already closed, BLOCK_CLOSED for one of another block.")
+    public Mono<ApiResponse<SessionBlocksResponse>> reachQuestion(
+            @PathVariable String sessionId,
+            @PathVariable Long questionId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return examService.reachQuestion(sessionId, questionId, principal.getId()).map(ApiResponse::success);
+    }
+
     // ==================== Results ====================
 
     @GetMapping("/session/{sessionId}/result")

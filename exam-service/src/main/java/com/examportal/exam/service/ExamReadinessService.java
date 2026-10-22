@@ -34,7 +34,8 @@ import java.util.UUID;
  * a duration that does not fit the window, a window that has ended, and before B12b block timers, fixed
  * navigation or returning to earlier blocks (FEATURE_NOT_AVAILABLE).
  * Warnings: a GROUP exam without an active audience group (nobody could take it), a start in the past (it opens
- * at once), block time limits that the exam timer ignores.
+ * at once), block time limits and breaks that the exam timer ignores, returning to earlier blocks with block timers
+ * (a block whose time ran out stays closed).
  */
 @Service
 @RequiredArgsConstructor
@@ -91,10 +92,18 @@ public class ExamReadinessService {
             if (state.timingMode() != TimingMode.BLOCK_TIMERS && block.timeLimitMinutes() != null) {
                 warnings.add(item("BLOCK_TIME_LIMIT_IGNORED", block.id(), blockNumber, null, null, Map.of("blockTitle", block.title())));
             }
+            // B12b: a break is a pause between block timers; under the exam timer it would only eat exam time
+            if (state.timingMode() != TimingMode.BLOCK_TIMERS && block.breakAfterMinutes() > 0 && b < state.blocks().size() - 1) {
+                warnings.add(item("BREAK_IGNORED", block.id(), blockNumber, null, null, Map.of("blockTitle", block.title())));
+            }
             for (QuestionState question : block.questions()) {
                 number++;
                 questionProblems(question, block, blockNumber, number, blocking);
             }
+        }
+        // B12b: with block timers a block that ran out cannot be opened again
+        if (state.timingMode() == TimingMode.BLOCK_TIMERS && state.allowReturnToPreviousBlocks()) {
+            warnings.add(item("RETURN_IGNORED", null, null, null, null, null));
         }
         if (state.endTime() != null && !state.endTime().isAfter(now)) {
             blocking.add(item("WINDOW_ENDED", null, null, null, null, Map.of("endTime", state.endTime().toString())));

@@ -107,7 +107,8 @@ class ExamReadinessTest {
         assertThat(codes(result.getBlocking())).containsExactlyInAnyOrder("MULTIPLE_CHOICE_INCOMPLETE", "NO_CORRECT_ANSWER",
                 "TRUE_FALSE_INCOMPLETE", "FILL_BLANK_INCOMPLETE", "ZERO_POINTS", "MEDIA_MISSING", "EMPTY_BLOCK",
                 "BLOCK_TIME_LIMIT_MISSING", "WINDOW_ENDED", "DURATION_EXCEEDS_WINDOW", "FEATURE_NOT_AVAILABLE");
-        assertThat(codes(result.getWarnings())).containsExactly("AUDIENCE_EMPTY");
+        // B12b: with block timers a block that ran out cannot be opened again, whatever the setting says
+        assertThat(codes(result.getWarnings())).containsExactlyInAnyOrder("RETURN_IGNORED", "AUDIENCE_EMPTY");
         ExamReadinessResponse.Item tf = result.getBlocking().stream().filter(i -> i.getCode().equals("TRUE_FALSE_INCOMPLETE")).findFirst().orElseThrow();
         assertThat(tf.getQuestionNumber()).isEqualTo(3);
         assertThat(tf.getBlockNumber()).isEqualTo(1);
@@ -120,6 +121,24 @@ class ExamReadinessTest {
         ExamReadinessResponse empty = ExamReadinessService.evaluate(noQuestions, 0, NOW, false);
         assertThat(codes(empty.getBlocking())).containsExactly("NO_QUESTIONS");
         assertThat(codes(empty.getWarnings())).containsExactlyInAnyOrder("START_IN_PAST", "BLOCK_TIME_LIMIT_IGNORED");
+    }
+
+    @Test
+    void aBreakUnderTheExamTimerIsIgnoredAndSaidSo() {
+        List<OptionState> good = List.of(option("a", true, null), option("b", false, null));
+        BlockState first = new BlockState(10L, 1, "B10", null, null, 10, true, false, true,
+                List.of(question(1, QuestionType.MULTIPLE_CHOICE, "1", good)));
+        // The break after the last block never counts, so it is not mentioned
+        BlockState last = new BlockState(11L, 2, "B11", null, null, 10, true, false, true,
+                List.of(question(2, QuestionType.MULTIPLE_CHOICE, "1", good)));
+        ExamState exam = exam(TimingMode.EXAM_TIMER, 30, NOW.plusDays(1), NOW.plusDays(1).plusHours(1), ExamAccessType.PUBLIC, false,
+                List.of(first, last));
+
+        ExamReadinessResponse result = ExamReadinessService.evaluate(exam, 0, NOW, true);
+
+        assertThat(result.isReady()).isTrue();
+        assertThat(codes(result.getWarnings())).containsExactly("BREAK_IGNORED");
+        assertThat(result.getWarnings().get(0).getBlockNumber()).isEqualTo(1);
     }
 
     private static String code(Throwable error) {

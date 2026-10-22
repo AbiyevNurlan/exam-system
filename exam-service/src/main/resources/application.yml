@@ -93,10 +93,10 @@ exam:
     # Most rows a CSV export of an exam's results may have; more is refused with 422 RESULTS_EXPORT_TOO_LARGE
     export-max-rows: ${EXAM_RESULTS_EXPORT_MAX_ROWS:50000}
   blocks:
-    # B12a: the participant side of blocks (block timers, breaks, fixed navigation, returning to earlier
-    # blocks) is B12b. Until it is in place this stays false and an exam that needs it cannot be
-    # published (409 FEATURE_NOT_AVAILABLE). B12b turns it on.
-    rules-enabled: ${EXAM_BLOCK_RULES_ENABLED:false}
+    # B12b: the participant side of blocks (block timers, breaks, fixed navigation, returning to earlier
+    # blocks; SessionBlockService). false turns it off: an exam that needs it then cannot be published
+    # (409 FEATURE_NOT_AVAILABLE).
+    rules-enabled: ${EXAM_BLOCK_RULES_ENABLED:true}
   # B13: what one teacher may own unless an administrator sets other limits (PUT /api/admin/instructor-limits/{id});
   # members are distinct people in the own groups, pending invites included; ADMIN has no limits
   instructor-limits:
