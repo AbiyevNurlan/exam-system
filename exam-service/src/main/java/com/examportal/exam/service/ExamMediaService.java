@@ -74,7 +74,7 @@ public class ExamMediaService {
     /**
      * Check every media reference of an exam request before anything is written:
      * the asset exists, is ACTIVE and may be attached by the editor; a question has no media twice
-     * and a play limit only on audio or video; an option carries an image only.
+     * and a play limit only on audio or video. An option carries one image, sound or video (no play limit).
      *
      * What an editor may attach: the own media, for ADMIN everybody's, and whatever the exam already
      * carries, whoever uploaded it. So the owner can save (or drop) media an ADMIN added to the
@@ -125,14 +125,6 @@ public class ExamMediaService {
                             for (QuestionMediaRef ref : question.getMedia()) {
                                 if (ref.getMaxPlays() != null && usable.get(ref.getMediaId()).getKind() == MediaKind.IMAGE) {
                                     return Mono.error(MediaException.notAttachable("maxPlays is for audio and video only"));
-                                }
-                            }
-                        }
-                        if (question.getOptions() != null) {
-                            for (OptionDTO option : question.getOptions()) {
-                                if (option.getMediaIds() != null && option.getMediaIds().stream()
-                                        .anyMatch(id -> usable.get(id).getKind() != MediaKind.IMAGE)) {
-                                    return Mono.error(MediaException.notAttachable("an option can only carry an image"));
                                 }
                             }
                         }
