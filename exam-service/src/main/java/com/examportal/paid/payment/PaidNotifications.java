@@ -21,6 +21,11 @@ public class PaidNotifications {
         return Mono.empty();
     }
 
+    /** An event of a guest without an order (ENTITLEMENT_GRANTED) */
+    public Mono<Void> guestEvent(java.util.UUID guestId, int participantCode, String action, String details) {
+        return Mono.empty();
+    }
+
     /** An event of the guest's order (ORDER_CREATED, ORDER_PAID, ...) */
     public Mono<Void> event(Order order, String action, String details) {
         return Mono.empty();

@@ -90,4 +90,45 @@ public final class PaidDtos {
     /** POST /api/admin/paid-exams/{id}/cancel */
     public record CancelRequest(@jakarta.validation.constraints.NotBlank @Size(min = 3, max = 500) String reason) {
     }
+
+    // ---------- the administrator's orders (item 11) ----------
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record AdminOrderRow(Long id, String orderNo, int participantCode, java.util.UUID guestId, Long examId, String examTitle,
+                                int amountMinor, String currency, String status, String provider, LocalDateTime createdAt,
+                                LocalDateTime expiresAt, LocalDateTime paidAt, LocalDateTime refundRequestedAt, LocalDateTime refundedAt) {
+
+        public static AdminOrderRow of(com.examportal.paid.order.Order order, String examTitle) {
+            return new AdminOrderRow(order.id(), order.orderNo(), order.guestCode(), order.guestId(), order.examId(), examTitle,
+                    order.amountMinor(), order.currency(), order.status().name(), order.provider(), order.createdAt(), order.expiresAt(),
+                    order.paidAt(), order.refundRequestedAt(), order.refundedAt());
+        }
+    }
+
+    public record AdminOrderPage(java.util.List<AdminOrderRow> content, long totalElements, int page, int size) {
+    }
+
+    /** One order with its payment events in time order (provider notifications and administrators' actions) */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record AdminOrderDetail(AdminOrderRow order, String providerRef, String reviewReason, String refundReason,
+                                   java.util.List<com.examportal.paid.payment.PaymentEventRepository.PaymentEvent> events,
+                                   java.util.List<com.examportal.paid.order.EntitlementRepository.Entitlement> entitlements) {
+    }
+
+    /** POST /api/admin/orders/{id}/mark-paid (MANUAL: cash or bank transfer) */
+    public record MarkPaidRequest(@jakarta.validation.constraints.NotBlank @Size(min = 3, max = 500) String reason,
+                                  @jakarta.validation.constraints.NotBlank @Size(max = 100) String documentNo) {
+    }
+
+    /** POST /api/admin/entitlements: free access to a paid open exam, by guestId or the 7-digit code */
+    public record GrantRequest(@jakarta.validation.constraints.NotNull Long examId, java.util.UUID guestId, Integer participantCode,
+                               @jakarta.validation.constraints.NotBlank @Size(min = 3, max = 500) String reason, Integer attempts) {
+    }
+
+    /** The figures of a paid exam, money in whole minor units */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ExamSummary(Long examId, String title, String currency, long paidCount, long revenueMinor, long refundedCount,
+                              long refundedMinor, long refundPendingCount, long needsReviewCount, long pendingCount, Integer seatLimit,
+                              int seatsTaken) {
+    }
 }

@@ -32,11 +32,19 @@ public class PaidExamAdminController {
     private final PaidExamSettingsService settings;
     private final ChangeContextFactory changes;
     private final com.examportal.paid.payment.RefundService refunds;
+    private final com.examportal.paid.order.AdminOrderService orders;
 
     @GetMapping("/{id}/settings")
     @Operation(summary = "The paid settings of an exam")
     public Mono<ApiResponse<PaidDtos.SettingsResponse>> getSettings(@PathVariable Long id) {
         return settings.get(id).map(found -> ApiResponse.success(PaidDtos.SettingsResponse.of(found)));
+    }
+
+    @GetMapping("/{id}/summary")
+    @Operation(summary = "The figures of a paid exam", description = "Paid orders and revenue, refunded, refund pending, NEEDS_REVIEW, "
+            + "pending; money in whole minor units; one SQL statement")
+    public Mono<ApiResponse<PaidDtos.ExamSummary>> summary(@PathVariable Long id) {
+        return orders.summary(id).map(ApiResponse::success);
     }
 
     @org.springframework.web.bind.annotation.PostMapping("/{id}/cancel")

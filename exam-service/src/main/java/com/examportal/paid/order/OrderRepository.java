@@ -181,6 +181,11 @@ public class OrderRepository {
         return sql.map(OrderRepository::order).one();
     }
 
+    /** The order holds a seat again (taken by the caller); part of the caller's transaction */
+    public Mono<Void> markSeatHeld(Long orderId) {
+        return databaseClient.sql("UPDATE orders SET seat_held = true WHERE id = :id").bind("id", orderId).then();
+    }
+
     /** Gives the order's seat back, once: true when it held one. Part of the caller's transaction. */
     public Mono<Boolean> releaseSeat(Long orderId) {
         return databaseClient.sql("""
