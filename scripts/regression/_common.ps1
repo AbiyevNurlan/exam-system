@@ -1,16 +1,41 @@
 # Shared by the verify-*.ps1 scripts (dot-sourced right after $GW is set): . "$PSScriptRoot\_common.ps1"
 # Not a check by itself.
 
+# B13b item 19: the regression and performance scripts create accounts, groups, exams and orders. On 2026-10-19 a run
+# of verify-b2..b12a (verify-b6-buckets twice) left 988 @x.test accounts in exam_auth, because the development stack
+# and the public site use the same PostgreSQL (one volume). This guard runs before anything is created (every
+# verify-*.ps1 calls Wait-Gateway first) and refuses:
+#   1. while the public mode is up (container exam-cloudflared running): never overridable;
+#   2. when the database holds real accounts (not @x.test, not ADMIN): a live database. Only an operator who knows the
+#      database is a throwaway copy may go on, by setting REGRESSION_TARGET_IS_DISPOSABLE=yes for that run.
+# It only reads (one count in a read-only transaction); nothing secret is printed.
+function Assert-SafeTarget {
+    $tunnel = docker ps --filter 'name=^exam-cloudflared$' --filter 'status=running' --format '{{.Names}}' 2>$null
+    if ($tunnel) {
+        throw 'REFUSED: the public site is open (exam-cloudflared is running). Regression scripts run only on a development stack.'
+    }
+    $postgres = docker ps --filter 'name=^exam-postgres$' --filter 'status=running' --format '{{.Names}}' 2>$null
+    if (-not $postgres) { return }
+    $real = docker exec exam-postgres psql -U postgres -d exam_auth -Atc "BEGIN TRANSACTION READ ONLY; SELECT count(*) FROM users WHERE lower(email) NOT LIKE '%@x.test' AND role <> 'ADMIN'; COMMIT;" 2>$null |
+        Where-Object { $_ -match '^\d+$' } | Select-Object -First 1
+    if ($real -and [int]$real -gt 0 -and $env:REGRESSION_TARGET_IS_DISPOSABLE -ne 'yes') {
+        throw ("REFUSED: exam_auth holds $real real accounts (not @x.test): this looks like the live database. Run the " +
+               'regression scripts on a separate development database; only for a throwaway copy set REGRESSION_TARGET_IS_DISPOSABLE=yes.')
+    }
+}
+
 # Waits until the gateway answers its readiness probe (HTTP 200 and status UP), so that a stack that is still
 # starting never shows up as "admin login answered 0" in the first request of a script. An answer of 0 (no
 # connection) or 5xx is waited out; anything else (404, 401, ...) means the gateway is up but the probe is not
 # what it expects, which is reported at once. Stops with a clear error when the time is over.
+# B13b: checks first that the target is safe (Assert-SafeTarget).
 function Wait-Gateway {
     param(
         [string]$Gateway = $(if ($script:GW) { $script:GW } else { 'http://127.0.0.1:8080' }),
         [int]$TimeoutSeconds = 120,
         [int]$IntervalSeconds = 3
     )
+    Assert-SafeTarget
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $last = 'no answer'
     while ($true) {
