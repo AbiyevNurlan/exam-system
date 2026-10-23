@@ -196,6 +196,11 @@ public class ExamException extends ApplicationException {
         return new ExamException("This question accepts exactly one option", HttpStatus.BAD_REQUEST, "ANSWER_SINGLE_SELECTION_ONLY");
     }
 
+    public static ExamException importFileInvalid() {
+        return new ExamException("The file is not a Word document (.docx) that can be read", HttpStatus.BAD_REQUEST,
+                "IMPORT_FILE_INVALID");
+    }
+
     // B12b: the blocks of a session
 
     public static ExamException blockClosed() {
