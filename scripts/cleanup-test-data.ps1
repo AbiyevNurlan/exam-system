@@ -15,7 +15,10 @@
     owned by test users or used only by test exams, admin audit rows by or about test users,
     refresh tokens and one-time codes of test users. B13a: guest participants (guest_participants)
     whose email ends with @x.test, with their refresh tokens, profile tokens, codes and audit rows;
-    only the guest tables that exist. Nothing else is touched; the dry run lists what is protected.
+    only the guest tables that exist. B13b: orders, payment events and entitlements of test guests or T- exams
+    (payment_events is append only; its rows go only inside the cleanup's own transaction with
+    exam.purge_payment_events), and the sessions of test guests. Nothing else is touched; the dry run lists what is
+    protected.
 
     Dry run (default): prints per table how many rows would be deleted and how many stay, and the
     protected data. Nothing is changed (it only reads; the id lists live in temporary tables of
@@ -100,14 +103,25 @@ $userIdsFile = "/tmp/cleanup_test_users_$stamp.csv"
 $testUserWhere = "lower(email) LIKE $(Literal $TestUserEmailLike) AND role <> 'ADMIN' AND lower(email) NOT IN ($protectedList)"
 Invoke-Psql $AuthDb "\copy (SELECT id FROM users WHERE $testUserWhere) TO '$userIdsFile'" 'Listing the test users' | Out-Null
 
+# B13b: the test guests (auth V9+, @x.test) for exam_db too: their orders, entitlements and sessions of paid exams.
+# An empty list when the guest table does not exist yet.
+$guestIdsFile = "/tmp/cleanup_test_guests_$stamp.csv"
+$hasGuests = (Invoke-Psql $AuthDb "SELECT to_regclass('public.guest_participants') IS NOT NULL;" 'Looking for guest_participants') -contains 't'
+$guestIdsQuery = if ($hasGuests) { "SELECT id FROM guest_participants WHERE lower(email) LIKE $(Literal $TestUserEmailLike) AND lower(email) NOT IN ($protectedList)" } else { 'SELECT NULL::uuid AS id WHERE false' }
+Invoke-Psql $AuthDb "\copy ($guestIdsQuery) TO '$guestIdsFile'" 'Listing the test guests' | Out-Null
+$hasOrders = (Invoke-Psql $ExamDb "SELECT to_regclass('public.orders') IS NOT NULL;" 'Looking for orders') -contains 't'
+
 # ---------- exam_db: the id sets of this run (temporary tables of the session) ----------
 $examSets = @"
 CREATE TEMP TABLE tu (id uuid PRIMARY KEY);
 \copy tu FROM '$userIdsFile'
+CREATE TEMP TABLE tgx (id uuid PRIMARY KEY);
+\copy tgx FROM '$guestIdsFile'
 CREATE TEMP TABLE te AS SELECT id FROM exams WHERE title ~ $(Literal $TestExamTitleRegex);
 CREATE TEMP TABLE tg AS SELECT id FROM user_groups WHERE name ~ $(Literal $TestGroupNameRegex);
 CREATE TEMP TABLE tq AS SELECT id FROM questions WHERE exam_id IN (SELECT id FROM te);
-CREATE TEMP TABLE ts AS SELECT id, session_id FROM exam_sessions WHERE exam_id IN (SELECT id FROM te) OR user_id IN (SELECT id FROM tu);
+CREATE TEMP TABLE ts AS SELECT id, session_id FROM exam_sessions WHERE exam_id IN (SELECT id FROM te) OR user_id IN (SELECT id FROM tu) OR user_id IN (SELECT id FROM tgx);
+$(if ($hasOrders) { 'CREATE TEMP TABLE tor AS SELECT id FROM orders WHERE exam_id IN (SELECT id FROM te) OR guest_id IN (SELECT id FROM tgx);' })
 -- Media of test users or of test exams, unless a question or option of another exam still uses it
 CREATE TEMP TABLE tm AS
   SELECT m.id, m.storage_key FROM media_assets m
@@ -142,6 +156,16 @@ $examTables = @(
 # B13: the own limits of test teachers; the table exists from exam V19 on (an older database has none)
 if ((Invoke-Psql $ExamDb "SELECT to_regclass('public.instructor_limits') IS NOT NULL;" 'Looking for instructor_limits') -contains 't') {
     $examTables = @(, @('instructor_limits', 'instructor_id IN (SELECT id FROM tu)')) + $examTables
+}
+# B13b: paid open exams (exam V24+): the payment events, entitlements and orders of test guests or T- exams, before
+# everything else (they point at exams). payment_events is append only: its DELETE runs with exam.purge_payment_events
+# set for that transaction only (Delete-Script), the one way V24 allows.
+if ($hasOrders) {
+    $examTables = @(
+        @('payment_events', 'order_id IN (SELECT id FROM tor)'),
+        @('entitlements', 'order_id IN (SELECT id FROM tor) OR exam_id IN (SELECT id FROM te) OR guest_id IN (SELECT id FROM tgx)'),
+        @('orders', 'id IN (SELECT id FROM tor)')
+    ) + $examTables
 }
 $authTables = @(
     @('admin_audit_log', 'admin_user_id IN (SELECT id FROM tu) OR target_user_id IN (SELECT id FROM tu)'),
@@ -241,7 +265,7 @@ Write-Output "Media files whose rows go (files stay in the storage, not deleted)
 Write-Output "Report folder: $ReportDir"
 
 if (-not $Execute) {
-    Invoke-Psql $AuthDb "\! rm -f $userIdsFile" 'Removing the id list' | Out-Null
+    Invoke-Psql $AuthDb "\! rm -f $userIdsFile $guestIdsFile" 'Removing the id lists' | Out-Null
     Write-Output 'Dry run: nothing was deleted. Run again with -Execute to delete.'
     exit 0
 }
@@ -266,11 +290,14 @@ if (-not $SkipBackup) {
 function Delete-Script($tables) {
     ($tables | ForEach-Object {
         $table = $_[0]; $where = $_[1]
+        # B13b: only for the append-only payment events, and only inside each batch's own transaction
+        $purge = if ($table -eq 'payment_events') { "PERFORM set_config('exam.purge_payment_events', 'on', true);" } else { '' }
 @"
 DO `$`$
 DECLARE n bigint; total bigint := 0;
 BEGIN
   LOOP
+    $purge
     DELETE FROM $table WHERE ctid IN (SELECT ctid FROM $table WHERE $where LIMIT $BatchSize);
     GET DIAGNOSTICS n = ROW_COUNT;
     total := total + n;
@@ -287,7 +314,7 @@ $watch = [Diagnostics.Stopwatch]::StartNew()
 $examOut = Invoke-Psql $ExamDb ($examSets + "`n" + "SET client_min_messages = notice;`n" + (Delete-Script $examTables)) 'Deleting in exam_db'
 $authOut = Invoke-Psql $AuthDb ($authSets + "`n" + "SET client_min_messages = notice;`n" + (Delete-Script $authTables)) 'Deleting in exam_auth'
 $watch.Stop()
-Invoke-Psql $AuthDb "\! rm -f $userIdsFile" 'Removing the id list' | Out-Null
+Invoke-Psql $AuthDb "\! rm -f $userIdsFile $guestIdsFile" 'Removing the id lists' | Out-Null
 Write-Output "Deleted in $([Math]::Round($watch.Elapsed.TotalSeconds)) s:"
 foreach ($line in ($examOut + $authOut) | Where-Object { $_ -match 'deleted\|' }) {
     $p = ($line -replace '^.*deleted\|', '').Split('|'); Write-Output ("  {0,-26} {1}" -f $p[0], $p[1])
