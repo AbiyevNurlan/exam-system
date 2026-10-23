@@ -4,6 +4,7 @@ import com.examportal.guest.security.GuestPrincipal;
 import com.examportal.guest.web.GuestDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Mono;
 
 /**
@@ -15,6 +16,8 @@ import reactor.core.publisher.Mono;
 public class GuestService {
 
     private final GuestRepository guests;
+    private final GuestAuditLog audit;
+    private final TransactionalOperator transactionalOperator;
 
     public Mono<Guest> current(GuestPrincipal principal) {
         return guests.findById(principal.id())
@@ -27,7 +30,17 @@ public class GuestService {
             String firstName = request.firstName() == null ? guest.firstName() : GuestAuthService.name("firstName", request.firstName());
             String lastName = request.lastName() == null ? guest.lastName() : GuestAuthService.name("lastName", request.lastName());
             String phone = request.phone() == null ? guest.phone() : GuestAuthService.phone(request.phone());
-            return guests.updateProfile(guest.id(), firstName, lastName, phone);
+            // Only the names of the fields that changed: never a value
+            java.util.List<String> changed = new java.util.ArrayList<>();
+            if (!firstName.equals(guest.firstName())) changed.add("firstName");
+            if (!lastName.equals(guest.lastName())) changed.add("lastName");
+            if (!phone.equals(guest.phone())) changed.add("phone");
+            if (changed.isEmpty()) {
+                return Mono.just(guest);
+            }
+            return transactionalOperator.transactional(guests.updateProfile(guest.id(), firstName, lastName, phone)
+                    .flatMap(updated -> audit.record(GuestAuditLog.UPDATED, GuestAuditLog.Actor.guest(updated), updated, null,
+                            "fields: " + String.join(", ", changed)).thenReturn(updated)));
         }));
     }
 }

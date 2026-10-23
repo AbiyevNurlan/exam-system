@@ -32,7 +32,7 @@ class GuestAdminTest {
         database = GuestTestDatabase.start();
         guests = new GuestRepository(database.db);
         refresh = new GuestRefreshTokens(database.db, database.tx);
-        admin = new GuestAdminService(new GuestAdminRepository(database.db), guests, refresh, database.tx);
+        admin = new GuestAdminService(new GuestAdminRepository(database.db), guests, refresh, database.tx, new GuestAuditLog(database.db));
         for (String[] person : new String[][]{
                 {"cavid@x.test", "Cavid", "Əliyev"}, {"camal@x.test", "Çamal", "Eldarov"}, {"elmar@x.test", "elmar", "Həsənov"},
                 {"ali@x.test", "Əli", "Xəlilov"}, {"ilqar@x.test", "İlqar", "İsmayılov"}, {"ilkin@x.test", "Ilkin", "Babayev"}}) {
@@ -114,6 +114,9 @@ class GuestAdminTest {
 
         Guest unblocked = admin.block(adminId, elmar.id(), new GuestDtos.BlockRequest(false, "Yoxlanıldı")).block();
         assertThat(unblocked.blocked()).isFalse();
+        assertThat(database.scalar("SELECT count(*) FROM guest_audit_log WHERE action = 'GUEST_BLOCKED' AND actor_kind = 'ADMIN' AND actor_id = '"
+                + adminId + "' AND target_code = " + elmar.participantCode() + " AND details = 'reason: Saxta ödəniş'")).isEqualTo(1);
+        assertThat(database.scalar("SELECT count(*) FROM guest_audit_log WHERE action = 'GUEST_UNBLOCKED' AND target_code = " + elmar.participantCode())).isEqualTo(1);
 
         assertThatThrownBy(() -> admin.card(UUID.randomUUID()).block()).satisfies(error -> assertThat(code(error)).isEqualTo("GUEST_NOT_FOUND"));
         assertThatThrownBy(() -> admin.block(adminId, UUID.randomUUID(), new GuestDtos.BlockRequest(true, "test")).block())

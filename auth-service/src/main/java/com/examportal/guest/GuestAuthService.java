@@ -38,15 +38,25 @@ public class GuestAuthService {
     private final GuestTokenProvider accessTokens;
     private final VerificationMailer mailer;
     private final TransactionalOperator transactionalOperator;
+    private final GuestAuditLog audit;
+
+    private static final String EMAIL_OF_AN_ACCOUNT = "the email belongs to an account: refused";
 
     public Mono<Void> requestCode(GuestDtos.OtpRequest request) {
         String email = GuestRepository.normalizeEmail(request.email());
         return otp.issue(email)
-                .doOnNext(code -> mailer.sendGuestLoginCode(email, code, otp.getTtlMinutes()))
-                .doOnNext(code -> log.info("Guest sign-in code sent to {}", LogMaskUtils.maskEmail(email)))
-                .switchIfEmpty(Mono.fromRunnable(() -> log.info("Guest sign-in code for {} refused by the send limits",
-                        LogMaskUtils.maskEmail(email))))
-                .then();
+                .map(code -> {
+                    mailer.sendGuestLoginCode(email, code, otp.getTtlMinutes());
+                    log.info("Guest sign-in code sent to {}", LogMaskUtils.maskEmail(email));
+                    return "sent";
+                })
+                .switchIfEmpty(Mono.fromSupplier(() -> {
+                    log.info("Guest sign-in code for {} refused by the send limits", LogMaskUtils.maskEmail(email));
+                    return "refused by the send limits";
+                }))
+                .flatMap(outcome -> guests.findByEmail(email).map(java.util.Optional::of).defaultIfEmpty(java.util.Optional.empty())
+                        .flatMap(target -> audit.record(GuestAuditLog.OTP_REQUESTED, GuestAuditLog.Actor.anonymous(),
+                                target.orElse(null), email, outcome)));
     }
 
     public Mono<SignInResponse> verifyCode(GuestDtos.OtpVerifyRequest request) {
@@ -54,10 +64,17 @@ public class GuestAuthService {
         return otp.verify(email, request.code())
                 .flatMap(valid -> valid ? Mono.<Void>empty() : Mono.error(GuestErrors.otpInvalid()))
                 .then(guests.emailBelongsToAccount(email))
-                .flatMap(account -> account ? Mono.<Boolean>error(GuestErrors.emailBelongsToAccount()) : Mono.just(false))
+                .flatMap(account -> account
+                        ? audit.record(GuestAuditLog.OTP_VERIFIED, GuestAuditLog.Actor.anonymous(), null, email, EMAIL_OF_AN_ACCOUNT)
+                                .then(Mono.<Boolean>error(GuestErrors.emailBelongsToAccount()))
+                        : Mono.just(false))
                 .then(guests.findByEmail(email)
-                        .flatMap(guest -> transactionalOperator.transactional(signIn(guest)))
-                        .switchIfEmpty(Mono.defer(() -> profileTokens.create(email)
+                        .flatMap(guest -> transactionalOperator.transactional(
+                                audit.record(GuestAuditLog.OTP_VERIFIED, GuestAuditLog.Actor.guest(guest), guest, email, null)
+                                        .then(signIn(guest))))
+                        .switchIfEmpty(Mono.defer(() -> audit.record(GuestAuditLog.OTP_VERIFIED, GuestAuditLog.Actor.anonymous(), null,
+                                        email, "new guest: profile step")
+                                .then(profileTokens.create(email))
                                 .map(token -> SignInResponse.profileRequired(token, profileTokens.lifetime().toSeconds())))));
     }
 
@@ -90,7 +107,9 @@ public class GuestAuthService {
                                             .switchIfEmpty(Mono.defer(() -> guests.insert(stored.email(), stored.verifiedAt(),
                                                     firstName, lastName, phone, consentVersion)
                                                     .doOnNext(guest -> log.info("Guest {} created for {}", guest.participantCode(),
-                                                            LogMaskUtils.maskEmail(stored.email()))))))
+                                                            LogMaskUtils.maskEmail(stored.email())))
+                                                    .flatMap(guest -> audit.record(GuestAuditLog.CREATED, GuestAuditLog.Actor.guest(guest),
+                                                            guest, null, "consent " + consentVersion).thenReturn(guest)))))
                             .flatMap(guest -> profileTokens.markUsed(request.profileToken(), guest.id()).then(signIn(guest)));
                 });
         return transactionalOperator.transactional(complete);
@@ -116,6 +135,8 @@ public class GuestAuthService {
             return Mono.error(GuestErrors.blocked());
         }
         return guests.touchLogin(guest.id())
+                .flatMap(signedIn -> audit.record(GuestAuditLog.LOGIN, GuestAuditLog.Actor.guest(signedIn), signedIn, null, null)
+                        .thenReturn(signedIn))
                 .flatMap(signedIn -> refreshTokens.issue(signedIn.id())
                         .map(refresh -> SignInResponse.signedIn(accessTokens.issueAccessToken(signedIn.id(), signedIn.participantCode()),
                                 refresh, accessTokens.accessTokenLifetime().toSeconds(), signedIn)));

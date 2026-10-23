@@ -72,7 +72,7 @@ class GuestSignInFlowTest {
         tokens = new GuestTokenProvider(JWT_SECRET, 30);
         // Cooldown 0 here, so one test can ask for several codes; the cooldown has its own test below
         service = service(0);
-        me = new GuestService(guests);
+        me = new GuestService(guests, new GuestAuditLog(database.db), database.tx);
         logs = new ListAppender<>();
         logs.start();
         ((Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME)).addAppender(logs);
@@ -86,7 +86,7 @@ class GuestSignInFlowTest {
     private GuestAuthService service(int cooldownSeconds) {
         GuestOtpService otp = new GuestOtpService(database.db, database.tx, guests, OTP_SECRET, cooldownSeconds);
         return new GuestAuthService(guests, otp, new GuestProfileTokens(database.db),
-                new GuestRefreshTokens(database.db, database.tx), tokens, mailer, database.tx);
+                new GuestRefreshTokens(database.db, database.tx), tokens, mailer, database.tx, new GuestAuditLog(database.db));
     }
 
     private String mailedCode(String email) {
@@ -228,6 +228,28 @@ class GuestSignInFlowTest {
         assertThatThrownBy(() -> service.refresh(new GuestDtos.RefreshRequest(made.refreshToken())).block())
                 .satisfies(error -> assertThat(code(error)).isEqualTo("GUEST_BLOCKED"));
         assertThatThrownBy(() -> me.current(principal).block()).satisfies(error -> assertThat(code(error)).isEqualTo("GUEST_BLOCKED"));
+    }
+
+    @Test
+    void everyStepIsAuditedWithoutCodesTokensOrFullEmails() {
+        String email = "audited.guest@x.test";
+        SignInResponse first = codeStep(email);
+        SignInResponse made = service.completeProfile(profile(first.profileToken())).block();
+        me.update(tokens.parse(made.accessToken()), new GuestDtos.UpdateMeRequest(null, "Məmmədova", null)).block();
+        codeStep(email);
+        String id = made.guest().id().toString();
+        int code = made.guest().participantCode();
+
+        assertThat(database.db.sql("SELECT action FROM guest_audit_log WHERE email_masked = 'a***@x.test' OR target_guest_id = '" + id
+                        + "' ORDER BY created_at, action").map(row -> row.get(0, String.class)).all().collectList().block())
+                .contains("GUEST_OTP_REQUESTED", "GUEST_OTP_VERIFIED", "GUEST_CREATED", "GUEST_LOGIN", "GUEST_UPDATED");
+        assertThat(database.scalar("SELECT count(*) FROM guest_audit_log WHERE action = 'GUEST_CREATED' AND actor_kind = 'GUEST' AND actor_code = "
+                + code + " AND target_code = " + code)).isEqualTo(1);
+        assertThat(database.scalar("SELECT count(*) FROM guest_audit_log WHERE action = 'GUEST_UPDATED' AND details = 'fields: lastName'")).isEqualTo(1);
+        // Never the whole email, a code, a token or a value of a field
+        assertThat(database.scalar("SELECT count(*) FROM guest_audit_log WHERE coalesce(email_masked, '') LIKE '%audited%'")).isZero();
+        assertThat(database.scalar("SELECT count(*) FROM guest_audit_log WHERE coalesce(details, '') LIKE '%Məmmədova%'"
+                + " OR coalesce(details, '') LIKE '%" + made.refreshToken() + "%'")).isZero();
     }
 
     @Test
