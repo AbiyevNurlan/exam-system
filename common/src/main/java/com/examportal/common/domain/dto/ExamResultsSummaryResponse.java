@@ -53,6 +53,8 @@ public class ExamResultsSummaryResponse {
     public static class Scorer {
         private UUID userId;
         private String participantName;
+        // The participant's email, so a card names the person without opening anything
+        private String email;
         // 7-digit participant code (display and search only, never security)
         private Integer participantCode;
         private String sessionId;

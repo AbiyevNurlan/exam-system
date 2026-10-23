@@ -407,7 +407,7 @@ public class ExamResultsService {
     private static final List<XlsxSheet.Column> XLSX_COLUMNS = List.of(
             new XlsxSheet.Column("№", 5), new XlsxSheet.Column("Ad Soyad", 26), new XlsxSheet.Column("İştirakçı kodu", 14),
             new XlsxSheet.Column("E-poçt", 30), new XlsxSheet.Column("Cəhd", 7), new XlsxSheet.Column("Status", 12),
-            new XlsxSheet.Column("Başlama (Bakı vaxtı)", 19), new XlsxSheet.Column("Təhvil (Bakı vaxtı)", 19),
+            new XlsxSheet.Column("Başlama", 17), new XlsxSheet.Column("Təhvil", 17),
             new XlsxSheet.Column("Müddət", 10), new XlsxSheet.Column("Bal", 8), new XlsxSheet.Column("Maks. bal", 10),
             new XlsxSheet.Column("Faiz (%)", 9), new XlsxSheet.Column("Keçdi", 8), new XlsxSheet.Column("Qiymətləndirmə", 18),
             new XlsxSheet.Column("Təhvil növü", 20), new XlsxSheet.Column("Pozuntu sayı", 13), new XlsxSheet.Column("Risk", 10),
@@ -586,6 +586,7 @@ public class ExamResultsService {
                 .map(row -> ExamResultsSummaryResponse.Scorer.builder()
                         .userId(row.userId())
                         .participantName(ParticipantDirectory.fullName(users.get(row.userId())))
+                        .email(users.get(row.userId()) != null ? users.get(row.userId()).getEmail() : null)
                         .participantCode(users.get(row.userId()) != null ? users.get(row.userId()).getParticipantCode() : null)
                         .sessionId(row.sessionId())
                         .percentage(row.percentage())
