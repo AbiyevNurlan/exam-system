@@ -49,4 +49,17 @@ public final class PaidDtos {
                     settings.salesOpenAt(), settings.salesCloseAt(), settings.refundDeadlineHours(), settings.attemptsPerPurchase());
         }
     }
+
+    /**
+     * One exam of the public catalog: what a visitor needs to decide, nothing else (no question, answer, owner, audience
+     * or internal field). seatsLeft is null when the exam has no seat limit.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record CatalogExam(Long id, String title, String description, LocalDateTime startTime, LocalDateTime endTime,
+                              Integer durationMinutes, int priceMinor, String currency, Integer seatsLeft,
+                              LocalDateTime salesCloseAt) {
+    }
+
+    public record CatalogPage(java.util.List<CatalogExam> content, long totalElements, int page, int size) {
+    }
 }
