@@ -111,6 +111,13 @@ public class OrderRepository {
                 .one();
     }
 
+    public Mono<Order> findByNo(String orderNo) {
+        return databaseClient.sql("SELECT " + COLUMNS + " FROM orders o WHERE o.order_no = :no")
+                .bind("no", orderNo)
+                .map(OrderRepository::order)
+                .one();
+    }
+
     public Mono<Order> lockByNo(String orderNo) {
         return databaseClient.sql("SELECT " + COLUMNS + " FROM orders o WHERE o.order_no = :no FOR UPDATE")
                 .bind("no", orderNo)
