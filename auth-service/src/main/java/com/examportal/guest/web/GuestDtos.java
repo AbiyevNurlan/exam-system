@@ -8,6 +8,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -84,5 +86,36 @@ public final class GuestDtos {
     }
 
     public record FeatureResponse(boolean paidAccessEnabled) {
+    }
+
+    // ---------- the admin's list of guests (item 5) ----------
+
+    public record AdminGuestRow(UUID id, int participantCode, String firstName, String lastName, String email,
+                                LocalDateTime createdAt, LocalDateTime lastLoginAt, boolean blocked) {
+
+        public static AdminGuestRow of(Guest guest) {
+            return new AdminGuestRow(guest.id(), guest.participantCode(), guest.firstName(), guest.lastName(), guest.email(),
+                    guest.createdAt(), guest.lastLoginAt(), guest.blocked());
+        }
+    }
+
+    public record AdminGuestPage(List<AdminGuestRow> content, long totalElements, int page, int size) {
+    }
+
+    /** The admin's card of a guest: code, name, email, phone, created, last sign-in, block and its reason */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record AdminGuestCard(UUID id, int participantCode, String firstName, String lastName, String email, String phone,
+                                 LocalDateTime createdAt, LocalDateTime lastLoginAt, boolean blocked, String blockedReason,
+                                 String consentVersion, LocalDateTime consentAt) {
+
+        public static AdminGuestCard of(Guest guest) {
+            return new AdminGuestCard(guest.id(), guest.participantCode(), guest.firstName(), guest.lastName(), guest.email(),
+                    guest.phone(), guest.createdAt(), guest.lastLoginAt(), guest.blocked(), guest.blockedReason(),
+                    guest.consentVersion(), guest.consentAt());
+        }
+    }
+
+    /** A block and an unblock both need a reason (3-500 characters), kept on the guest and in the audit */
+    public record BlockRequest(@NotNull Boolean blocked, @NotBlank @Size(min = 3, max = 500) String reason) {
     }
 }
