@@ -277,6 +277,21 @@ class GuestSignInFlowTest {
     }
 
     @Test
+    void parallelProfileStepsMakeOneGuest() {
+        // The same token twice at once, and a second token of the same email at the same time
+        SignInResponse first = codeStep("parallel@x.test");
+        SignInResponse second = codeStep("parallel@x.test");
+        assertThat(second.status()).isEqualTo(GuestDtos.PROFILE_REQUIRED);
+        List<SignInResponse> answers = reactor.core.publisher.Flux.merge(
+                        service.completeProfile(profile(first.profileToken())).subscribeOn(reactor.core.scheduler.Schedulers.parallel()),
+                        service.completeProfile(profile(first.profileToken())).subscribeOn(reactor.core.scheduler.Schedulers.parallel()),
+                        service.completeProfile(profile(second.profileToken())).subscribeOn(reactor.core.scheduler.Schedulers.parallel()))
+                .collectList().block();
+        assertThat(answers).hasSize(3).extracting(answer -> answer.guest().id()).containsOnly(answers.get(0).guest().id());
+        assertThat(database.scalar("SELECT count(*) FROM guest_participants WHERE email = 'parallel@x.test'")).isEqualTo(1);
+    }
+
+    @Test
     void theGuestsOwnDataAndRefresh() {
         SignInResponse made = service.completeProfile(profile(codeStep("own.data@x.test").profileToken())).block();
         GuestPrincipal principal = tokens.parse(made.accessToken());

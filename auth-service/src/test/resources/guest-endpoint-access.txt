@@ -1,0 +1,23 @@
+# B13a: every endpoint of the guest module (com.examportal.guest) and who may reach it. GuestSecurityMatrixTest fails
+# when an endpoint is missing here, when a line names an endpoint that does not exist, and when the real security
+# chains (GuestSecurityConfig before SecurityConfig, the real JWT filters, real tokens) and @PreAuthorize let other
+# callers through than the class says.
+#
+#   GUEST_ONLY    a guest token only; no account token of any role
+#   PUBLIC        everybody: the sign-in steps and the feature switch
+#   ADMIN_ONLY    an ADMIN account token only (never a guest)
+#
+# Method, path (path variables without their regex), class
+
+POST   /auth/guest/otp/request        PUBLIC
+POST   /auth/guest/otp/verify         PUBLIC
+POST   /auth/guest/profile            PUBLIC
+POST   /auth/guest/refresh            PUBLIC
+POST   /auth/guest/logout             PUBLIC
+GET    /api/guest/feature             PUBLIC
+GET    /api/guest/me                  GUEST_ONLY
+PATCH  /api/guest/me                  GUEST_ONLY
+
+GET    /api/admin/guests              ADMIN_ONLY
+GET    /api/admin/guests/{id}         ADMIN_ONLY
+PATCH  /api/admin/guests/{id}/block   ADMIN_ONLY
