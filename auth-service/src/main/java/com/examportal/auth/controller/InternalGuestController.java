@@ -32,6 +32,7 @@ public class InternalGuestController {
 
     private final GuestRepository guests;
     private final com.examportal.guest.GuestNoticeMailer notices;
+    private final com.examportal.guest.GuestAuditLog audit;
 
     @Value("${internal.service-secret:}")
     private String serviceSecret;
@@ -61,6 +62,36 @@ public class InternalGuestController {
         }
         return guests.findByCode(participantCode).map(GuestRef::of)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+    }
+
+    /** An event of a paid order or of the guest's access, from exam-service (B13b item 17) */
+    public record EventRequest(String action, String actorKind, UUID actorId, Integer actorCode, String details) {
+    }
+
+    /**
+     * B13b item 17: an event of the guest's orders and payments into the guest's audit (guest_audit_log). action: capital
+     * letters and _ (3-40); actorKind GUEST, ADMIN or SYSTEM; details at most 1000 characters, never a token or card data.
+     */
+    @PostMapping("/{guestId}/events")
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.ACCEPTED)
+    public Mono<Void> event(@RequestHeader(name = InternalServiceAuth.HEADER, required = false) String secret,
+                            @PathVariable UUID guestId, @RequestBody EventRequest event) {
+        if (!InternalServiceAuth.matches(secret, serviceSecret)) {
+            return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
+        }
+        if (event == null || event.action() == null || !event.action().matches("[A-Z_]{3,40}")
+                || (event.details() != null && event.details().length() > 1000)) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST));
+        }
+        com.examportal.guest.GuestAuditLog.Actor actor = switch (event.actorKind() == null ? "SYSTEM" : event.actorKind()) {
+            case "ADMIN" -> com.examportal.guest.GuestAuditLog.Actor.admin(event.actorId(), event.actorCode());
+            case "GUEST" -> null;
+            default -> com.examportal.guest.GuestAuditLog.Actor.system();
+        };
+        return guests.findById(guestId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(guest -> audit.record("GUEST_" + event.action(), actor != null ? actor : com.examportal.guest.GuestAuditLog.Actor.guest(guest),
+                        guest, null, event.details()));
     }
 
     /**

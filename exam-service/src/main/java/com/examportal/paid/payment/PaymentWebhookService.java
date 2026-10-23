@@ -154,12 +154,15 @@ public class PaymentWebhookService {
             follow = orders.find(result.orderId()).flatMap(order -> notifications.paid(order)
                     .then(notifications.event(order, "ORDER_PAID", null)));
         } else if (result.refundFollows()) {
-            follow = refunds.refund(result.orderId(), "automatic: " + result.outcome().name())
+            follow = orders.find(result.orderId()).flatMap(order -> notifications.event(order, "ORDER_NEEDS_REVIEW", result.outcome().name()))
+                    .then(refunds.refund(result.orderId(), "automatic: " + result.outcome().name())
                     .onErrorResume(error -> {
                         log.warn("Automatic refund of order {} not done: {}", result.orderId(), error.getClass().getSimpleName());
                         return Mono.empty();
-                    })
+                    }))
                     .then();
+        } else if (result.outcome() == Outcome.NEEDS_REVIEW_AMOUNT) {
+            follow = orders.find(result.orderId()).flatMap(order -> notifications.event(order, "ORDER_NEEDS_REVIEW", result.outcome().name()));
         } else if (result.outcome() == Outcome.REFUNDED) {
             follow = orders.find(result.orderId()).flatMap(notifications::refunded);
         }

@@ -57,7 +57,8 @@ class GuestOrderServiceTest {
         OrderRepository orders = new OrderRepository(database.db);
         PaidExamRepository exams = new PaidExamRepository(database.db);
         return new GuestOrderService(directory, new PaymentProviders(List.of(provider, new ManualPaymentProvider()), checkoutProvider),
-                new SeatReservation(exams, orders, new EntitlementRepository(database.db), database.tx), orders, exams, database.tx);
+                new SeatReservation(exams, orders, new EntitlementRepository(database.db), database.tx), orders, exams, database.tx,
+                new com.examportal.paid.payment.PaidNotifications());
     }
 
     private static String code(Throwable error) {

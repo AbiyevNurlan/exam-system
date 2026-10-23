@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  * (the order number only) and the order stays as it is.
  * - item 12: the receipt of a paid order and the notice of a refund, emailed by auth-service in Azerbaijani (order
  *   number, exam, amount, time in Baku, participant code);
- * - item 17: the guest's events (guestEvent, event) - not yet connected here.
+ * - item 17: the guest's events (guestEvent, event) into the guest's audit in auth-service.
  */
 @Slf4j
 @Component
@@ -39,9 +39,9 @@ public class PaidNotifications {
         return notice("RECEIPT", order, order.paidAt());
     }
 
-    /** The order is REFUNDED: a notice */
+    /** The order is REFUNDED: a notice, and the event */
     public Mono<Void> refunded(Order order) {
-        return notice("REFUND", order, order.refundedAt());
+        return notice("REFUND", order, order.refundedAt()).then(event(order, "ORDER_REFUNDED", null));
     }
 
     private Mono<Void> notice(String kind, Order order, LocalDateTime at) {
@@ -57,13 +57,29 @@ public class PaidNotifications {
                 });
     }
 
-    /** An event of a guest without an order (ENTITLEMENT_GRANTED) */
+    /** An event of a guest without an order (ENTITLEMENT_GRANTED), by an administrator */
     public Mono<Void> guestEvent(java.util.UUID guestId, int participantCode, String action, String details) {
-        return Mono.empty();
+        return push(guestId, new GuestDirectory.Event(action, "SYSTEM", null, null, details), action);
     }
 
-    /** An event of the guest's order (ORDER_CREATED, ORDER_PAID, ...) */
+    /**
+     * An event of the guest's order (ORDER_CREATED, ORDER_PAID, ORDER_NEEDS_REVIEW, ORDER_EXPIRED, REFUND_REQUESTED,
+     * ORDER_REFUNDED, ...): the order number, exam and amount, never a token, a signature or card data
+     */
     public Mono<Void> event(Order order, String action, String details) {
-        return Mono.empty();
+        String text = "order " + order.orderNo() + ", exam " + order.examId() + ", " + order.amountMinor() + " " + order.currency()
+                + (details == null ? "" : ", " + details);
+        String actor = action.equals("ORDER_CREATED") || action.equals("REFUND_REQUESTED") ? "GUEST" : "SYSTEM";
+        return push(order.guestId(), new GuestDirectory.Event(action, actor, null, null, text), action);
+    }
+
+    private Mono<Void> push(java.util.UUID guestId, GuestDirectory.Event event, String action) {
+        if (directory == null) {
+            return Mono.empty();
+        }
+        return directory.event(guestId, event).onErrorResume(error -> {
+            log.warn("Event {} of guest not recorded: {}", action, error.getClass().getSimpleName());
+            return Mono.empty();
+        });
     }
 }

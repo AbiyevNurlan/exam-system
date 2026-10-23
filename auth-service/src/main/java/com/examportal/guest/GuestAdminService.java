@@ -35,6 +35,16 @@ public class GuestAdminService {
                         found.total(), pageNumber, pageSize));
     }
 
+    /** B13b item 17: the guest's events, newest first; 404 for an unknown guest */
+    public Mono<GuestDtos.EventPage> events(UUID id, int page, int size) {
+        int pageSize = Math.min(Math.max(size, 1), 100);
+        int pageNumber = Math.max(page, 0);
+        return guests.findById(id)
+                .switchIfEmpty(Mono.error(GuestErrors.notFound()))
+                .flatMap(guest -> audit.eventsOf(id, pageSize, (long) pageNumber * pageSize))
+                .map(found -> new GuestDtos.EventPage(found.getValue(), found.getKey(), pageNumber, pageSize));
+    }
+
     public Mono<Guest> card(UUID id) {
         return guests.findById(id).switchIfEmpty(Mono.error(GuestErrors.notFound()));
     }

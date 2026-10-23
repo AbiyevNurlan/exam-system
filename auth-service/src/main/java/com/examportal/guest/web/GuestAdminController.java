@@ -51,6 +51,15 @@ public class GuestAdminController {
         return admin.card(id).map(guest -> ResponseEntity.ok(ApiResponse.success(GuestDtos.AdminGuestCard.of(guest))));
     }
 
+    @GetMapping("/{id}/events")
+    @Operation(summary = "The guest's events, newest first", description = "Sign-in, profile, block, orders and payments (B13b), with "
+            + "the 7-digit codes; the email only masked; pages of at most 100")
+    public Mono<ResponseEntity<ApiResponse<GuestDtos.EventPage>>> events(@PathVariable UUID id,
+                                                                         @RequestParam(defaultValue = "0") int page,
+                                                                         @RequestParam(defaultValue = "20") int size) {
+        return admin.events(id, page, size).map(found -> ResponseEntity.ok(ApiResponse.success(found)));
+    }
+
     @PatchMapping("/{id}/block")
     @Operation(summary = "Block or unblock a guest", description = "The reason is required; a block ends the guest's sign-ins")
     public Mono<ResponseEntity<ApiResponse<GuestDtos.AdminGuestCard>>> block(@AuthenticationPrincipal UserPrincipal principal,

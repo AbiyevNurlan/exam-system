@@ -35,6 +35,7 @@ public class GuestOrderService {
     private final OrderRepository orders;
     private final PaidExamRepository exams;
     private final TransactionalOperator transactionalOperator;
+    private final com.examportal.paid.payment.PaidNotifications notifications;
 
     public Mono<PaidDtos.OrderView> create(PaidGuest guest, Long examId) {
         return directory.active(guest.id())
@@ -42,6 +43,7 @@ public class GuestOrderService {
                         .flatMap(provider -> seats.reserve(known.id(), known.participantCode(), examId, provider.name())
                                 .flatMap(reservation -> reservation.created()
                                         ? checkout(provider, reservation.order())
+                                        .flatMap(view -> notifications.event(reservation.order(), "ORDER_CREATED", null).thenReturn(view))
                                         : provider.resumeCheckout(reservation.order())
                                         .flatMap(checkout -> view(reservation.order(), checkout.checkoutUrl())))));
     }

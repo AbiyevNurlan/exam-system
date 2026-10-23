@@ -60,6 +60,23 @@ public class GuestDirectory {
                 .then();
     }
 
+    /** One event of the guest's orders for the guest's audit in auth-service (item 17) */
+    public record Event(String action, String actorKind, UUID actorId, Integer actorCode, String details) {
+    }
+
+    public Mono<Void> event(UUID guestId, Event event) {
+        if (!InternalServiceAuth.isConfigured(serviceSecret)) {
+            return Mono.error(PaidErrors.guestDirectoryUnavailable());
+        }
+        return webClient.post().uri("/internal/guests/" + guestId + "/events")
+                .header(InternalServiceAuth.HEADER, serviceSecret)
+                .bodyValue(event)
+                .retrieve()
+                .toBodilessEntity()
+                .timeout(TIMEOUT)
+                .then();
+    }
+
     /** The guest when not blocked: 403 GUEST_BLOCKED otherwise */
     public Mono<GuestRef> active(UUID guestId) {
         return get(guestId).flatMap(guest -> guest.blocked() ? Mono.error(PaidErrors.guestBlocked()) : Mono.just(guest));

@@ -115,6 +115,10 @@ public final class GuestDtos {
         }
     }
 
+    /** B13b item 17: the guest's events, newest first */
+    public record EventPage(List<com.examportal.guest.GuestAuditLog.Event> content, long totalElements, int page, int size) {
+    }
+
     /** A block and an unblock both need a reason (3-500 characters), kept on the guest and in the audit */
     public record BlockRequest(@NotNull Boolean blocked, @NotBlank @Size(min = 3, max = 500) String reason) {
     }

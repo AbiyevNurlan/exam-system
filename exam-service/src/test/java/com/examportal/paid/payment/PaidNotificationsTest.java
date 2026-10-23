@@ -38,6 +38,7 @@ class PaidNotificationsTest {
         when(exams.find(3L)).thenReturn(Mono.just(new PaidExamSettings(3L, "Kimya", ExamStatus.SCHEDULED, UUID.randomUUID(), null, null,
                 "PAID_OPEN", 2500, "AZN", null, 0, null, null, 24, 1)));
         when(directory.notice(any(), any())).thenReturn(Mono.empty());
+        when(directory.event(any(), any())).thenReturn(Mono.empty());
         PaidNotifications notifications = new PaidNotifications(directory, exams);
         LocalDateTime paidAt = LocalDateTime.of(2026, 10, 23, 9, 15);
         Order order = order(paidAt, LocalDateTime.of(2026, 10, 24, 10, 0));
@@ -52,5 +53,24 @@ class PaidNotificationsTest {
 
         when(directory.notice(any(), any())).thenReturn(Mono.error(new IllegalStateException("auth-service down")));
         notifications.paid(order).block();
+    }
+
+    @Test
+    void orderEventsGoToTheGuestsAudit() {
+        GuestDirectory directory = mock(GuestDirectory.class);
+        when(directory.event(any(), any())).thenReturn(Mono.empty());
+        PaidNotifications notifications = new PaidNotifications(directory, mock(PaidExamRepository.class));
+        Order order = order(null, null);
+        notifications.event(order, "ORDER_CREATED", null).block();
+        notifications.event(order, "ORDER_NEEDS_REVIEW", "NEEDS_REVIEW_AMOUNT").block();
+        ArgumentCaptor<GuestDirectory.Event> sent = ArgumentCaptor.forClass(GuestDirectory.Event.class);
+        verify(directory, org.mockito.Mockito.times(2)).event(eq(order.guestId()), sent.capture());
+        assertThat(sent.getAllValues().get(0)).isEqualTo(new GuestDirectory.Event("ORDER_CREATED", "GUEST", null, null,
+                "order YK-261023-000009, exam 3, 2500 AZN"));
+        assertThat(sent.getAllValues().get(1).actorKind()).isEqualTo("SYSTEM");
+        assertThat(sent.getAllValues().get(1).details()).endsWith("NEEDS_REVIEW_AMOUNT");
+        // auth-service not answering never fails the caller
+        when(directory.event(any(), any())).thenReturn(Mono.error(new IllegalStateException("down")));
+        notifications.event(order, "ORDER_PAID", null).block();
     }
 }
