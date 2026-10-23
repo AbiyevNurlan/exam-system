@@ -30,6 +30,7 @@ import java.util.List;
 public class GuestOrderController {
 
     private final GuestOrderService orders;
+    private final com.examportal.paid.payment.RefundService refunds;
 
     @PostMapping
     @Operation(summary = "Order an exam", description = "The open PENDING order of the same exam again when there is one; 409 "
@@ -44,6 +45,13 @@ public class GuestOrderController {
     @Operation(summary = "The own orders, newest first (at most 100)")
     public Mono<ApiResponse<List<PaidDtos.OrderView>>> list(@AuthenticationPrincipal PaidGuest guest) {
         return orders.list(guest).map(ApiResponse::success);
+    }
+
+    @PostMapping("/{id}/refund-request")
+    @Operation(summary = "Ask for a refund", description = "Only a PAID order, before the refund deadline of the exam and without an "
+            + "attempt started: REFUND_PENDING (the administrator gives the money back). 409 REFUND_NOT_ALLOWED with why.")
+    public Mono<ApiResponse<PaidDtos.OrderView>> refundRequest(@AuthenticationPrincipal PaidGuest guest, @PathVariable Long id) {
+        return refunds.requestByGuest(guest, id).flatMap(order -> orders.get(guest, order.id())).map(ApiResponse::success);
     }
 
     @GetMapping("/{id}")

@@ -82,4 +82,12 @@ public final class PaidDtos {
                     order.refundedAt(), checkoutUrl);
         }
     }
+
+    /** POST /api/admin/orders/{id}/refund: reason 3-500 characters; override when the guest has started the exam */
+    public record AdminRefundRequest(@jakarta.validation.constraints.NotBlank @Size(min = 3, max = 500) String reason, Boolean override) {
+    }
+
+    /** POST /api/admin/paid-exams/{id}/cancel */
+    public record CancelRequest(@jakarta.validation.constraints.NotBlank @Size(min = 3, max = 500) String reason) {
+    }
 }

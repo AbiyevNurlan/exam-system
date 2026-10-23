@@ -31,11 +31,24 @@ public class PaidExamAdminController {
 
     private final PaidExamSettingsService settings;
     private final ChangeContextFactory changes;
+    private final com.examportal.paid.payment.RefundService refunds;
 
     @GetMapping("/{id}/settings")
     @Operation(summary = "The paid settings of an exam")
     public Mono<ApiResponse<PaidDtos.SettingsResponse>> getSettings(@PathVariable Long id) {
         return settings.get(id).map(found -> ApiResponse.success(PaidDtos.SettingsResponse.of(found)));
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/{id}/cancel")
+    @Operation(summary = "Cancel a paid open exam", description = "CANCELLED in its history; open orders cancelled, every paid order "
+            + "refunded, every entitlement revoked. A reason is required.")
+    public Mono<ApiResponse<com.examportal.paid.payment.RefundService.CancelSummary>> cancel(@PathVariable Long id,
+                                                                                         @Valid @RequestBody PaidDtos.CancelRequest request,
+                                                                                         ServerHttpRequest httpRequest,
+                                                                                         @AuthenticationPrincipal UserPrincipal principal) {
+        return changes.create(principal, httpRequest, request.reason())
+                .flatMap(change -> refunds.cancelExam(id, request.reason(), change))
+                .map(ApiResponse::success);
     }
 
     @PutMapping("/{id}/settings")
