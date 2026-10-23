@@ -51,6 +51,8 @@ class GuestSignInFlowTest {
     private GuestService me;
     private GuestTokenProvider tokens;
     private ListAppender<ILoggingEvent> logs;
+    // The captcha hook (item 7): passes unless a test says otherwise
+    private com.examportal.guest.captcha.GuestCaptcha captcha = (token, ip) -> reactor.core.publisher.Mono.just(true);
 
     @BeforeAll
     static void start() {
@@ -86,7 +88,7 @@ class GuestSignInFlowTest {
     private GuestAuthService service(int cooldownSeconds) {
         GuestOtpService otp = new GuestOtpService(database.db, database.tx, guests, OTP_SECRET, cooldownSeconds);
         return new GuestAuthService(guests, otp, new GuestProfileTokens(database.db),
-                new GuestRefreshTokens(database.db, database.tx), tokens, mailer, database.tx, new GuestAuditLog(database.db));
+                new GuestRefreshTokens(database.db, database.tx), tokens, mailer, database.tx, new GuestAuditLog(database.db), captcha);
     }
 
     private String mailedCode(String email) {
@@ -250,6 +252,28 @@ class GuestSignInFlowTest {
         assertThat(database.scalar("SELECT count(*) FROM guest_audit_log WHERE coalesce(email_masked, '') LIKE '%audited%'")).isZero();
         assertThat(database.scalar("SELECT count(*) FROM guest_audit_log WHERE coalesce(details, '') LIKE '%Məmmədova%'"
                 + " OR coalesce(details, '') LIKE '%" + made.refreshToken() + "%'")).isZero();
+    }
+
+    @Test
+    void theCaptchaHookIsAskedFirstAndCanRefuse() {
+        java.util.List<String> asked = new java.util.ArrayList<>();
+        captcha = (token, ip) -> {
+            asked.add(token + "@" + ip);
+            return reactor.core.publisher.Mono.just("pass".equals(token));
+        };
+        GuestAuthService guarded = service(0);
+        assertThatThrownBy(() -> guarded.requestCode(new GuestDtos.OtpRequest("captcha@x.test", "fail"), "203.0.113.9").block())
+                .satisfies(error -> assertThat(code(error)).isEqualTo("CAPTCHA_FAILED"));
+        verify(mailer, never()).sendGuestLoginCode(eq("captcha@x.test"), anyString(), anyInt());
+        assertThat(database.scalar("SELECT count(*) FROM guest_email_otp WHERE email = 'captcha@x.test'")).isZero();
+        guarded.requestCode(new GuestDtos.OtpRequest("captcha@x.test", "pass"), "203.0.113.9").block();
+        mailedCode("captcha@x.test");
+        assertThat(asked).containsExactly("fail@203.0.113.9", "pass@203.0.113.9");
+
+        // The default of the configuration: off lets everything through, on without a provider refuses (fail closed)
+        var config = new com.examportal.guest.captcha.GuestCaptchaConfig();
+        assertThat(config.guestCaptcha(false).verify(null, null).block()).isTrue();
+        assertThat(config.guestCaptcha(true).verify("anything", "203.0.113.9").block()).isFalse();
     }
 
     @Test

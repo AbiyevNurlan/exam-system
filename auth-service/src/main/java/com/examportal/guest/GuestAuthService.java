@@ -4,6 +4,7 @@ import com.examportal.auth.mail.VerificationMailer;
 import com.examportal.common.domain.PhoneNumbers;
 import com.examportal.common.exception.ValidationException;
 import com.examportal.common.utils.LogMaskUtils;
+import com.examportal.guest.captcha.GuestCaptcha;
 import com.examportal.guest.security.GuestRefreshTokens;
 import com.examportal.guest.security.GuestTokenProvider;
 import com.examportal.guest.web.GuestDtos;
@@ -39,12 +40,20 @@ public class GuestAuthService {
     private final VerificationMailer mailer;
     private final TransactionalOperator transactionalOperator;
     private final GuestAuditLog audit;
+    private final GuestCaptcha captcha;
 
     private static final String EMAIL_OF_AN_ACCOUNT = "the email belongs to an account: refused";
 
     public Mono<Void> requestCode(GuestDtos.OtpRequest request) {
+        return requestCode(request, null);
+    }
+
+    /** clientIp: for the captcha (item 7), as far as the caller is known */
+    public Mono<Void> requestCode(GuestDtos.OtpRequest request, String clientIp) {
         String email = GuestRepository.normalizeEmail(request.email());
-        return otp.issue(email)
+        return captcha.verify(request.captchaToken(), clientIp)
+                .flatMap(passed -> passed ? Mono.<Void>empty() : Mono.error(GuestErrors.captchaFailed()))
+                .then(otp.issue(email))
                 .map(code -> {
                     mailer.sendGuestLoginCode(email, code, otp.getTtlMinutes());
                     log.info("Guest sign-in code sent to {}", LogMaskUtils.maskEmail(email));

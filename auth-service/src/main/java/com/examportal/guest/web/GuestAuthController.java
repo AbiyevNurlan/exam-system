@@ -30,9 +30,19 @@ public class GuestAuthController {
     @Operation(summary = "Send a sign-in code", description = "Always answers the same, whether or not a code was sent")
     public Mono<ResponseEntity<ApiResponse<Void>>> requestCode(@Valid @RequestBody GuestDtos.OtpRequest request,
                                                                 ServerWebExchange exchange) {
-        return guestAuth.requestCode(request)
+        return guestAuth.requestCode(request, clientIp(exchange))
                 .then(Mono.just(ResponseEntity.ok(ApiResponse.<Void>success(null,
                         "If the address can sign in as a guest, a code has been sent."))));
+    }
+
+    /** The caller as the gateway passed it on (first X-Forwarded-For), else the connection; only for the captcha */
+    private static String clientIp(ServerWebExchange exchange) {
+        String forwarded = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        var remote = exchange.getRequest().getRemoteAddress();
+        return remote != null && remote.getAddress() != null ? remote.getAddress().getHostAddress() : null;
     }
 
     @PostMapping("/otp/verify")
