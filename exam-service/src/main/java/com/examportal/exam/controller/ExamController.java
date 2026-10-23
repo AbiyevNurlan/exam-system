@@ -431,7 +431,9 @@ public class ExamController {
 
     @GetMapping("/{id}/results/export")
     @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
-    @Operation(summary = "Export exam results as CSV", description = "The same list as /{id}/results with the same "
+    @Operation(summary = "Export exam results as CSV or Excel", description = "format=xlsx: an Excel sheet for people (column "
+            + "widths, a header that stays in view with filters, Baku time, Azerbaijani words, numbers as numbers, the session id last). "
+            + "format=csv (default): the same list as /{id}/results with the same "
             + "parameters (without paging) as a CSV file: UTF-8 with BOM, comma separated, Azerbaijani headers, times in "
             + "UTC. At most 50 000 rows (422 RESULTS_EXPORT_TOO_LARGE). Cells starting with = + - @ get a leading "
             + "apostrophe. Same access as the results; every export leaves an audit row.")
@@ -448,14 +450,17 @@ public class ExamController {
             @RequestParam(required = false) RiskLevel riskLevel,
             @RequestParam(required = false) BigDecimal minPercent,
             @RequestParam(required = false) BigDecimal maxPercent,
+            @RequestParam(defaultValue = "csv") @Parameter(description = "csv or xlsx") String format,
             @AuthenticationPrincipal UserPrincipal principal) {
 
+        ExamResultsService.ExportFormat exportFormat = "xlsx".equalsIgnoreCase(format)
+                ? ExamResultsService.ExportFormat.XLSX : ExamResultsService.ExportFormat.CSV;
         ExamResultsService.ListQuery query = new ExamResultsService.ListQuery(q, status, passed, gradingStatus,
                 hasViolations, bestOnly, sort, order, riskLevel, minPercent, maxPercent);
-        return Mono.defer(() -> resultsService.export(id, query, principal.getId(), principal.getRole()))
+        return Mono.defer(() -> resultsService.export(id, query, principal.getId(), principal.getRole(), exportFormat))
                 .doOnNext(export -> log.info("Results of exam {} exported by {}: {} rows", id, principal.getId(), export.rows()))
                 .map(export -> ResponseEntity.ok()
-                        .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                        .contentType(MediaType.parseMediaType(export.contentType()))
                         .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
                                 .filename(export.fileName()).build().toString())
                         .header("X-Total-Count", String.valueOf(export.rows()))
