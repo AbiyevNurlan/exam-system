@@ -62,4 +62,24 @@ public final class PaidDtos {
 
     public record CatalogPage(java.util.List<CatalogExam> content, long totalElements, int page, int size) {
     }
+
+    /** POST /api/guest/orders */
+    public record OrderRequest(@jakarta.validation.constraints.NotNull Long examId) {
+    }
+
+    /**
+     * An order as its guest sees it. checkoutUrl only while it is PENDING (where to pay); the status page of the browser
+     * asks this again and again, and only the provider's notification ever changes the status.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record OrderView(Long id, String orderNo, Long examId, String examTitle, int amountMinor, String currency, String status,
+                            LocalDateTime createdAt, LocalDateTime expiresAt, LocalDateTime paidAt, LocalDateTime refundRequestedAt,
+                            LocalDateTime refundedAt, String checkoutUrl) {
+
+        public static OrderView of(com.examportal.paid.order.Order order, String examTitle, String checkoutUrl) {
+            return new OrderView(order.id(), order.orderNo(), order.examId(), examTitle, order.amountMinor(), order.currency(),
+                    order.status().name(), order.createdAt(), order.expiresAt(), order.paidAt(), order.refundRequestedAt(),
+                    order.refundedAt(), checkoutUrl);
+        }
+    }
 }

@@ -24,6 +24,11 @@ public interface PaymentProvider {
     /** Where the guest pays, and the provider's own reference of the payment */
     Mono<Checkout> createCheckout(Order order);
 
+    /** Where the guest pays an order that has a checkout already (the same order asked for again) */
+    default Mono<Checkout> resumeCheckout(Order order) {
+        return createCheckout(order);
+    }
+
     /**
      * The provider's notification, checked: its signature over the raw body, and what it says. Never throws for a bad
      * notification: Verification.valid() is false then.

@@ -77,6 +77,14 @@ public class SandboxPaymentProvider implements PaymentProvider {
         return Mono.just(new Checkout(checkoutUrl(order.orderNo()), providerRef));
     }
 
+    @Override
+    public Mono<Checkout> resumeCheckout(Order order) {
+        if (!allowed) {
+            return Mono.error(new IllegalStateException("sandbox not allowed"));
+        }
+        return Mono.just(new Checkout(checkoutUrl(order.orderNo()), order.providerRef()));
+    }
+
     /** The sandbox page of an order, with a signature so nobody can open the page of another order */
     public String checkoutUrl(String orderNo) {
         return publicBaseUrl + "/api/payments/sandbox/checkout/" + orderNo + "?sig=" + linkSignature(orderNo);

@@ -46,6 +46,14 @@ public class GuestRepository {
                 .one();
     }
 
+    /** B13b: a guest by the 7-digit code (the admin's free entitlement) */
+    public Mono<Guest> findByCode(int participantCode) {
+        return databaseClient.sql("SELECT " + COLUMNS + " FROM guest_participants WHERE participant_code = :code")
+                .bind("code", participantCode)
+                .map(GuestRepository::guest)
+                .one();
+    }
+
     public Mono<Guest> findById(UUID id) {
         return databaseClient.sql("SELECT " + COLUMNS + " FROM guest_participants WHERE id = :id")
                 .bind("id", id)
