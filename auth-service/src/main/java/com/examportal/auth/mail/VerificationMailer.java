@@ -31,7 +31,7 @@ public class VerificationMailer {
     private static final List<Duration> BACKOFF = List.of(Duration.ofSeconds(1), Duration.ofSeconds(3));
 
     /**
-     * One template for both emails; only the wording differs
+     * One template for every email; only the wording differs
      */
     private enum Kind {
         VERIFICATION("Verification",
@@ -41,7 +41,12 @@ public class VerificationMailer {
         PASSWORD_RESET("Password reset",
                 "Şifrə bərpa kodunuz",
                 "Şifrənizi yeniləmək üçün kodunuz:",
-                "Əgər bu sorğunu siz göndərməmisinizsə, bu məktubu nəzərə almayın; şifrəniz dəyişməyəcək.");
+                "Əgər bu sorğunu siz göndərməmisinizsə, bu məktubu nəzərə almayın; şifrəniz dəyişməyəcək."),
+        // B13a: the sign-in code of a guest participant of paid open exams (no password)
+        GUEST_LOGIN("Guest sign-in",
+                "Giriş kodunuz",
+                "İmtahan sisteminə daxil olmaq üçün kodunuz:",
+                "Əgər bu sorğunu siz göndərməmisinizsə, bu məktubu nəzərə almayın.");
 
         private final String logName;
         private final String subject;
@@ -77,6 +82,10 @@ public class VerificationMailer {
 
     public void sendPasswordResetCode(String email, String code, int validMinutes) {
         send(Kind.PASSWORD_RESET, email, code, validMinutes);
+    }
+
+    public void sendGuestLoginCode(String email, String code, int validMinutes) {
+        send(Kind.GUEST_LOGIN, email, code, validMinutes);
     }
 
     private void send(Kind kind, String email, String code, int validMinutes) {

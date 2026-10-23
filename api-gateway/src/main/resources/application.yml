@@ -109,6 +109,44 @@ spring:
               args:
                 redis-rate-limiter.replenishRate: ${GATEWAY_ADMIN_INSTRUCTORS_REPLENISH:2}
                 redis-rate-limiter.burstCapacity: ${GATEWAY_ADMIN_INSTRUCTORS_BURST:60}
+        # B13a: the guest sign-in of paid open exams (auth-service). Its own buckets per client IP, none shared with
+        # auth-otp or the general auth route: the codes a small budget (each request takes 5), the rest of the guest
+        # paths a larger one. Limits per email address are enforced in auth-service (GuestOtpService). Must stay before
+        # the general auth route.
+        - id: auth-guest-otp
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/auth/guest/otp/request, /auth/guest/otp/verify
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_GUEST_OTP_REPLENISH:1}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_GUEST_OTP_BURST:50}
+                redis-rate-limiter.requestedTokens: 5
+        - id: auth-guest
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/auth/guest/**, /api/guest/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_GUEST_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_GUEST_BURST:100}
+                redis-rate-limiter.requestedTokens: 1
+        # B13a: the admin's list of guests (auth-service, ADMIN only)
+        - id: auth-admin-guests
+          uri: http://auth-service:8081
+          predicates:
+            - Path=/api/admin/guests, /api/admin/guests/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_ADMIN_GUESTS_REPLENISH:5}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_ADMIN_GUESTS_BURST:100}
         - id: auth-service
           uri: http://auth-service:8081
           predicates:
