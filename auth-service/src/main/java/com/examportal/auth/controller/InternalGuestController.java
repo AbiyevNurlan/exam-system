@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,6 +31,7 @@ import java.util.UUID;
 public class InternalGuestController {
 
     private final GuestRepository guests;
+    private final com.examportal.guest.GuestNoticeMailer notices;
 
     @Value("${internal.service-secret:}")
     private String serviceSecret;
@@ -58,5 +61,25 @@ public class InternalGuestController {
         }
         return guests.findByCode(participantCode).map(GuestRef::of)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+    }
+
+    /**
+     * B13b item 12: the receipt of a paid order or the notice of a refund, by email to the guest (sent detached; 202 at
+     * once). exam-service calls it after the order changed.
+     */
+    @PostMapping("/{guestId}/notices")
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.ACCEPTED)
+    public Mono<Void> notice(@RequestHeader(name = InternalServiceAuth.HEADER, required = false) String secret,
+                             @PathVariable UUID guestId, @RequestBody com.examportal.guest.GuestNoticeMailer.Notice notice) {
+        if (!InternalServiceAuth.matches(secret, serviceSecret)) {
+            return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
+        }
+        if (notice == null || notice.kind() == null || notice.orderNo() == null || notice.currency() == null) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST));
+        }
+        return guests.findById(guestId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .doOnNext(guest -> notices.send(guest, notice))
+                .then();
     }
 }

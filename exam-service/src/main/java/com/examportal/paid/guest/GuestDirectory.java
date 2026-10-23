@@ -42,6 +42,24 @@ public class GuestDirectory {
         return call("/internal/guests/by-code/" + participantCode);
     }
 
+    /** What a notice email says (item 12); amount in whole minor units, time in UTC */
+    public record Notice(String kind, String orderNo, String examTitle, int amountMinor, String currency, java.time.LocalDateTime at) {
+    }
+
+    /** Asks auth-service to email the guest a receipt or a refund notice */
+    public Mono<Void> notice(UUID guestId, Notice notice) {
+        if (!InternalServiceAuth.isConfigured(serviceSecret)) {
+            return Mono.error(PaidErrors.guestDirectoryUnavailable());
+        }
+        return webClient.post().uri("/internal/guests/" + guestId + "/notices")
+                .header(InternalServiceAuth.HEADER, serviceSecret)
+                .bodyValue(notice)
+                .retrieve()
+                .toBodilessEntity()
+                .timeout(TIMEOUT)
+                .then();
+    }
+
     /** The guest when not blocked: 403 GUEST_BLOCKED otherwise */
     public Mono<GuestRef> active(UUID guestId) {
         return get(guestId).flatMap(guest -> guest.blocked() ? Mono.error(PaidErrors.guestBlocked()) : Mono.just(guest));
