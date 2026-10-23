@@ -500,6 +500,55 @@ public class ExamService {
     }
 
     /**
+     * B13b: a guest who paid starts a PAID_OPEN exam (com.examportal.paid). Only a PAID_OPEN exam (anything else is the
+     * same 404 as an unknown exam) inside its window. An active session is answered again without taking an attempt;
+     * otherwise, under the start lock and in one transaction, takeAttempt must take one attempt of the guest's entitlement
+     * (false: 403 NOT_ENTITLED, nothing written) and the session is opened. Two starts at once: one session, one attempt.
+     */
+    public Mono<StartExamResponse> startPaidExam(Long examId, UUID guestId, StartExamRequest request,
+                                                 java.util.function.Supplier<Mono<Boolean>> takeAttempt,
+                                                 java.util.function.Supplier<Throwable> notEntitled) {
+        StartExamRequest startRequest = request != null ? request : new StartExamRequest();
+        return examRepository.findById(examId)
+                .filter(exam -> exam.isPaidOpen() && !Boolean.FALSE.equals(exam.getActive()))
+                .switchIfEmpty(Mono.error(ExamException.notFound(examId)))
+                .flatMap(exam -> {
+                    if (!exam.canStart()) {
+                        return Mono.error(ExamException.notActive());
+                    }
+                    return sessionRepository.findActiveSession(examId, guestId)
+                            .flatMap(active -> active.isExpired()
+                                    ? answerService.completeExpiredSession(active).then(Mono.<ExamSession>empty())
+                                    : Mono.just(active))
+                            .switchIfEmpty(Mono.defer(() -> openPaidSession(exam, guestId, startRequest, takeAttempt, notEntitled)))
+                            .flatMap(session -> toStartResponse(exam, session));
+                });
+    }
+
+    private Mono<ExamSession> openPaidSession(Exam exam, UUID guestId, StartExamRequest request,
+                                              java.util.function.Supplier<Mono<Boolean>> takeAttempt,
+                                              java.util.function.Supplier<Throwable> notEntitled) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime endTime = now.plusMinutes(exam.getDurationMinutes());
+        if (endTime.isAfter(exam.getEndTime())) {
+            endTime = exam.getEndTime();
+        }
+        LocalDateTime end = endTime;
+        String sessionId = UUID.randomUUID().toString();
+        // Under the lock: a start that committed meanwhile is seen, and then no attempt is taken
+        Mono<Boolean> opened = attemptRepository.lockStart(exam.getId(), guestId)
+                .then(sessionRepository.findActiveSession(exam.getId(), guestId).map(existing -> false))
+                .switchIfEmpty(Mono.defer(() -> takeAttempt.get()
+                        .flatMap(taken -> taken
+                                ? attemptRepository.openPaidSession(sessionId, exam.getId(), guestId, now, end, request.getIpAddress(),
+                                        request.getBrowserInfo()).thenReturn(true)
+                                : Mono.<Boolean>error(notEntitled.get()))));
+        return transactionalOperator.transactional(opened)
+                .then(sessionRepository.findActiveSession(exam.getId(), guestId))
+                .switchIfEmpty(Mono.error(ExamException.notActive()));
+    }
+
+    /**
      * Get next batch of questions for a session
      */
     public Mono<List<QuestionResponse>> getNextQuestions(String sessionId, int batch, UUID userId) {
