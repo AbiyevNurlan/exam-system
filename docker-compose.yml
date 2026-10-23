@@ -122,6 +122,8 @@ services:
       EXAM_INTERNAL_URL: http://exam-service:8082
       # Zone whose midnight starts a new day in the registration figures (same as exam-service)
       EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
+      # B13a: guest participants of paid open exams; off by default (the guest endpoints answer 404 FEATURE_DISABLED)
+      PAID_ACCESS_ENABLED: ${PAID_ACCESS_ENABLED:-false}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_auth

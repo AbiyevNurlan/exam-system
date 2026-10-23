@@ -121,6 +121,18 @@ auth:
 participant-profile:
   required-fields: {}
 
+# B13a: guest participants of paid open exams (com.examportal.guest). Off unless PAID_ACCESS_ENABLED=true: then the
+# guest endpoints answer 404 FEATURE_DISABLED, except GET /api/guest/feature, which always tells the switch.
+features:
+  paid-access:
+    enabled: ${PAID_ACCESS_ENABLED:false}
+guest:
+  access-token-minutes: 30     # a guest access token (role GUEST, its own signing key)
+  refresh-token-days: 7        # a guest sign-in ends this long after the code, however often it is refreshed
+  profile-token-minutes: 15    # the profile step of a new guest after the code
+  captcha:
+    enabled: false             # P0-1: the hook of POST /auth/guest/otp/request; no captcha provider yet
+
 management:
   health:
     # The mail server being down must not take the service out of rotation
