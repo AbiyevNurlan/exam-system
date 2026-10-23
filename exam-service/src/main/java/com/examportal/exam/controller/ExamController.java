@@ -33,6 +33,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -69,8 +70,21 @@ public class ExamController {
     private final ChangeContextFactory changes;
     private final ExamReadinessService readinessService;
     private final ExamAccessPolicy accessPolicy;
+    // Questions from a Word file for the creator
+    private final com.examportal.exam.importer.ExamImportService importService;
 
     // ==================== Exam CRUD Operations ====================
+
+    @PostMapping(value = "/import/docx", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'INSTRUCTOR')")
+    @Operation(summary = "Read questions from a Word file", description = "Multipart part 'file': a .docx of at most 10 MB. "
+            + "Returns the questions found (numbered questions, A) B) options, 'Cavab: B' or a bold / highlighted / starred "
+            + "right option, 'Bal: 2', 'Bölmə: ...' or Word headings for blocks) with warnings to look at. Stores nothing: "
+            + "the creator adds them to the exam being edited. 400 IMPORT_FILE_INVALID for anything but a readable .docx.")
+    public Mono<ApiResponse<ExamImportResponse>> importDocx(@RequestPart("file") FilePart file) {
+        return importService.importDocx(file).map(ApiResponse::success);
+    }
+
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

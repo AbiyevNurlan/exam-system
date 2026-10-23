@@ -19,6 +19,7 @@ GET    /api/analytics/overview                               ADMIN_ONLY
 GET    /api/admin/audit                                      OWNER_SCOPED
 
 POST   /api/exams                                            OWNER_SCOPED
+POST   /api/exams/import/docx                                OWNER_SCOPED
 PUT    /api/exams/{id}                                       OWNER_SCOPED
 GET    /api/exams/{id}/readiness                             OWNER_SCOPED
 POST   /api/exams/{id}/clone                                 OWNER_SCOPED
