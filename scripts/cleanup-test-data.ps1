@@ -13,8 +13,9 @@
     (of a test group, or to an @x.test address), group audit rows (of a test group, by or about a
     test user, or about a test exam), questions with their options and media links, media rows
     owned by test users or used only by test exams, admin audit rows by or about test users,
-    refresh tokens and one-time codes of test users. Nothing else is touched; the dry run lists
-    what is protected.
+    refresh tokens and one-time codes of test users. B13a: guest participants (guest_participants)
+    whose email ends with @x.test, with their refresh tokens, profile tokens, codes and audit rows;
+    only the guest tables that exist. Nothing else is touched; the dry run lists what is protected.
 
     Dry run (default): prints per table how many rows would be deleted and how many stay, and the
     protected data. Nothing is changed (it only reads; the id lists live in temporary tables of
@@ -152,6 +153,31 @@ $authTables = @(
 )
 $authSets = "CREATE TEMP TABLE tu AS SELECT id FROM users WHERE $testUserWhere;"
 
+# B13a: guest participants (auth V9-V12) with an @x.test email, and what hangs on them; only the tables that exist
+# (an older database has none). A guest is never an account, so ADMIN and the protected addresses do not apply, but a
+# protected address is kept here too. Deleted before users, children before the guests.
+$guestTablesPresent = @(Invoke-Psql $AuthDb "SELECT string_agg(t, ',') FROM unnest(ARRAY['guest_participants','guest_refresh_tokens','guest_email_otp','guest_profile_tokens','guest_audit_log']) t WHERE to_regclass('public.' || t) IS NOT NULL;" 'Looking for the guest tables')
+$guestTables = @("$($guestTablesPresent -join '')".Split(',') | Where-Object { $_ })
+if ($guestTables -contains 'guest_participants') {
+    $testGuestWhere = "lower(email) LIKE $(Literal $TestUserEmailLike) AND lower(email) NOT IN ($protectedList)"
+    $authSets += "`nCREATE TEMP TABLE tgu AS SELECT id FROM guest_participants WHERE $testGuestWhere;"
+    $guestDeletes = @()
+    if ($guestTables -contains 'guest_audit_log') {
+        # Rows before the guest existed (a code asked for) carry only the masked email, which keeps the domain
+        $guestDeletes += , @('guest_audit_log', "target_guest_id IN (SELECT id FROM tgu) OR actor_id IN (SELECT id FROM tgu) OR lower(email_masked) LIKE $(Literal $TestUserEmailLike)")
+    }
+    if ($guestTables -contains 'guest_refresh_tokens') { $guestDeletes += , @('guest_refresh_tokens', 'guest_id IN (SELECT id FROM tgu)') }
+    if ($guestTables -contains 'guest_profile_tokens') {
+        $guestDeletes += , @('guest_profile_tokens', "guest_id IN (SELECT id FROM tgu) OR (lower(email) LIKE $(Literal $TestUserEmailLike) AND lower(email) NOT IN ($protectedList))")
+    }
+    if ($guestTables -contains 'guest_email_otp') {
+        $guestDeletes += , @('guest_email_otp', "lower(email) LIKE $(Literal $TestUserEmailLike) AND lower(email) NOT IN ($protectedList)")
+    }
+    $guestDeletes += , @('guest_participants', 'id IN (SELECT id FROM tgu)')
+    # Before the accounts' rows: users stays last
+    $authTables = $guestDeletes + $authTables
+}
+
 function Count-Script($tables) {
     ($tables | ForEach-Object { "SELECT '$($_[0])|' || (SELECT count(*) FROM $($_[0]) WHERE $($_[1])) || '|' || (SELECT count(*) FROM $($_[0]));" }) -join "`n"
 }
@@ -182,6 +208,7 @@ SELECT 'protected:users-not-test|' || count(*) FROM users WHERE id NOT IN (SELEC
 SELECT 'protected:admins|' || count(*) FROM users WHERE role = 'ADMIN';
 SELECT 'protected:xtest-but-protected|' || count(*) FROM users WHERE lower(email) LIKE $(Literal $TestUserEmailLike) AND id NOT IN (SELECT id FROM tu);
 SELECT 'kept-user-role|' || role || '|' || count(*) FROM users WHERE id NOT IN (SELECT id FROM tu) GROUP BY role ORDER BY role;
+$(if ($guestTables -contains 'guest_participants') { "SELECT 'protected:guests-not-test|' || count(*) FROM guest_participants WHERE id NOT IN (SELECT id FROM tgu);" })
 "@) 'Counting in exam_auth'
 
 $counts = @(Show-Counts $ExamDb $examLines) + @(Show-Counts $AuthDb $authLines)
