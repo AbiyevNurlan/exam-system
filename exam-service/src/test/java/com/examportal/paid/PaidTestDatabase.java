@@ -64,6 +64,17 @@ public final class PaidTestDatabase implements AutoCloseable {
                 .map(row -> row.get(0, Long.class)).one().block();
     }
 
+    /** A PAID_OPEN exam (V25), published (SCHEDULED), sales open now, starting in two days; its id */
+    public long paidExam(String title, int priceMinor, Integer seatLimit) {
+        long id = exam(title);
+        LocalDateTime now = LocalDateTime.now();
+        var update = db.sql("UPDATE exams SET access_mode = 'PAID_OPEN', price_minor = :price, seat_limit = :limit, "
+                        + "sales_open_at = :open, sales_close_at = :close WHERE id = :id")
+                .bind("price", priceMinor).bind("open", now.minusHours(1)).bind("close", now.plusDays(1)).bind("id", id);
+        (seatLimit == null ? update.bindNull("limit", Integer.class) : update.bind("limit", seatLimit)).then().block();
+        return id;
+    }
+
     @Override
     public void close() {
         pool.dispose();

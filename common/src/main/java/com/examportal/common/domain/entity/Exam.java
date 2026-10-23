@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.annotation.ReadOnlyProperty;
 import org.springframework.data.annotation.Version;
 import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
@@ -95,6 +96,12 @@ public class Exam {
     @Column("show_block_breakdown")
     private Boolean showBlockBreakdown;
 
+    // B13b: AUDIENCE (null too, as before B13b) or PAID_OPEN. Read only: saving an exam never writes it, so no existing
+    // save can change it; the paid settings are written by their own statement (PaidExamRepository, ADMIN only)
+    @ReadOnlyProperty
+    @Column("access_mode")
+    private String accessMode;
+
     @CreatedDate
     @Column("created_at")
     private LocalDateTime createdAt;
@@ -105,6 +112,11 @@ public class Exam {
 
     @Version
     private Long version;
+
+    /** B13b: a paid open exam (only guests who paid take it; registered participants do not see it) */
+    public boolean isPaidOpen() {
+        return "PAID_OPEN".equals(accessMode);
+    }
 
     /**
      * Check if the exam is currently active based on time window
