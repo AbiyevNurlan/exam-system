@@ -31,6 +31,7 @@ import com.examportal.exam.repository.ExamSessionRepository;
 import com.examportal.exam.repository.QuestionOptionRepository;
 import com.examportal.exam.repository.QuestionRepository;
 import com.examportal.exam.repository.UserAnswerRepository;
+import com.examportal.exam.export.XlsxSheet;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -341,8 +342,16 @@ public class ExamResultsService {
     /**
      * The file name and the streamed body of an export
      */
-    public record Export(String fileName, long rows, Flux<DataBuffer> body) {
+    public record Export(String fileName, String contentType, long rows, Flux<DataBuffer> body) {
     }
+
+    /**
+     * CSV: the plain file for programs (UTC, codes, the columns kept in place). XLSX: the file for people (an Excel sheet
+     * with column widths, a coloured header that stays in view and filters, Baku time, Azerbaijani words, numbers as numbers).
+     */
+    public enum ExportFormat { CSV, XLSX }
+
+    public static final String XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
     /**
      * The same list as getResults (same filters, search and order) as a CSV file: UTF-8 with a BOM,
@@ -352,11 +361,15 @@ public class ExamResultsService {
      * exported which exam and how many rows.
      */
     public Mono<Export> export(Long examId, ListQuery query, UUID userId, String role) {
+        return export(examId, query, userId, role, ExportFormat.CSV);
+    }
+
+    public Mono<Export> export(Long examId, ListQuery query, UUID userId, String role, ExportFormat format) {
         Prepared prepared = prepare(query);
         return accessPolicy.findManageableExam(examId, userId, role)
                 .flatMap(exam -> search(prepared.term()).flatMap(search -> {
                     if (search.userIds() != null && search.userIds().length == 0) {
-                        return audit(userId, exam, 0, prepared).thenReturn(csv(examId, 0, Flux.empty(), search));
+                        return audit(userId, exam, 0, prepared).thenReturn(file(format, examId, 0, Flux.empty(), search));
                     }
                     Filter filter = prepared.filter(examId, search.userIds(), query);
                     return resultsRepository.count(filter, prepared.riskSql())
@@ -375,7 +388,7 @@ public class ExamResultsService {
                                                 .flatMapIterable(sorted -> sorted)
                                         : resultsRepository.findPage(filter, prepared.riskSql(), prepared.column(), prepared.ascending(),
                                                 maxExportRows, 0);
-                                return audit(userId, exam, total, prepared).thenReturn(csv(examId, total, rows, search));
+                                return audit(userId, exam, total, prepared).thenReturn(file(format, examId, total, rows, search));
                             });
                 }));
     }
@@ -384,6 +397,99 @@ public class ExamResultsService {
         return auditService.record(userId, GroupAuditService.RESULTS_EXPORTED, null, exam.getCreatedBy(),
                 "examId=" + exam.getId() + " rows=" + rows + " sort=" + prepared.sort() + " bestOnly=" + prepared.bestOnly()
                         + (prepared.term() != null ? " search=yes" : ""));
+    }
+
+    private Export file(ExportFormat format, Long examId, long total, Flux<ResultRow> rows, Search search) {
+        return format == ExportFormat.XLSX ? xlsx(examId, total, rows, search) : csv(examId, total, rows, search);
+    }
+
+    // The columns of the Excel file: what a person reads first comes first; the session id, for support, last
+    private static final List<XlsxSheet.Column> XLSX_COLUMNS = List.of(
+            new XlsxSheet.Column("№", 5), new XlsxSheet.Column("Ad Soyad", 26), new XlsxSheet.Column("İştirakçı kodu", 14),
+            new XlsxSheet.Column("E-poçt", 30), new XlsxSheet.Column("Cəhd", 7), new XlsxSheet.Column("Status", 12),
+            new XlsxSheet.Column("Başlama (Bakı vaxtı)", 19), new XlsxSheet.Column("Təhvil (Bakı vaxtı)", 19),
+            new XlsxSheet.Column("Müddət", 10), new XlsxSheet.Column("Bal", 8), new XlsxSheet.Column("Maks. bal", 10),
+            new XlsxSheet.Column("Faiz (%)", 9), new XlsxSheet.Column("Keçdi", 8), new XlsxSheet.Column("Qiymətləndirmə", 18),
+            new XlsxSheet.Column("Təhvil növü", 20), new XlsxSheet.Column("Pozuntu sayı", 13), new XlsxSheet.Column("Risk", 10),
+            new XlsxSheet.Column("Sessiya ID", 38));
+
+    private static final java.time.ZoneId BAKU = java.time.ZoneId.of("Asia/Baku");
+
+    /**
+     * The same rows as the CSV, as one Excel sheet built in memory (at most maxExportRows rows)
+     */
+    private Export xlsx(Long examId, long total, Flux<ResultRow> rows, Search search) {
+        Flux<DataBuffer> body = rows
+                .buffer(EXPORT_BLOCK)
+                .concatMap(block -> names(search, block).map(users -> block.stream()
+                        .map(row -> toSummary(row, users.get(row.userId()))).toList()))
+                .collectList()
+                .map(blocks -> {
+                    XlsxSheet sheet = new XlsxSheet("Nəticələr", XLSX_COLUMNS);
+                    int number = 0;
+                    for (List<SessionSummaryResponse> block : blocks) {
+                        for (SessionSummaryResponse row : block) {
+                            sheet.row(xlsxRow(++number, row));
+                        }
+                    }
+                    return (DataBuffer) DefaultDataBufferFactory.sharedInstance.wrap(sheet.bytes());
+                })
+                .flux();
+        return new Export("exam-" + examId + "-results.xlsx", XLSX_TYPE, total, body);
+    }
+
+    static List<Object> xlsxRow(int number, SessionSummaryResponse row) {
+        return Arrays.asList(
+                number,
+                row.getParticipantName(),
+                row.getParticipantCode() != null ? row.getParticipantCode().longValue() : null,
+                row.getEmail(),
+                row.getAttemptNumber(),
+                row.getStatus() == null ? null : switch (row.getStatus()) {
+                    case IN_PROGRESS -> "Davam edir";
+                    case COMPLETED -> "Bitib";
+                },
+                baku(row.getStartedAt()),
+                baku(row.getSubmittedAt()),
+                duration(row.getDurationSeconds()),
+                row.getScore(),
+                row.getMaxScore(),
+                row.getPercentage(),
+                row.getPassed() == null ? null : (row.getPassed() ? "Bəli" : "Xeyr"),
+                row.getGradingStatus() == null ? null : switch (row.getGradingStatus()) {
+                    case NOT_REQUIRED -> "Avtomatik";
+                    case PENDING -> "Yoxlama gözləyir";
+                    case COMPLETE -> "Yoxlanılıb";
+                },
+                row.getSubmitKind() == null ? null : switch (row.getSubmitKind()) {
+                    case "MANUAL" -> "İştirakçı təhvil verib";
+                    case "AUTO_EXPIRED" -> "Vaxt bitib";
+                    default -> row.getSubmitKind();
+                },
+                row.getViolationCount(),
+                row.getRiskLevel() == null ? null : switch (row.getRiskLevel()) {
+                    case LOW -> "Aşağı";
+                    case MEDIUM -> "Orta";
+                    case HIGH -> "Yüksək";
+                    case CRITICAL -> "Kritik";
+                },
+                row.getSessionId());
+    }
+
+    // A UTC time of the database as Baku time, for a date cell
+    private static XlsxSheet.DateTime baku(LocalDateTime utc) {
+        return utc == null ? null : new XlsxSheet.DateTime(utc.atZone(java.time.ZoneOffset.UTC).withZoneSameInstant(BAKU).toLocalDateTime());
+    }
+
+    // 1811 seconds as "30:11", an hour or more as "1:02:05"
+    static String duration(Long seconds) {
+        if (seconds == null) {
+            return null;
+        }
+        long h = seconds / 3600;
+        long m = (seconds % 3600) / 60;
+        long sec = seconds % 60;
+        return h > 0 ? String.format("%d:%02d:%02d", h, m, sec) : String.format("%d:%02d", m, sec);
     }
 
     private Export csv(Long examId, long total, Flux<ResultRow> rows, Search search) {
@@ -398,7 +504,7 @@ public class ExamResultsService {
                 }));
         StringBuilder head = new StringBuilder("﻿");
         appendLine(head, EXPORT_HEADERS);
-        return new Export("exam-" + examId + "-results.csv", total, Flux.concat(Flux.just(buffer(head.toString())), lines));
+        return new Export("exam-" + examId + "-results.csv", "text/csv;charset=UTF-8", total, Flux.concat(Flux.just(buffer(head.toString())), lines));
     }
 
     private void appendRow(StringBuilder text, SessionSummaryResponse row) {
