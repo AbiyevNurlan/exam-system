@@ -25,7 +25,13 @@ import com.examportal.guest.GuestOtpService;
  * own (Testcontainers), with secrets made for this run. Catches what tests that build their classes by hand cannot,
  * such as a bean Spring cannot construct (2026-10-27: GuestOtpService). Skipped when no Docker is available.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+// The levels Spring Boot sets stay for the rest of the test JVM: without these, the SQL DEBUG lines of application.yml
+// reach the log checks of later tests (GuestSignInFlowTest logs its own query with a code). They must be set here,
+// not in @DynamicPropertySource, which comes after the logging system is configured.
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE, properties = {
+        "logging.level.org.springframework.r2dbc=INFO",
+        "logging.level.org.springframework.security=INFO",
+})
 class AuthServiceContextTest {
 
     private static final boolean DOCKER = DockerClientFactory.instance().isDockerAvailable();
