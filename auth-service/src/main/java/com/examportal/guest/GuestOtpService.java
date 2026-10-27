@@ -54,6 +54,7 @@ public class GuestOtpService {
 
     private SecretKeySpec hmacKey;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public GuestOtpService(DatabaseClient databaseClient, TransactionalOperator transactionalOperator, GuestRepository guests) {
         this.databaseClient = databaseClient;
         this.transactionalOperator = transactionalOperator;
