@@ -20,7 +20,10 @@ import org.springframework.security.web.server.util.matcher.ServerWebExchangeMat
 @Configuration
 public class GuestGatewaySecurityConfig {
 
-    public static final String[] GUEST_PATHS = {"/auth/guest/**", "/api/guest/**"};
+    // B13b: the public catalog and the payment notifications of paid open exams too; exam-service decides there
+    // (PaidSecurityConfig: the catalog GET only, the webhook checks the provider's signature, the sandbox page its own link)
+    public static final String[] GUEST_PATHS = {"/auth/guest/**", "/api/guest/**", "/api/public/paid-exams", "/api/public/paid-exams/**",
+            "/api/payments/**"};
 
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)

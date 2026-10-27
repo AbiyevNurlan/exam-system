@@ -23,6 +23,8 @@ import java.util.UUID;
  * isolated, so no PUBLIC exam and no audience of another teacher, OwnershipPolicy); for everybody else a
  * PUBLIC exam every authenticated user and a GROUP exam only members of at least one of its active audience
  * groups. An exam the caller may not access or manage is answered as 404, exactly like one that does not exist.
+ * B13b: a PAID_OPEN exam is open to nobody here but ADMIN and its owner (guests who paid take it through
+ * com.examportal.paid); every exam that is not PAID_OPEN follows the rule above as before.
  *
  * Losing access (removed from the group, audience changed) blocks new starts only: a session belongs
  * to the user who opened it and can be continued, submitted and read without a new access check.
@@ -42,6 +44,10 @@ public class ExamAccessPolicy {
             return Mono.just(true);
         }
         if (OwnershipPolicy.isInstructor(role)) {
+            return Mono.just(false);
+        }
+        // B13b: a paid open exam is taken only by guests who paid (com.examportal.paid), never through the audience
+        if (exam.isPaidOpen()) {
             return Mono.just(false);
         }
         if (exam.getAccessType() == ExamAccessType.PUBLIC) {

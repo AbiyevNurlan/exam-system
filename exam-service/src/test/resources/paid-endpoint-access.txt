@@ -1,0 +1,45 @@
+# B13b: every endpoint of paid open exams (com.examportal.paid) and who may reach it. PaidEndpointRegistryTest fails when
+# an endpoint is missing here, a line names no endpoint, or the real security chains (PaidSecurityConfig before the
+# unchanged SecurityConfig, the real JWT filters, real tokens) together with @PreAuthorize let other callers through.
+#
+#   PUBLIC      everybody: the catalog, the providers' notifications (their signature decides), the sandbox page (its
+#               own signed link and PAYMENTS_SANDBOX_ALLOWED decide)
+#   GUEST_ONLY  a guest token only; no account token of any role
+#   ADMIN_ONLY  an ADMIN account token only (never a guest)
+#
+# Method, path, class
+
+GET    /api/public/paid-exams                                PUBLIC
+GET    /api/public/paid-exams/{id}                           PUBLIC
+POST   /api/payments/webhook/{provider}                      PUBLIC
+GET    /api/payments/sandbox/checkout/{orderNo}              PUBLIC
+POST   /api/payments/sandbox/checkout/{orderNo}/complete     PUBLIC
+
+POST   /api/guest/orders                                     GUEST_ONLY
+GET    /api/guest/orders                                     GUEST_ONLY
+GET    /api/guest/orders/{id}                                GUEST_ONLY
+POST   /api/guest/orders/{id}/refund-request                 GUEST_ONLY
+POST   /api/guest/exams/{examId}/start                       GUEST_ONLY
+GET    /api/guest/sessions/{sessionId}/questions             GUEST_ONLY
+GET    /api/guest/sessions/{sessionId}/media/{mediaId}       GUEST_ONLY
+GET    /api/guest/sessions/{sessionId}/answers               GUEST_ONLY
+POST   /api/guest/sessions/{sessionId}/fraud-event           GUEST_ONLY
+POST   /api/guest/sessions/{sessionId}/answer                GUEST_ONLY
+POST   /api/guest/sessions/{sessionId}/submit                GUEST_ONLY
+GET    /api/guest/sessions/{sessionId}/blocks                GUEST_ONLY
+POST   /api/guest/sessions/{sessionId}/blocks/finish         GUEST_ONLY
+POST   /api/guest/sessions/{sessionId}/blocks/end-break      GUEST_ONLY
+POST   /api/guest/sessions/{sessionId}/blocks/reach/{questionId}  GUEST_ONLY
+GET    /api/guest/results                                    GUEST_ONLY
+GET    /api/guest/results/{sessionId}                        GUEST_ONLY
+
+GET    /api/admin/paid-exams/{id}/settings                   ADMIN_ONLY
+PUT    /api/admin/paid-exams/{id}/settings                   ADMIN_ONLY
+GET    /api/admin/paid-exams/{id}/summary                    ADMIN_ONLY
+POST   /api/admin/paid-exams/{id}/cancel                     ADMIN_ONLY
+GET    /api/admin/orders                                     ADMIN_ONLY
+GET    /api/admin/orders/export                              ADMIN_ONLY
+GET    /api/admin/orders/{id}                                ADMIN_ONLY
+POST   /api/admin/orders/{id}/mark-paid                      ADMIN_ONLY
+POST   /api/admin/orders/{id}/refund                         ADMIN_ONLY
+POST   /api/admin/entitlements                               ADMIN_ONLY

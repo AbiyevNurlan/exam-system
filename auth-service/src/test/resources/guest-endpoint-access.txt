@@ -20,4 +20,5 @@ PATCH  /api/guest/me                  GUEST_ONLY
 
 GET    /api/admin/guests              ADMIN_ONLY
 GET    /api/admin/guests/{id}         ADMIN_ONLY
+GET    /api/admin/guests/{id}/events  ADMIN_ONLY
 PATCH  /api/admin/guests/{id}/block   ADMIN_ONLY

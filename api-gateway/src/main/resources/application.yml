@@ -109,6 +109,55 @@ spring:
               args:
                 redis-rate-limiter.replenishRate: ${GATEWAY_ADMIN_INSTRUCTORS_REPLENISH:2}
                 redis-rate-limiter.burstCapacity: ${GATEWAY_ADMIN_INSTRUCTORS_BURST:60}
+        # B13b: paid open exams (exam-service), each with its own bucket per client IP. Must stay before auth-guest:
+        # these /api/guest/ paths belong to exam-service, the rest of /api/guest/** to auth-service.
+        - id: paid-public
+          uri: http://exam-service:8082
+          predicates:
+            - Path=/api/public/paid-exams, /api/public/paid-exams/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_PAID_PUBLIC_REPLENISH:10}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_PAID_PUBLIC_BURST:100}
+        - id: paid-guest
+          uri: http://exam-service:8082
+          predicates:
+            - Path=/api/guest/orders, /api/guest/orders/**, /api/guest/exams/**, /api/guest/sessions/**, /api/guest/results, /api/guest/results/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_PAID_GUEST_REPLENISH:20}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_PAID_GUEST_BURST:200}
+        # The providers' notifications: a bucket of their own, so nobody can drain it from the open internet
+        - id: paid-webhook
+          uri: http://exam-service:8082
+          predicates:
+            - Path=/api/payments/webhook/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_PAID_WEBHOOK_REPLENISH:5}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_PAID_WEBHOOK_BURST:100}
+        # The sandbox's own payment page (development only, PAYMENTS_SANDBOX_ALLOWED)
+        - id: paid-sandbox
+          uri: http://exam-service:8082
+          predicates:
+            - Path=/api/payments/sandbox/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_PAID_SANDBOX_REPLENISH:2}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_PAID_SANDBOX_BURST:30}
+        - id: paid-admin
+          uri: http://exam-service:8082
+          predicates:
+            - Path=/api/admin/orders, /api/admin/orders/**, /api/admin/entitlements, /api/admin/entitlements/**, /api/admin/paid-exams/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${GATEWAY_PAID_ADMIN_REPLENISH:5}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_PAID_ADMIN_BURST:100}
         # B13a: the guest sign-in of paid open exams (auth-service). Its own buckets per client IP, none shared with
         # auth-otp or the general auth route: the codes a small budget (each request takes 5), the rest of the guest
         # paths a larger one. Limits per email address are enforced in auth-service (GuestOtpService). Must stay before

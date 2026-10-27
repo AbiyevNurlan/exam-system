@@ -44,10 +44,10 @@ public interface ExamRepository extends R2dbcRepository<Exam, Long> {
      * The access rule as a SQL condition on "exams e". Used only through ExamAccessPolicy, which holds
      * the same rule for a single exam: ADMIN every exam; an INSTRUCTOR only the own ones (B13: no PUBLIC
      * exam and no audience of another teacher); anybody else every PUBLIC exam and the GROUP exams with at
-     * least one active audience group the user is a member of.
+     * least one active audience group the user is a member of. B13b: never a PAID_OPEN exam (only ADMIN and its owner).
      */
     String ACCESS_CONDITION = """
-        (:admin OR (:instructor AND e.created_by = :userId) OR (NOT :instructor AND (e.access_type = 'PUBLIC' OR EXISTS (
+        (:admin OR (:instructor AND e.created_by = :userId) OR (NOT :instructor AND e.access_mode = 'AUDIENCE' AND (e.access_type = 'PUBLIC' OR EXISTS (
             SELECT 1 FROM exam_audience a
             JOIN user_groups g ON g.id = a.group_id AND g.active = true
             JOIN user_group_members m ON m.group_id = a.group_id

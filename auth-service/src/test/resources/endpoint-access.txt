@@ -43,3 +43,7 @@ PUT    /internal/users/{userId}/profile            INTERNAL
 POST   /internal/users/search                      INTERNAL
 POST   /internal/users/stats                       INTERNAL
 POST   /internal/users/lookup                      INTERNAL
+GET    /internal/guests/{guestId}                  INTERNAL
+GET    /internal/guests/by-code/{participantCode}  INTERNAL
+POST   /internal/guests/{guestId}/notices          INTERNAL
+POST   /internal/guests/{guestId}/events           INTERNAL

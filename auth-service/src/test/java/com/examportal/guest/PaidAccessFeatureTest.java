@@ -61,7 +61,7 @@ class PaidAccessFeatureTest {
     @Test
     void offEveryGuestEndpointButTheSwitchIs404() throws Exception {
         List<String> guestEndpoints = lines("/guest-endpoint-access.txt");
-        assertThat(guestEndpoints).hasSize(11);
+        assertThat(guestEndpoints).hasSize(12);
         for (String key : guestEndpoints) {
             Answer answer = call(false, key);
             if (key.equals("GET /api/guest/feature")) {

@@ -31,6 +31,39 @@ public final class GuestTokens {
     private GuestTokens() {
     }
 
+    /** Who a valid guest access token belongs to */
+    public record GuestClaims(java.util.UUID id, int participantCode) {
+    }
+
+    /**
+     * B13b: the guest of a valid guest access token, for a service other than auth-service (exam-service: orders,
+     * paid exams). The same rules as GuestTokenProvider of auth-service: the guest key, issuer, role, type, a canonical
+     * UUID subject and the code; io.jsonwebtoken.JwtException or IllegalArgumentException for anything else.
+     */
+    public static GuestClaims parse(SecretKey key, String token) {
+        io.jsonwebtoken.Claims claims = io.jsonwebtoken.Jwts.parser()
+                .verifyWith(key)
+                .requireIssuer(ISSUER)
+                .require("role", ROLE)
+                .require("type", ACCESS_TYPE)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        String subject = claims.getSubject();
+        if (subject == null) {
+            throw new IllegalArgumentException("Token subject is missing");
+        }
+        java.util.UUID id = java.util.UUID.fromString(subject);
+        if (!id.toString().equalsIgnoreCase(subject)) {
+            throw new IllegalArgumentException("Token subject is not a UUID");
+        }
+        Integer code = claims.get(CODE_CLAIM, Integer.class);
+        if (code == null) {
+            throw new io.jsonwebtoken.JwtException("Token has no participant code");
+        }
+        return new GuestClaims(id, code);
+    }
+
     /**
      * The signing key of guest tokens for a JWT_SECRET (base64, as JwtTokenProvider reads it)
      */

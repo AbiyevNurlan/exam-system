@@ -66,6 +66,31 @@ services:
 internal:
   service-secret: ${INTERNAL_SERVICE_SECRET:}
 
+# B13b: paid open exams (com.examportal.paid). Off unless PAID_ACCESS_ENABLED=true (the same switch as the guest sign-in
+# of auth-service): then every paid endpoint answers 404 FEATURE_DISABLED and nothing of it runs.
+features:
+  paid-access:
+    enabled: ${PAID_ACCESS_ENABLED:false}
+
+# B13b: payments of paid open exams. Money is whole minor units (qəpik). Keys only from the environment.
+payments:
+  provider: ${PAYMENTS_PROVIDER:SANDBOX}          # the checkout of new orders: SANDBOX (development) or EXTERNAL (not written yet)
+  order-ttl-minutes: 30                          # an unpaid order expires and gives its seat back
+  currencies: AZN
+  public-base-url: ${PAYMENTS_PUBLIC_BASE_URL:}  # the start of checkout links (empty: relative to the site)
+  reconcile:
+    cron: "0 */5 * * * *"                       # every 5 minutes
+    pending-older-than-minutes: 10
+  sandbox:
+    allowed: ${PAYMENTS_SANDBOX_ALLOWED:false}  # development only; never on a live system
+    webhook-secret: ${PAYMENTS_SANDBOX_SECRET:}  # empty: a random secret per start
+  external:                                      # a real provider (not implemented yet)
+    name: ${PAYMENTS_EXTERNAL_NAME:}
+    base-url: ${PAYMENTS_EXTERNAL_BASE_URL:}
+    merchant-id: ${PAYMENTS_EXTERNAL_MERCHANT_ID:}
+    api-key: ${PAYMENTS_EXTERNAL_API_KEY:}
+    webhook-secret: ${PAYMENTS_EXTERNAL_WEBHOOK_SECRET:}
+
 exam:
   settings:
     max-questions-per-exam: 100

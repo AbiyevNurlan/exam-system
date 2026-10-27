@@ -24,7 +24,7 @@ public class GuestAuditLog {
     public static final String BLOCKED = "GUEST_BLOCKED";
     public static final String UNBLOCKED = "GUEST_UNBLOCKED";
 
-    public enum ActorKind { ANONYMOUS, GUEST, ADMIN }
+    public enum ActorKind { ANONYMOUS, GUEST, ADMIN, SYSTEM }
 
     /** Who did it: nobody known yet (before the sign-in), the guest, or an administrator */
     public record Actor(ActorKind kind, UUID id, Integer code) {
@@ -39,6 +39,11 @@ public class GuestAuditLog {
 
         public static Actor admin(UUID id, Integer code) {
             return new Actor(ActorKind.ADMIN, id, code);
+        }
+
+        /** B13b: a payment provider, the reconcile: no person */
+        public static Actor system() {
+            return new Actor(ActorKind.SYSTEM, null, null);
         }
     }
 
@@ -59,6 +64,25 @@ public class GuestAuditLog {
         insert = masked == null ? insert.bindNull("email", String.class) : insert.bind("email", masked);
         insert = details == null ? insert.bindNull("details", String.class) : insert.bind("details", details);
         return insert.then();
+    }
+
+    /** One event as the administrator reads it (B13b item 17); email only masked */
+    public record Event(UUID id, String action, String actorKind, UUID actorId, Integer actorCode, Integer targetCode, String emailMasked,
+                        String details, java.time.LocalDateTime createdAt) {
+    }
+
+    /** The newest events of one guest first, paged; with the total */
+    public Mono<java.util.Map.Entry<Long, java.util.List<Event>>> eventsOf(UUID guestId, int limit, long offset) {
+        Mono<Long> total = databaseClient.sql("SELECT count(*) FROM guest_audit_log WHERE target_guest_id = :guest")
+                .bind("guest", guestId).map(row -> row.get(0, Long.class)).one();
+        Mono<java.util.List<Event>> rows = databaseClient.sql("SELECT id, action, actor_kind, actor_id, actor_code, target_code, email_masked, details, created_at "
+                        + "FROM guest_audit_log WHERE target_guest_id = :guest ORDER BY created_at DESC, id DESC LIMIT :limit OFFSET :offset")
+                .bind("guest", guestId).bind("limit", limit).bind("offset", offset)
+                .map(row -> new Event(row.get("id", UUID.class), row.get("action", String.class), row.get("actor_kind", String.class),
+                        row.get("actor_id", UUID.class), row.get("actor_code", Integer.class), row.get("target_code", Integer.class),
+                        row.get("email_masked", String.class), row.get("details", String.class), row.get("created_at", java.time.LocalDateTime.class)))
+                .all().collectList();
+        return Mono.zip(total, rows).map(found -> java.util.Map.entry(found.getT1(), found.getT2()));
     }
 
     /** The 7-digit code of the administrator's account, for actor_code; null when the account is gone */

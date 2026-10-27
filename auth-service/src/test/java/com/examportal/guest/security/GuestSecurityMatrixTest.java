@@ -233,9 +233,9 @@ class GuestSecurityMatrixTest {
 
     @Test
     void theEndpointsWereRead() {
-        // 31 account endpoints at B13, 11 guest endpoints at B13a
+        // 31 account endpoints at B13, 11 guest endpoints at B13a, 12 with the guest's events of B13b
         assertThat(accountEndpoints.size()).isGreaterThanOrEqualTo(28);
-        assertThat(guestEndpoints).hasSize(11);
+        assertThat(guestEndpoints).hasSize(12);
         assertThat(accountEndpoints.keySet()).doesNotContainAnyElementsOf(guestEndpoints.keySet());
     }
 

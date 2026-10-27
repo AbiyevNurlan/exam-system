@@ -74,6 +74,37 @@ public class ExamAttemptRepository {
     }
 
     /**
+     * B13b: a session of a guest who paid (PAID_OPEN): the attempts are counted by the guest's entitlement, not by the
+     * exam's max_attempts, so this insert has no limit of its own; the single active session per exam and user stays
+     * (ON CONFLICT). Called inside the caller's transaction, after the lock of lockStart and the attempt taken.
+     */
+    public Mono<Long> openPaidSession(String sessionId, Long examId, UUID userId, LocalDateTime startTime, LocalDateTime endTime,
+                                      String ipAddress, String browserInfo) {
+        DatabaseClient.GenericExecuteSpec insert = databaseClient.sql("""
+                        INSERT INTO exam_sessions (session_id, exam_id, user_id, start_time, end_time, status,
+                                                   ip_address, browser_info, created_at, updated_at, version)
+                        VALUES (:sessionId, :examId, :userId, :startTime, :endTime, 'IN_PROGRESS',
+                                CAST(:ipAddress AS VARCHAR), CAST(:browserInfo AS TEXT), :startTime, :startTime, 0)
+                        ON CONFLICT (exam_id, user_id) WHERE status = 'IN_PROGRESS' DO NOTHING
+                        """)
+                .bind("sessionId", sessionId)
+                .bind("examId", examId)
+                .bind("userId", userId)
+                .bind("startTime", startTime)
+                .bind("endTime", endTime);
+        insert = ipAddress != null ? insert.bind("ipAddress", ipAddress) : insert.bindNull("ipAddress", String.class);
+        insert = browserInfo != null ? insert.bind("browserInfo", browserInfo) : insert.bindNull("browserInfo", String.class);
+        return insert.fetch().rowsUpdated();
+    }
+
+    /** B13b: the lock of a start (the same key as openSessionIfAttemptsRemain), for the caller's transaction */
+    public Mono<Void> lockStart(Long examId, UUID userId) {
+        return databaseClient.sql("SELECT pg_advisory_xact_lock(hashtextextended(:lockKey, 0))")
+                .bind("lockKey", "exam-start:" + examId + ":" + userId)
+                .then();
+    }
+
+    /**
      * How many sessions the user has for the exam, in total and within the day [dayStart, dayEnd)
      */
     public Mono<AttemptCounts> countAttempts(Long examId, UUID userId, LocalDateTime dayStart, LocalDateTime dayEnd) {
