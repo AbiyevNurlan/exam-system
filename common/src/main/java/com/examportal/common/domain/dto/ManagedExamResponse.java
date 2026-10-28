@@ -51,4 +51,14 @@ public class ManagedExamResponse {
     // falls back to the exam's updatedAt)
     private ExamHistoryDtos.Actor lastModifiedBy;
     private LocalDateTime lastModifiedAt;
+
+    // B13b: AUDIENCE (today's rule) or PAID_OPEN. The sale of a PAID_OPEN exam; all of them null for AUDIENCE.
+    // priceMinor in whole minor units (qəpik).
+    private String accessMode;
+    private Integer priceMinor;
+    private String currency;
+    private Integer seatLimit;
+    private Integer seatsTaken;
+    private LocalDateTime salesOpenAt;
+    private LocalDateTime salesCloseAt;
 }

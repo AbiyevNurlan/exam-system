@@ -25,14 +25,22 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ExamManageRepository {
 
+    public static final String AUDIENCE = "AUDIENCE";
+    public static final String PAID_OPEN = "PAID_OPEN";
+
     private final DatabaseClient databaseClient;
 
     /**
      * What the list is narrowed to. ownerId null = every owner (ADMIN). status null = everything
      * except ARCHIVED, which is only listed when asked for. titlePattern null = no search; otherwise
-     * an ILIKE pattern whose % and _ from the user are already escaped with a backslash.
+     * an ILIKE pattern whose % and _ from the user are already escaped with a backslash. accessMode null = both
+     * kinds; otherwise AUDIENCE or PAID_OPEN (B13b), checked by the caller.
      */
-    public record Filter(UUID ownerId, ExamStatus status, String titlePattern) {
+    public record Filter(UUID ownerId, ExamStatus status, String titlePattern, String accessMode) {
+
+        public Filter(UUID ownerId, ExamStatus status, String titlePattern) {
+            this(ownerId, status, titlePattern, null);
+        }
     }
 
     /**
@@ -44,6 +52,8 @@ public class ExamManageRepository {
                         SELECT e.id, e.title, e.status, e.access_type, e.start_time, e.end_time, e.duration_minutes,
                                e.max_attempts, e.max_attempts_per_day::int AS max_attempts_per_day, e.total_questions,
                                e.created_by, e.created_at,
+                               e.access_mode, e.price_minor, e.currency, e.seat_limit, e.seats_taken,
+                               e.sales_open_at, e.sales_close_at,
                                COALESCE(p.total_points, 0) AS total_points,
                                COALESCE(s.session_count, 0) AS session_count,
                                COALESCE(s.participant_count, 0) AS participant_count,
@@ -74,6 +84,8 @@ public class ExamManageRepository {
                 .map(row -> {
                     Long[] groupIds = row.get("group_ids", Long[].class);
                     List<Long> audience = groupIds == null ? List.of() : Arrays.asList(groupIds);
+                    String accessMode = row.get("access_mode", String.class);
+                    boolean paid = PAID_OPEN.equals(accessMode);
                     return ManagedExamResponse.builder()
                         .id(row.get("id", Long.class))
                         .title(row.get("title", String.class))
@@ -99,6 +111,13 @@ public class ExamManageRepository {
                                 .role(row.get("modified_by_role", String.class))
                                 .build())
                         .lastModifiedAt(row.get("modified_at", LocalDateTime.class))
+                        .accessMode(accessMode)
+                        .priceMinor(paid ? row.get("price_minor", Integer.class) : null)
+                        .currency(paid ? row.get("currency", String.class) : null)
+                        .seatLimit(paid ? row.get("seat_limit", Integer.class) : null)
+                        .seatsTaken(paid ? row.get("seats_taken", Integer.class) : null)
+                        .salesOpenAt(paid ? row.get("sales_open_at", LocalDateTime.class) : null)
+                        .salesCloseAt(paid ? row.get("sales_close_at", LocalDateTime.class) : null)
                         .build();
                 })
                 .all();
@@ -120,6 +139,9 @@ public class ExamManageRepository {
         if (filter.titlePattern() != null) {
             condition.append(" AND e.title ILIKE :titlePattern ESCAPE '\\'");
         }
+        if (filter.accessMode() != null) {
+            condition.append(" AND e.access_mode = :accessMode");
+        }
         return condition.toString();
     }
 
@@ -132,6 +154,9 @@ public class ExamManageRepository {
         }
         if (filter.titlePattern() != null) {
             spec = spec.bind("titlePattern", filter.titlePattern());
+        }
+        if (filter.accessMode() != null) {
+            spec = spec.bind("accessMode", filter.accessMode());
         }
         return spec;
     }

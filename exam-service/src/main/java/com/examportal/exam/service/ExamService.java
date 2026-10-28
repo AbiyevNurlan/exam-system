@@ -405,6 +405,19 @@ public class ExamService {
      */
     public Mono<PageResponse<ManagedExamResponse>> getManagedExams(UUID userId, String role, String search,
                                                                    ExamStatus status, int page, int size) {
+        return getManagedExams(userId, role, search, status, null, page, size);
+    }
+
+    /**
+     * B13b: the same list narrowed to one access mode, AUDIENCE or PAID_OPEN (ignoring case); null or blank = both,
+     * exactly as before. Anything else is a validation error.
+     */
+    public Mono<PageResponse<ManagedExamResponse>> getManagedExams(UUID userId, String role, String search,
+                                                                   ExamStatus status, String accessMode, int page, int size) {
+        String mode = accessMode == null || accessMode.isBlank() ? null : accessMode.trim().toUpperCase(java.util.Locale.ROOT);
+        if (mode != null && !ExamManageRepository.AUDIENCE.equals(mode) && !ExamManageRepository.PAID_OPEN.equals(mode)) {
+            return Mono.error(new ValidationException("accessMode must be AUDIENCE or PAID_OPEN"));
+        }
         int pageNumber = Math.max(page, 0);
         int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
 
@@ -419,7 +432,7 @@ public class ExamService {
                 : "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
 
         ExamManageRepository.Filter filter = new ExamManageRepository.Filter(
-                "ADMIN".equals(role) ? null : userId, status, titlePattern);
+                "ADMIN".equals(role) ? null : userId, status, titlePattern, mode);
 
         return manageRepository.count(filter)
                 .flatMap(total -> manageRepository.findPage(filter, pageSize, (long) pageNumber * pageSize)
