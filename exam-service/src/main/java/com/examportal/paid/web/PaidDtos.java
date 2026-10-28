@@ -74,12 +74,18 @@ public final class PaidDtos {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record OrderView(Long id, String orderNo, Long examId, String examTitle, int amountMinor, String currency, String status,
                             LocalDateTime createdAt, LocalDateTime expiresAt, LocalDateTime paidAt, LocalDateTime refundRequestedAt,
-                            LocalDateTime refundedAt, String checkoutUrl) {
+                            LocalDateTime refundedAt, String checkoutUrl, LocalDateTime examStartsAt, LocalDateTime examEndsAt) {
 
         public static OrderView of(com.examportal.paid.order.Order order, String examTitle, String checkoutUrl) {
+            return of(order, examTitle, checkoutUrl, null, null);
+        }
+
+        /** examStartsAt and examEndsAt: the exam's window (UTC, as every time here), so the guest knows when to come back */
+        public static OrderView of(com.examportal.paid.order.Order order, String examTitle, String checkoutUrl,
+                                   LocalDateTime examStartsAt, LocalDateTime examEndsAt) {
             return new OrderView(order.id(), order.orderNo(), order.examId(), examTitle, order.amountMinor(), order.currency(),
                     order.status().name(), order.createdAt(), order.expiresAt(), order.paidAt(), order.refundRequestedAt(),
-                    order.refundedAt(), checkoutUrl);
+                    order.refundedAt(), checkoutUrl, examStartsAt, examEndsAt);
         }
     }
 

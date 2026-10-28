@@ -77,9 +77,9 @@ public class GuestOrderService {
     }
 
     Mono<PaidDtos.OrderView> view(Order order, String checkoutUrl) {
+        String url = order.status() == OrderStatus.PENDING ? checkoutUrl : null;
         return exams.find(order.examId())
-                .map(exam -> exam.title())
-                .defaultIfEmpty("")
-                .map(title -> PaidDtos.OrderView.of(order, title, order.status() == OrderStatus.PENDING ? checkoutUrl : null));
+                .map(exam -> PaidDtos.OrderView.of(order, exam.title(), url, exam.startTime(), exam.endTime()))
+                .defaultIfEmpty(PaidDtos.OrderView.of(order, "", url));
     }
 }
