@@ -121,3 +121,7 @@ deploy/public/CURRENT_URL.txt
 
 # Kubernetes
 *.kubeconfig
+
+# Never commit: Node dependencies and database dumps
+node_modules/
+*.dump
