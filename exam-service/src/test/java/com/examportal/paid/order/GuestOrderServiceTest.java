@@ -117,4 +117,23 @@ class GuestOrderServiceTest {
         assertThat(database.scalar("SELECT count(*) FROM orders WHERE exam_id = " + exam + " AND status = 'FAILED' AND NOT seat_held")).isEqualTo(1);
         assertThat(database.scalar("SELECT seats_taken FROM exams WHERE id = " + exam)).isZero();
     }
+
+    @Test
+    void anOrderNamesTheWindowOfItsExam() {
+        GuestOrderService service = service(new SandboxPaymentProvider(true, "secret-secret-secret", ""), "SANDBOX");
+        long exam = database.paidExam("T-b13b window", 1500, null);
+        java.time.LocalDateTime[] window = database.db.sql("SELECT start_time, end_time FROM exams WHERE id = :id").bind("id", exam)
+                .map(row -> new java.time.LocalDateTime[] {row.get("start_time", java.time.LocalDateTime.class), row.get("end_time", java.time.LocalDateTime.class)})
+                .one().block();
+        PaidGuest guest = new PaidGuest(UUID.randomUUID(), 4_141_592);
+
+        PaidDtos.OrderView created = service.create(guest, exam).block();
+        for (PaidDtos.OrderView view : List.of(created, service.get(guest, created.id()).block(), service.list(guest).block().get(0))) {
+            assertThat(view.examStartsAt()).isEqualTo(window[0]);
+            assertThat(view.examEndsAt()).isEqualTo(window[1]);
+        }
+        // Another guest still gets nothing of it
+        assertThatThrownBy(() -> service.get(new PaidGuest(UUID.randomUUID(), 1_234_567), created.id()).block())
+                .satisfies(error -> assertThat(code(error)).isEqualTo("ORDER_NOT_FOUND"));
+    }
 }
