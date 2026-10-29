@@ -88,6 +88,11 @@ services:
       # See auth-service: 50 of the 100 connections of Postgres
       SPRING_R2DBC_POOL_INITIALSIZE: 10
       SPRING_R2DBC_POOL_MAXSIZE: 50
+      # The payment sandbox is never taken over from the development value of .env: the public mode has its own
+      # switch, off unless set on purpose (and even then the production profile keeps the sandbox closed without
+      # PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION=I-UNDERSTAND; go-public.ps1 start refuses both). PAID_ACCESS_ENABLED stays
+      # the one of .env (a real provider will need it).
+      PAYMENTS_SANDBOX_ALLOWED: ${PAYMENTS_SANDBOX_ALLOWED_PUBLIC:-false}
 
   api-gateway:
     ports: !override

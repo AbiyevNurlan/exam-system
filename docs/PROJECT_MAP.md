@@ -561,6 +561,7 @@ CANCELLED statusu var, amma heç bir endpoint onu qoymur.
 | CORS | `CORS_ALLOWED_ORIGINS`; ictimai rejimdə yalnız `http://127.0.0.1:8088` (edge brauzerin Origin-ini özü idarə edir) | gateway `application.yml`, `docker-compose.public.yml` |
 | Gizli açarlar | `.env` (git-ignore, commit olunmur); ictimai rejim üçün `scripts\init-public-env.ps1` yaradır, heç vaxt çap etmir; `DB_PASSWORD` yalnız o skriptlə dəyişir | `.env.example`, `scripts\init-public-env.ps1` |
 | Media | Bucket şəxsidir, yalnız imzalı link; fayl serverdən keçmir; `confirm` ölçünü və "magic bytes"-ı yoxlayır | `ES/storage/MediaStorage.java`, `ES/service/MediaTypePolicy.java` |
+| Sandbox ödənişi canlıda | Production profilində sandbox `PAYMENTS_SANDBOX_ALLOWED`-dən asılı olmayaraq bağlıdır: checkout, səhifə və bildiriş 404, ERROR log, health `paymentsSandbox` WARNING (`/actuator/health/payments`), ümumi health UP. Override yalnız `PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION=I-UNDERSTAND` (ERROR və audit sətri). İctimai compose dev dəyərini ötürmür, `go-public.ps1 start` imtina edir | `ES/../paid/provider/SandboxProductionGuard.java`, `docker-compose.public.yml`, `scripts\sandbox-state.ps1` |
 
 ### Gizlilik: şəxsi məlumatı kim görür
 
@@ -626,7 +627,9 @@ Hamısı `scripts\` qovluğundadır. Heç biri `docker compose down -v` işlətm
 | `backup.ps1` | pg_dump (3 baza) və media bucket-i `backups\<tarix>\`-ə, SHA256SUMS ilə; son 14-ü saxlayır | Hər riskli addımdan əvvəl və sonra; `go-public.ps1 start` özü çağırır | Az. Backup eyni diskdə qalır; şifrələnmir |
 | `restore-test.ps1` | Son backup-ı müvəqqəti bazalara bərpa edib sətir saylarını müqayisə edir | Backup-dan sonra | Az (yalnız `restoretest_` bazalarına yazır). Yalnız sayları müqayisə edir, məzmunu yox |
 | `cleanup-test-data.ps1` | `@x.test` hesabları və `T-` imtahan və qrupları silir; default quru qaçış; `-Execute` əl ilə yazılan təsdiq sözü istəyir və əvvəl backup alır | İctimai rejimi açmadan əvvəl | Orta: canlı bazada silir. Admin və qorunan email-ləri saxlayır. Media faylları silinmir, siyahısı yazılır |
-| `go-public.ps1` | İctimai rejim: `start`, `stop`, `status`, `url` | Saytı açmaq, bağlamaq | Orta: real istifadəçilərə açır; `start -SkipBackup` backup-sız işləyir |
+| `go-public.ps1` | İctimai rejim: `start`, `stop`, `status`, `url`. `start` `.env`-də sandbox ödənişi açıq olanda dayanır, `status` `Sandbox: OFF/ON` göstərir | Saytı açmaq, bağlamaq | Orta: real istifadəçilərə açır; `start -SkipBackup` backup-sız, `-AllowSandbox` sandbox ilə işləyir (yalnız qəsdən) |
+| `sandbox-state.ps1` | `go-public.ps1`-in sandbox yoxlaması (`Get-SandboxState`): `.env`-də sandbox-u açan açarların adları, dəyərləri yox | `go-public.ps1` çağırır | Yox (yalnız oxuyur) |
+| `test-sandbox-state.ps1` | Saxta `.env` faylları ilə, müvəqqəti qovluqda, sandbox yoxlamasını və `go-public.ps1 start`-ın imtinasını sınayır | `go-public.ps1` və ya `sandbox-state.ps1` dəyişəndən sonra | Yox (stack-ə toxunmur) |
 | `watch-public.ps1` | Sayt düşəndə yeni tunellə qaldırır | Daim (Task Scheduler) | Az; tapşırıq hazırda söndürülüb |
 | `deploy-frontend.ps1` | Yalnız frontendi dəyişir, ünvan qalır; uğursuzluqda geri qaytarır | Yalnız frontend dəyişəndə | Az |
 | `build-frontend.ps1` | Frontendi `deploy\public\site`-a build edir | `go-public` və `deploy-frontend` çağırır | Az |
@@ -740,7 +743,8 @@ Birləşmə sırası `main` ← `feat/b13-teacher-isolation` ← `feat/avatar` �
 
 1. **Canlı sayt və development eyni bazadır.** İctimai rejim development compose-un üstündə işləyir, eyni
    `exam-system_postgres_data` həcmini götürür. Development-də edilən hər test, hər skript canlı istifadəçilərin
-   məlumatına yazır. Ayrıca staging bazası yoxdur.
+   məlumatına yazır. Ayrıca staging bazası yoxdur. Sandbox ödənişi də buna görə yalnız ayrıca dev stack-də açılmalıdır;
+   canlı profil onu 2026-10-29-dan bağlayır (`fix/sandbox-production-guard`, BACKLOG Ops).
 2. **Test məlumatı canlıdadır.** 2026-10-21: 1072 hesabdan 996-sı `@x.test`, 209 imtahandan 153-ü `T-`, 80 qrupdan 53-ü
    `T-`. ACTIVE + PUBLIC 16 imtahanın **hamısı** `T-` test imtahanıdır, yəni ictimai saytın iştirakçıları yalnız test
    imtahanları görür. BACKLOG bunu ictimai rejimdən əvvəl təmizləməyi tələb edirdi; sayt indi açıqdır.
@@ -885,6 +889,7 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 | Profil şəkli | hazır, `main`-də deyil | 2026-10-20 |
 | Yeni sual növləri (backend və frontend) | hazır, `main`-də deyil, brauzerdə yoxlanılmayıb | 2026-10-22 |
 | Endpoint reyestri və testləri | hazır | 2026-10-20 |
+| Sandbox ödənişinin canlı qoruyucusu (production profili, ictimai compose, go-public yoxlaması) | hazır, `main`-də deyil, canlıya tətbiq olunmayıb | 2026-10-29 |
 | Avtomatik testlər (224) | hazır | 2026-10-21 (işlədildi) |
 | Regression skriptləri | hazır, B13-ə uyğunlaşdırılıb, B13-dən sonra işlədilməyib | 2026-10-21 |
 | Backup və bərpa testi | yarımçıq (eyni disk, gecə tapşırığı yoxdur) | 2026-10-21 (son backup) |
@@ -944,6 +949,7 @@ Yoxlanılmadı: ekranların brauzerdə real davranışı (yalnız kod oxundu); f
 
 | Tarix (Bakı) | Filial | Nə dəyişdi | Hissələr |
 |---|---|---|---|
+| 2026-10-29 16:30 | `fix/sandbox-production-guard` (merge gözləyir) | Sandbox canlıda açılmır. exam-service-də `SandboxProductionGuard`: production profilində sandbox `PAYMENTS_SANDBOX_ALLOWED`-dən asılı olmayaraq bağlıdır, checkout yoxdur, səhifəsi və `/api/payments/webhook/sandbox` 404 qaytarır, event sətri yazılmır. Servis işləyir, hər başlanğıcda ERROR log; health komponenti `paymentsSandbox` WARNING göstərir (həm də `/actuator/health/payments`), ümumi health UP qalır. Yalnız `PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION=I-UNDERSTAND` override edir: ERROR və `group_audit_log`-da `PAYMENTS_SANDBOX_IN_PRODUCTION` sətri. `docker-compose.public.yml`: `PAYMENTS_SANDBOX_ALLOWED=${PAYMENTS_SANDBOX_ALLOWED_PUBLIC:-false}`. `go-public.ps1 start` sandbox açıq olanda qırmızı xəbərdarlıqla dayanır (`-AllowSandbox`), `status`-da `Sandbox: OFF/ON` sətri; `sandbox-state.ps1`, `test-sandbox-state.ps1`. `paid-endpoint-access.txt`-də `DEV_ONLY` sütunu. Miqrasiya yoxdur; canlıya tətbiq olunmayıb | 6, 8, 12, 14 |
 | 2026-10-23 18:40 | `feat/b13b-paid-exams` (merge gözləyir) | B13b ödənişli açıq imtahan: exam V24 orders/payment_events (append-only)/entitlements + status trigger, V25 exams-də access_mode (defolt AUDIENCE) və ödəniş ayarları; auth V13 (guest_audit_log SYSTEM); com.examportal.paid: ayarlar (ADMIN, B12a tarixçəsi), ictimai kataloq, atomik yer ayırma (200 paralel/50 yer = 50), sifariş, SANDBOX/MANUAL provayder, imzalı idempotent webhook, reconcile (advisory lock), qonağın imtahan başlanğıcı (atomik cəhd), geri qaytarma və ləğv, admin maliyyə (siyahı, CSV, MANUAL, pulsuz giriş, xülasə), qəbz/geri qaytarma məktubu, qonağın hadisələri; PAID_OPEN imtahan AUDIENCE qaydasından çıxarıldı; regression skriptləri canlı bazada imtina edir; build 361 test 0 xəta; canlıya tətbiq olunmayıb | 10, 14 |
 | 2026-10-23 17:40 | `feat/b13a-guest-identity` (merge gözləyir) | B13a qonaq iştirakçı (ödənişli açıq imtahan üçün şifrəsiz, e-poçt+OTP): auth V9 guest_participants (kod eyni participant_code_seq və V5 trigger funksiyalarından, users ilə toqquşma mümkün deyil), V10 guest_refresh_tokens, V11 guest_email_otp+guest_profile_tokens, V12 guest_audit_log; /auth/guest/** (otp/request, otp/verify, profile, refresh, logout), /api/guest/me, /api/guest/feature, /api/admin/guests/** (ADMIN); GUEST tokeni JWT_SECRET-dən törədilmiş ayrı açarla, mövcud bütün endpointlərdə tokensiz kimi; ayrıca security chain (auth və gateway), gateway-də ayrıca marşrut/bucket; PAID_ACCESS_ENABLED=false (defolt) -> 404 FEATURE_DISABLED; captcha kancası (söndürülü); verify-b13a.ps1, cleanup-test-data.ps1 qonaqlar üçün; build 315 test 0 xəta; canlı bazaya tətbiq olunmayıb (V8) | 10, 14 |
 | 2026-10-23 16:50 | `exam-frontend` `feat/question-types` | Profil səhifəsi iki sütunda: solda şəxsiyyət kartı (göy avatar, ad, e-poçt, rol, iştirakçı kodu) və 2x2 statistika, sağda alt xəttli sekmələr və formalar; boş göy örtük zolağı götürüldü; Card komponenti ağır kölgəsiz (shadow-sm, hover böyüməsi yox), başlıqlar text-lg; frontend 652 test; sayt yeniləndi | 13 |

@@ -5,6 +5,9 @@
 
 .DESCRIPTION
     start   Preflight (refuses to start on any problem):
+              - the payment sandbox off in .env: PAYMENTS_SANDBOX_ALLOWED, PAYMENTS_SANDBOX_ALLOWED_PUBLIC not true and
+                no PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION (sandbox-state.ps1); -AllowSandbox goes on anyway, with the
+                red warning at the start and again next to the address
               - .env complete for docker-compose.yml + docker-compose.public.yml (check-env.ps1),
                 PUBLIC_MAIL_* present, secrets strong, .env ignored and untracked by git
               - the database accepts DB_PASSWORD (else: scripts\init-public-env.ps1)
@@ -15,7 +18,8 @@
             brought up with the public override ("up -d", never "down"), health of every service,
             the public address printed and smoke tests run against it.
     stop    Stops only edge and the tunnel. Database, Redis, storage and services keep running.
-    status  Containers, tunnel, address, media address of exam-service, last backup.
+    status  Containers, tunnel, address, media address of exam-service, last backup, "Sandbox: OFF" (or ON as FAIL,
+            with the names of the settings, never their values).
     url     Prints the current public address.
 
     Never runs "down" and never removes a volume.
@@ -38,7 +42,9 @@ param(
     # Skip the production gateway check (it starts a temporary gateway for about a minute)
     [switch]$SkipGatewayCheck,
     # start: replace a running tunnel by a new one (a new address), e.g. after Cloudflare dropped it
-    [switch]$NewTunnel
+    [switch]$NewTunnel,
+    # start: go on although .env turns the payment sandbox on (on purpose only; the warning stays)
+    [switch]$AllowSandbox
 )
 
 # Native commands (docker, git, curl) are judged by their exit codes; in Windows PowerShell their
@@ -56,6 +62,8 @@ $stoppedFile = Join-Path $stateDir 'stopped-on-purpose'
 $composeArgs = @('compose', '--project-directory', $repoRoot, '-f', $baseFile, '-f', $publicFile)
 $tunnelContainer = 'exam-cloudflared'
 $localEdge = 'http://127.0.0.1:8088'
+# Get-SandboxState: which settings of .env turn the payment sandbox on (names only)
+. (Join-Path $PSScriptRoot 'sandbox-state.ps1')
 
 # Containers and the port of their health endpoint (checked inside the container)
 $services = [ordered]@{
@@ -162,6 +170,12 @@ function Fail([string]$message) {
     exit 1
 }
 
+function Write-SandboxWarning([string[]]$on) {
+    Write-Host ''
+    Write-Host "SANDBOX: sandbox canlida aciq ola bilmez; .env-de false edin ($($on -join ', '))" -ForegroundColor Red
+    Write-Host '  The test payment page lets anyone take a paid exam without paying. Development stack only (docs\BACKLOG.md).' -ForegroundColor Red
+}
+
 # ---------------------------------------------------------------- preflight
 
 $script:gatewayChecked = $false
@@ -185,6 +199,14 @@ function Invoke-GatewayCheck {
 function Invoke-Preflight {
     Write-Host '== Preflight'
     if (-not (Test-Path -LiteralPath $envFile)) { Fail '.env is missing (copy .env.example, then run scripts\init-public-env.ps1)' }
+
+    # The payment sandbox never goes live by accident (names only, never values)
+    $sandboxOn = @(Get-SandboxState $envFile)
+    if ($sandboxOn.Count -gt 0) {
+        Write-SandboxWarning $sandboxOn
+        if (-not $AllowSandbox) { Fail 'the payment sandbox is on in .env (set it to false; -AllowSandbox only on purpose)' }
+        Write-Host '  -AllowSandbox given: going on anyway.' -ForegroundColor Red
+    }
 
     & git -C $repoRoot check-ignore -q -- '.env'
     if ($LASTEXITCODE -ne 0) { Fail '.env is not ignored by git' }
@@ -340,6 +362,8 @@ switch ($Command) {
         Write-Host ''
         Write-Host "PUBLIC ADDRESS: $url"
         Write-Host '(changes with every start of the tunnel; stop: .\scripts\go-public.ps1 stop)'
+        $sandboxOn = @(Get-SandboxState $envFile)
+        if ($sandboxOn.Count -gt 0) { Write-SandboxWarning $sandboxOn }
         if ($failed -gt 0) { Write-Host "WARNING: $failed smoke test(s) failed, see above."; exit 1 }
         exit 0
     }
@@ -385,6 +409,10 @@ switch ($Command) {
             $age = (Get-Date) - $last.CreationTime
             Write-Host ("Last backup:         {0} ({1:N1} hours ago)" -f $last.Name, $age.TotalHours)
         } else { Write-Host 'Last backup:         none' }
+        $sandboxOn = @(Get-SandboxState $envFile)
+        if ($sandboxOn.Count -gt 0) {
+            Write-Host "Sandbox:             ON   FAIL ($($sandboxOn -join ', ') in .env: set to false)" -ForegroundColor Red
+        } else { Write-Host 'Sandbox:             OFF' }
         exit 0
     }
 

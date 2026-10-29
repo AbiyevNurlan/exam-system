@@ -4,6 +4,7 @@ import com.examportal.paid.order.Order;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
@@ -38,13 +39,23 @@ public class SandboxPaymentProvider implements PaymentProvider {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final boolean allowed;
+    private final boolean hidden;
     private final byte[] secret;
     private final String publicBaseUrl;
 
+    /** Outside production (tests, development) */
+    public SandboxPaymentProvider(boolean allowed, String secret, String publicBaseUrl) {
+        this(allowed, secret, publicBaseUrl, SandboxProductionGuard.development());
+    }
+
+    /** In production the guard closes the sandbox whatever PAYMENTS_SANDBOX_ALLOWED says (SandboxProductionGuard) */
+    @Autowired
     public SandboxPaymentProvider(@Value("${payments.sandbox.allowed:false}") boolean allowed,
                                   @Value("${payments.sandbox.webhook-secret:}") String secret,
-                                  @Value("${payments.public-base-url:}") String publicBaseUrl) {
-        this.allowed = allowed;
+                                  @Value("${payments.public-base-url:}") String publicBaseUrl,
+                                  SandboxProductionGuard guard) {
+        this.allowed = allowed && guard.permitted();
+        this.hidden = guard.hidden();
         if (secret != null && !secret.isBlank()) {
             this.secret = secret.trim().getBytes(StandardCharsets.UTF_8);
         } else {
@@ -53,9 +64,14 @@ public class SandboxPaymentProvider implements PaymentProvider {
             this.secret = random;
         }
         this.publicBaseUrl = publicBaseUrl == null ? "" : publicBaseUrl.replaceAll("/+$", "");
-        if (allowed) {
+        if (this.allowed) {
             log.warn("The SANDBOX payment provider is ON (PAYMENTS_SANDBOX_ALLOWED=true): for development only, no money moves");
         }
+    }
+
+    @Override
+    public boolean hidden() {
+        return hidden;
     }
 
     @Override
