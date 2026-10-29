@@ -186,6 +186,15 @@ public class OrderRepository {
         return databaseClient.sql("UPDATE orders SET seat_held = true WHERE id = :id").bind("id", orderId).then();
     }
 
+    /**
+     * The order is paid outside the system (mark-paid): its provider becomes MANUAL, so a paid DEMO order (SANDBOX) that
+     * an administrator records as cash is real money, and its refund is given back outside too. Part of the caller's
+     * transaction.
+     */
+    public Mono<Void> markManual(Long orderId) {
+        return databaseClient.sql("UPDATE orders SET provider = 'MANUAL' WHERE id = :id").bind("id", orderId).then();
+    }
+
     /** Gives the order's seat back, once: true when it held one. Part of the caller's transaction. */
     public Mono<Boolean> releaseSeat(Long orderId) {
         return databaseClient.sql("""

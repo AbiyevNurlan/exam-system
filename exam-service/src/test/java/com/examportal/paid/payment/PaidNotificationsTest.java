@@ -47,7 +47,9 @@ class PaidNotificationsTest {
         notifications.refunded(order).block();
         ArgumentCaptor<GuestDirectory.Notice> sent = ArgumentCaptor.forClass(GuestDirectory.Notice.class);
         verify(directory, org.mockito.Mockito.times(2)).notice(eq(order.guestId()), sent.capture());
-        assertThat(sent.getAllValues().get(0)).isEqualTo(new GuestDirectory.Notice("RECEIPT", "YK-261023-000009", "Kimya", 2500, "AZN", paidAt));
+        // The order of this test was paid with the sandbox: a DEMO order, and its receipt says so
+        assertThat(order.provider()).isEqualTo("SANDBOX");
+        assertThat(sent.getAllValues().get(0)).isEqualTo(new GuestDirectory.Notice("RECEIPT", "YK-261023-000009", "Kimya", 2500, "AZN", paidAt, true));
         assertThat(sent.getAllValues().get(1).kind()).isEqualTo("REFUND");
         assertThat(sent.getAllValues().get(1).at()).isEqualTo(LocalDateTime.of(2026, 10, 24, 10, 0));
 

@@ -23,8 +23,9 @@ import java.text.NumberFormat;
 import java.util.Locale;
 
 /**
- * B13b item 6a: the sandbox's own test payment page, development only. 404 unless PAYMENTS_SANDBOX_ALLOWED=true and
- * the link's signature belongs to the order. "Uğurlu ödəniş" / "Uğursuz ödəniş" send a notification signed like a
+ * B13b item 6a: the sandbox's own test payment page, the DEMO payment (development, or production in DEMO mode). 404
+ * unless the sandbox is on and the link's signature belongs to the order. A large "DEMO ÖDƏNİŞ" heading, "no money is
+ * taken from your card", no card data asked. "Uğurlu ödəniş (demo)" / "Uğursuz ödəniş (demo)" send a notification signed like a
  * provider's through the same webhook handling; the page then only says to go back, where the site asks the order's
  * status (the browser never decides).
  */
@@ -33,6 +34,12 @@ import java.util.Locale;
 @RequestMapping("/api/payments/sandbox/checkout")
 @RequiredArgsConstructor
 public class SandboxCheckoutController {
+
+    static final String TITLE = "DEMO ÖDƏNİŞ";
+    // Said on every page of the sandbox: it is the payment of the DEMO mode (PAYMENTS_DEMO_MODE) as well as of development
+    static final String DEMO_NOTICE = "<p style=\"background:#fff4c2;border:2px solid #e0b100;padding:12px 14px;font-size:16px\">"
+            + "<b>Bu sınaq ödənişidir, kartınızdan pul tutulmur.</b> Real ödəniş alınmır; düymə yalnız ödənişin nəticəsini "
+            + "göstərir.</p>";
 
     private final SandboxPaymentProvider sandbox;
     private final OrderRepository orders;
@@ -44,11 +51,11 @@ public class SandboxCheckoutController {
             return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
         }
         return orders.findByNo(orderNo)
-                .map(order -> html("Test ödənişi (SANDBOX)", "<p>Sifariş: <b>" + order.orderNo() + "</b></p><p>Məbləğ: <b>"
+                .map(order -> html(TITLE, DEMO_NOTICE + "<p>Sifariş: <b>" + order.orderNo() + "</b></p><p>Məbləğ: <b>"
                         + money(order.amountMinor()) + " " + order.currency() + "</b></p>"
                         + (order.status() == OrderStatus.PENDING
-                        ? "<p>Bu, yalnız test mühiti üçündür: pul köçürülmür, kart məlumatı soruşulmur.</p>"
-                        + form(orderNo, sig, "success", "Uğurlu ödəniş") + form(orderNo, sig, "failure", "Uğursuz ödəniş")
+                        ? "<p>Kart məlumatı soruşulmur. Nəticəni özünüz seçin:</p>"
+                        + form(orderNo, sig, "success", "Uğurlu ödəniş (demo)") + form(orderNo, sig, "failure", "Uğursuz ödəniş (demo)")
                         : "<p>Sifarişin statusu: <b>" + order.status().name() + "</b></p>")))
                 .defaultIfEmpty(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }
@@ -68,7 +75,7 @@ public class SandboxCheckoutController {
                     HttpHeaders headers = new HttpHeaders();
                     headers.add(SandboxPaymentProvider.SIGNATURE_HEADER, note.signature());
                     return webhooks.handle(SandboxPaymentProvider.NAME, note.body(), headers)
-                            .map(handled -> html("Test ödənişi (SANDBOX)", "<p>Bildiriş göndərildi. Sayta qayıdın: sifarişin statusu orada "
+                            .map(handled -> html(TITLE, DEMO_NOTICE + "<p>Bildiriş göndərildi. Sayta qayıdın: sifarişin statusu orada "
                                     + "görünəcək.</p>"));
                 })
                 .defaultIfEmpty(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
@@ -92,7 +99,8 @@ public class SandboxCheckoutController {
         return ResponseEntity.ok().contentType(new MediaType("text", "html", java.nio.charset.StandardCharsets.UTF_8))
                 .header("Cache-Control", "no-store")
                 .body("<!DOCTYPE html><html lang=\"az\"><head><meta charset=\"UTF-8\"><title>" + title + "</title></head>"
-                        + "<body style=\"font-family:Arial,sans-serif;max-width:560px;margin:40px auto;color:#1c2552\"><h1>" + title + "</h1>"
+                        + "<body style=\"font-family:Arial,sans-serif;max-width:560px;margin:40px auto;padding:0 16px;color:#1c2552\">"
+                        + "<h1 style=\"font-size:34px;letter-spacing:1px\">" + title + "</h1>"
                         + body + "</body></html>");
     }
 }

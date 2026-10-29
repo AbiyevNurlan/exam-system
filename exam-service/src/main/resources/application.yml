@@ -75,6 +75,9 @@ features:
 # B13b: payments of paid open exams. Money is whole minor units (qəpik). Keys only from the environment.
 payments:
   provider: ${PAYMENTS_PROVIDER:SANDBOX}          # the checkout of new orders: SANDBOX (development) or EXTERNAL (not written yet)
+  # Profile "production": the sandbox as a DEMO payment for everyone (no real money), only together with
+  # PAYMENTS_PROVIDER=SANDBOX and PAYMENTS_SANDBOX_ALLOWED=true (PaymentsMode, docs\DEMO_PAYMENTS.md)
+  demo-mode: ${PAYMENTS_DEMO_MODE:false}
   order-ttl-minutes: 30                          # an unpaid order expires and gives its seat back
   currencies: AZN
   public-base-url: ${PAYMENTS_PUBLIC_BASE_URL:}  # the start of checkout links (empty: relative to the site)
@@ -84,8 +87,9 @@ payments:
   sandbox:
     allowed: ${PAYMENTS_SANDBOX_ALLOWED:false}  # development only; never on a live system
     webhook-secret: ${PAYMENTS_SANDBOX_SECRET:}  # empty: a random secret per start
-    # Profile "production": the sandbox stays closed (its page and notifications 404) unless this is I-UNDERSTAND
-    # (SandboxProductionGuard); then it runs with an ERROR and an audit row at every start
+    # Profile "production": the sandbox stays closed (its page and notifications 404) unless payments.demo-mode (the
+    # way to use) or this older override is I-UNDERSTAND (SandboxProductionGuard); then it runs with an ERROR and an
+    # audit row at every start
     allow-in-production: ${PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION:}
   external:                                      # a real provider (not implemented yet)
     name: ${PAYMENTS_EXTERNAL_NAME:}
@@ -182,7 +186,7 @@ management:
           include: paymentsSandbox
           show-details: always
           status:
-            order: DOWN, OUT_OF_SERVICE, WARNING, UP, UNKNOWN
+            order: DOWN, OUT_OF_SERVICE, WARNING, DEMO, UP, UNKNOWN
   metrics:
     export:
       prometheus:

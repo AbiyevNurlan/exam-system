@@ -7,7 +7,9 @@
     start   Preflight (refuses to start on any problem):
               - the payment sandbox off in .env: PAYMENTS_SANDBOX_ALLOWED, PAYMENTS_SANDBOX_ALLOWED_PUBLIC not true and
                 no PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION (sandbox-state.ps1); -AllowSandbox goes on anyway, with the
-                red warning at the start and again next to the address
+                red warning at the start and again next to the address. A complete DEMO (PAYMENTS_DEMO_MODE=true,
+                PAYMENTS_PROVIDER=SANDBOX, PAYMENTS_SANDBOX_ALLOWED_PUBLIC=true, docs\DEMO_PAYMENTS.md) goes on with a
+                yellow warning (so watch-public.ps1 brings the site back in DEMO too); an incomplete one refuses
               - .env complete for docker-compose.yml + docker-compose.public.yml (check-env.ps1),
                 PUBLIC_MAIL_* present, secrets strong, .env ignored and untracked by git
               - the database accepts DB_PASSWORD (else: scripts\init-public-env.ps1)
@@ -18,8 +20,9 @@
             brought up with the public override ("up -d", never "down"), health of every service,
             the public address printed and smoke tests run against it.
     stop    Stops only edge and the tunnel. Database, Redis, storage and services keep running.
-    status  Containers, tunnel, address, media address of exam-service, last backup, "Sandbox: OFF" (or ON as FAIL,
-            with the names of the settings, never their values).
+    status  Containers, tunnel, address, media address of exam-service, last backup, "Payments: DEMO / OFF /
+            SANDBOX-BLOCKED / EXTERNAL", "Sandbox: OFF" (DEMO in a complete demo, or ON as FAIL, with the names of the
+            settings, never their values).
     url     Prints the current public address.
 
     Never runs "down" and never removes a volume.
@@ -170,6 +173,19 @@ function Fail([string]$message) {
     exit 1
 }
 
+function Write-DemoWarning {
+    Write-Host ''
+    Write-Host 'DEMO odenis rejimi aciqdir: real pul tutulmur (PAYMENTS_DEMO_MODE=true, docs\DEMO_PAYMENTS.md)' -ForegroundColor Yellow
+    Write-Host '  Do not publish a paid exam of real value while the demo is on.' -ForegroundColor Yellow
+}
+
+# The sandbox switches that are on, without the two a complete DEMO is meant to have
+function Get-UnwantedSandbox($payments) {
+    $on = @(Get-SandboxState $envFile)
+    if ($payments.DemoComplete) { $on = @($on | Where-Object { $_ -ne 'PAYMENTS_SANDBOX_ALLOWED' -and $_ -ne 'PAYMENTS_SANDBOX_ALLOWED_PUBLIC' }) }
+    return , $on
+}
+
 function Write-SandboxWarning([string[]]$on) {
     Write-Host ''
     Write-Host "SANDBOX: sandbox canlida aciq ola bilmez; .env-de false edin ($($on -join ', '))" -ForegroundColor Red
@@ -200,8 +216,13 @@ function Invoke-Preflight {
     Write-Host '== Preflight'
     if (-not (Test-Path -LiteralPath $envFile)) { Fail '.env is missing (copy .env.example, then run scripts\init-public-env.ps1)' }
 
-    # The payment sandbox never goes live by accident (names only, never values)
-    $sandboxOn = @(Get-SandboxState $envFile)
+    # The payment sandbox never goes live by accident (names only, never values): only as a complete DEMO, on purpose
+    $payments = Get-PaymentsState $envFile
+    if ($payments.DemoRequested) {
+        if (-not $payments.DemoComplete) { Fail "PAYMENTS_DEMO_MODE=true also needs $($payments.Missing -join ' and ') in .env (docs\DEMO_PAYMENTS.md)" }
+        Write-DemoWarning
+    }
+    $sandboxOn = Get-UnwantedSandbox $payments
     if ($sandboxOn.Count -gt 0) {
         Write-SandboxWarning $sandboxOn
         if (-not $AllowSandbox) { Fail 'the payment sandbox is on in .env (set it to false; -AllowSandbox only on purpose)' }
@@ -362,7 +383,9 @@ switch ($Command) {
         Write-Host ''
         Write-Host "PUBLIC ADDRESS: $url"
         Write-Host '(changes with every start of the tunnel; stop: .\scripts\go-public.ps1 stop)'
-        $sandboxOn = @(Get-SandboxState $envFile)
+        $payments = Get-PaymentsState $envFile
+        if ($payments.DemoComplete) { Write-DemoWarning }
+        $sandboxOn = Get-UnwantedSandbox $payments
         if ($sandboxOn.Count -gt 0) { Write-SandboxWarning $sandboxOn }
         if ($failed -gt 0) { Write-Host "WARNING: $failed smoke test(s) failed, see above."; exit 1 }
         exit 0
@@ -409,9 +432,16 @@ switch ($Command) {
             $age = (Get-Date) - $last.CreationTime
             Write-Host ("Last backup:         {0} ({1:N1} hours ago)" -f $last.Name, $age.TotalHours)
         } else { Write-Host 'Last backup:         none' }
-        $sandboxOn = @(Get-SandboxState $envFile)
+        $payments = Get-PaymentsState $envFile
+        $paymentsColor = if ($payments.Mode -eq 'DEMO') { 'Yellow' } else { 'Gray' }
+        Write-Host "Payments:            $($payments.Mode)$(if ($payments.Mode -eq 'DEMO') { '   (no real money is charged)' })" -ForegroundColor $paymentsColor
+        if ($payments.DemoRequested -and -not $payments.DemoComplete) {
+            Write-Host "  FAIL: PAYMENTS_DEMO_MODE=true also needs $($payments.Missing -join ' and ')" -ForegroundColor Red
+        }
+        $sandboxOn = Get-UnwantedSandbox $payments
         if ($sandboxOn.Count -gt 0) {
             Write-Host "Sandbox:             ON   FAIL ($($sandboxOn -join ', ') in .env: set to false)" -ForegroundColor Red
+        } elseif ($payments.DemoComplete) { Write-Host 'Sandbox:             DEMO' -ForegroundColor Yellow
         } else { Write-Host 'Sandbox:             OFF' }
         exit 0
     }

@@ -50,6 +50,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required - run scripts\init-public-env.ps1}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - run scripts\init-public-env.ps1}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET is required - run scripts\init-public-env.ps1}
+      # The same sandbox switch as exam-service in the public mode (only for paymentsDemo of /api/guest/feature)
+      PAYMENTS_SANDBOX_ALLOWED: ${PAYMENTS_SANDBOX_ALLOWED_PUBLIC:-false}
       # A real SMTP server, from PUBLIC_MAIL_* of .env (.env.example, Gmail example). Not MAIL_*:
       # those would also take the development stack off Mailpit and send its test mails for real.
       # Defaults: port 587 with STARTTLS.

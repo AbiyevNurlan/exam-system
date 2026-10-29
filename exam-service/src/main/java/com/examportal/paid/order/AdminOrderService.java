@@ -80,13 +80,14 @@ public class AdminOrderService {
     }
 
     static final List<String> CSV_HEADERS = List.of("Sifariş nömrəsi", "İştirakçı kodu", "İmtahan ID", "İmtahan", "Məbləğ", "Məbləğ (qəpik)",
-            "Valyuta", "Status", "Provayder", "Yaradılıb", "Ödənilib", "Geri qaytarılıb");
+            "Valyuta", "Status", "Provayder", "Yaradılıb", "Ödənilib", "Geri qaytarılıb", "Demo");
 
+    /** The last column: "bəli" for a DEMO order (no real money), "xeyr" for a real one */
     static String csvLine(AdminOrderRepository.Row row) {
         Order order = row.order();
         return String.join(",", cell(order.orderNo()), String.valueOf(order.guestCode()), String.valueOf(order.examId()), cell(row.examTitle()),
                 cell(money(order.amountMinor())), String.valueOf(order.amountMinor()), order.currency(), order.status().name(), order.provider(),
-                baku(order.createdAt()), baku(order.paidAt()), baku(order.refundedAt())) + "\r\n";
+                baku(order.createdAt()), baku(order.paidAt()), baku(order.refundedAt()), AdminOrderRepository.demo(order) ? "bəli" : "xeyr") + "\r\n";
     }
 
     static String money(int minor) {
@@ -112,7 +113,8 @@ public class AdminOrderService {
 
     /**
      * A payment outside the system (cash, bank transfer): a reason and the document's number are required. A PENDING or
-     * NEEDS_REVIEW order becomes PAID with its entitlement, in one transaction with a MANUAL payment event; an order
+     * NEEDS_REVIEW order becomes PAID with its entitlement and provider MANUAL (real money, never DEMO), in one
+     * transaction with a MANUAL payment event; an order
      * without a seat takes one first (409 SOLD_OUT), a guest entitled already is 409 ALREADY_ENTITLED.
      */
     public Mono<Order> markPaid(UUID adminId, Long orderId, String reasonText, String documentNo) {
@@ -135,6 +137,7 @@ public class AdminOrderService {
                         return seat.then(exams.find(order.examId()))
                                 .flatMap(exam -> entitlements.grantForOrder(order, exam.attemptsPerPurchase()))
                                 .switchIfEmpty(Mono.error(PaidErrors.alreadyEntitled()))
+                                .then(orders.markManual(order.id()))
                                 .then(orders.move(order.id(), OrderStatus.PAID, null))
                                 .flatMap(paid -> events.insert(order.id(), ManualPaymentProvider.NAME, "manual-" + UUID.randomUUID(), "MANUAL_PAYMENT", true,
                                                 order.amountMinor(), order.currency(), "PAID", "{\"adminId\":\"" + adminId + "\",\"reason\":"
@@ -176,7 +179,8 @@ public class AdminOrderService {
                 .switchIfEmpty(Mono.error(PaidErrors.examNotFound()))
                 .flatMap(exam -> list.summary(examId).map(figures -> new PaidDtos.ExamSummary(examId, exam.title(), exam.currency(),
                         figures.paidCount(), figures.revenueMinor(), figures.refundedCount(), figures.refundedMinor(),
-                        figures.refundPendingCount(), figures.needsReviewCount(), figures.pendingCount(), exam.seatLimit(), exam.seatsTaken())));
+                        figures.refundPendingCount(), figures.needsReviewCount(), figures.pendingCount(), exam.seatLimit(), exam.seatsTaken(),
+                        figures.demoPaidCount(), figures.demoAmountMinor())));
     }
 
     private static String checkedReason(String reason) {

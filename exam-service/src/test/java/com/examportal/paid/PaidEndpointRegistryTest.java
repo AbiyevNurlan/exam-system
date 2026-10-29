@@ -281,6 +281,19 @@ class PaidEndpointRegistryTest {
         // The sandbox's notification: 404 before any signature check or event row
         assertThat(sandbox.hidden()).isTrue();
         assertThat(sample("/api/payments/webhook/{provider}")).isEqualTo("/api/payments/webhook/sandbox");
+
+        // The payment DEMO (PAYMENTS_DEMO_MODE with PAYMENTS_PROVIDER=SANDBOX and the sandbox switch): the same endpoints answer
+        var demo = new com.examportal.paid.provider.SandboxPaymentProvider(true, "secret-secret-secret", "",
+                new com.examportal.paid.provider.SandboxProductionGuard(true, true, "SANDBOX", true, null, true));
+        assertThat(demo.hidden()).isFalse();
+        var known = mock(com.examportal.paid.order.OrderRepository.class);
+        org.mockito.Mockito.when(known.findByNo(org.mockito.ArgumentMatchers.anyString())).thenReturn(Mono.just(new com.examportal.paid.order.Order(
+                1L, "YK-261023-000001", UUID.randomUUID(), 1_234_567, 7L, 2500, "AZN", com.examportal.paid.order.OrderStatus.PAID, "SANDBOX", "sbx_1",
+                true, null, null, java.time.LocalDateTime.now(), java.time.LocalDateTime.now(), java.time.LocalDateTime.now(), null, null, null)));
+        var demoWeb = org.springframework.test.web.reactive.server.WebTestClient.bindToController(
+                new com.examportal.paid.web.SandboxCheckoutController(demo, known, mock(com.examportal.paid.payment.PaymentWebhookService.class))).build();
+        String page = sample("/api/payments/sandbox/checkout/{orderNo}");
+        demoWeb.get().uri(page + "?sig=" + demo.linkSignature("YK-261023-000001")).exchange().expectStatus().isOk();
     }
 
     @Test

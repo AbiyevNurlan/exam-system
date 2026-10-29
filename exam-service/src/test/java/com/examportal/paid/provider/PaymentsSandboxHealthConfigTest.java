@@ -67,6 +67,20 @@ class PaymentsSandboxHealthConfigTest {
     }
 
     @Test
+    void inProductionTheDemoShowsAsDemoAndTheServiceStaysUp() {
+        runner.withPropertyValues("spring.profiles.active=production", "payments.sandbox.allowed=true", "features.paid-access.enabled=true",
+                        "payments.provider=SANDBOX", "payments.demo-mode=true")
+                .run(context -> {
+                    ReactiveHealthEndpointWebExtension health = context.getBean(ReactiveHealthEndpointWebExtension.class);
+                    assertThat(anonymous(health).getStatus()).isEqualTo(Status.UP);
+                    HealthComponent group = anonymous(health, "payments");
+                    assertThat(group.getStatus().getCode()).isEqualTo("DEMO");
+                    assertThat(component(group).getDetails()).containsEntry("sandbox", "DEMO")
+                            .containsEntry("demo", SandboxProductionGuard.DEMO_MESSAGE);
+                });
+    }
+
+    @Test
     void inProductionWithoutTheSandboxTheGroupIsUp() {
         runner.withPropertyValues("spring.profiles.active=production", "payments.sandbox.allowed=false", "features.paid-access.enabled=false")
                 .run(context -> {
