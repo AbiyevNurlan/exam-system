@@ -94,15 +94,17 @@ public final class PaidDtos {
 
     // ---------- the administrator's orders (item 11) ----------
 
+    /** demo: a DEMO order (provider SANDBOX): no real money, never part of the revenue */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record AdminOrderRow(Long id, String orderNo, int participantCode, java.util.UUID guestId, Long examId, String examTitle,
                                 int amountMinor, String currency, String status, String provider, LocalDateTime createdAt,
-                                LocalDateTime expiresAt, LocalDateTime paidAt, LocalDateTime refundRequestedAt, LocalDateTime refundedAt) {
+                                LocalDateTime expiresAt, LocalDateTime paidAt, LocalDateTime refundRequestedAt, LocalDateTime refundedAt,
+                                boolean demo) {
 
         public static AdminOrderRow of(com.examportal.paid.order.Order order, String examTitle) {
             return new AdminOrderRow(order.id(), order.orderNo(), order.guestCode(), order.guestId(), order.examId(), examTitle,
                     order.amountMinor(), order.currency(), order.status().name(), order.provider(), order.createdAt(), order.expiresAt(),
-                    order.paidAt(), order.refundRequestedAt(), order.refundedAt());
+                    order.paidAt(), order.refundRequestedAt(), order.refundedAt(), com.examportal.paid.order.AdminOrderRepository.demo(order));
         }
     }
 
@@ -126,10 +128,13 @@ public final class PaidDtos {
                                @jakarta.validation.constraints.NotBlank @Size(min = 3, max = 500) String reason, Integer attempts) {
     }
 
-    /** The figures of a paid exam, money in whole minor units */
+    /**
+     * The figures of a paid exam, money in whole minor units. paidCount, revenueMinor, refundedCount and refundedMinor are
+     * real money only; demoPaidCount and demoAmountMinor the DEMO orders paid with the sandbox (no real money)
+     */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record ExamSummary(Long examId, String title, String currency, long paidCount, long revenueMinor, long refundedCount,
                               long refundedMinor, long refundPendingCount, long needsReviewCount, long pendingCount, Integer seatLimit,
-                              int seatsTaken) {
+                              int seatsTaken, long demoPaidCount, long demoAmountMinor) {
     }
 }

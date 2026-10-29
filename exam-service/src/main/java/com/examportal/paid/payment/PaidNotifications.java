@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  * What happens after an order changed, outside its transaction. Never fails the caller: what cannot be sent is logged
  * (the order number only) and the order stays as it is.
  * - item 12: the receipt of a paid order and the notice of a refund, emailed by auth-service in Azerbaijani (order
- *   number, exam, amount, time in Baku, participant code);
+ *   number, exam, amount, time in Baku, participant code; a DEMO order says so in the subject and on top);
  * - item 17: the guest's events (guestEvent, event) into the guest's audit in auth-service.
  */
 @Slf4j
@@ -50,7 +50,8 @@ public class PaidNotifications {
         }
         return exams.find(order.examId()).map(exam -> exam.title()).defaultIfEmpty("")
                 .flatMap(title -> directory.notice(order.guestId(), new GuestDirectory.Notice(kind, order.orderNo(), title,
-                        order.amountMinor(), order.currency(), at != null ? at : LocalDateTime.now())))
+                        order.amountMinor(), order.currency(), at != null ? at : LocalDateTime.now(),
+                        com.examportal.paid.order.AdminOrderRepository.demo(order))))
                 .onErrorResume(error -> {
                     log.warn("{} notice of order {} not sent: {}", kind, order.orderNo(), error.getClass().getSimpleName());
                     return Mono.empty();

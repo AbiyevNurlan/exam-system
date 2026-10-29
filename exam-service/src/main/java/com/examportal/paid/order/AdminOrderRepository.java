@@ -26,8 +26,20 @@ public class AdminOrderRepository {
 
     private final DatabaseClient databaseClient;
 
-    /** status, examId, created from (inclusive) and to (exclusive), the guest's 7-digit code, the order number */
-    public record Filter(String status, Long examId, LocalDateTime from, LocalDateTime to, Integer guestCode, String orderNo) {
+    /**
+     * status, examId, created from (inclusive) and to (exclusive), the guest's 7-digit code, the order number; demo: true
+     * only DEMO orders (provider SANDBOX), false only real ones, null both
+     */
+    public record Filter(String status, Long examId, LocalDateTime from, LocalDateTime to, Integer guestCode, String orderNo, Boolean demo) {
+
+        public Filter(String status, Long examId, LocalDateTime from, LocalDateTime to, Integer guestCode, String orderNo) {
+            this(status, examId, from, to, guestCode, orderNo, null);
+        }
+    }
+
+    /** A DEMO order: paid with the sandbox, no real money (PAYMENTS_DEMO_MODE, docs\DEMO_PAYMENTS.md) */
+    public static boolean demo(Order order) {
+        return com.examportal.paid.provider.SandboxPaymentProvider.NAME.equals(order.provider());
     }
 
     public record Row(Order order, String examTitle) {
@@ -84,6 +96,9 @@ public class AdminOrderRepository {
             params.put("orderNo", filter.orderNo().trim().toUpperCase(Locale.ROOT));
             where.append(" AND o.order_no = :orderNo");
         }
+        if (filter.demo() != null) {
+            where.append(filter.demo() ? " AND o.provider = 'SANDBOX'" : " AND o.provider <> 'SANDBOX'");
+        }
         return where.toString();
     }
 
@@ -121,26 +136,33 @@ public class AdminOrderRepository {
         return spec;
     }
 
-    /** The figures of one paid exam, in one statement */
+    /**
+     * The figures of one paid exam, in one statement. Money is real money only: paid and refunded count orders that are
+     * not DEMO (provider SANDBOX); the DEMO orders that were paid have their own figures. Pending, needs review and refund
+     * pending count every order (work to do).
+     */
     public record Summary(long paidCount, long revenueMinor, long refundedCount, long refundedMinor, long refundPendingCount,
-                          long needsReviewCount, long pendingCount) {
+                          long needsReviewCount, long pendingCount, long demoPaidCount, long demoAmountMinor) {
     }
 
     public Mono<Summary> summary(Long examId) {
         return databaseClient.sql("""
-                        SELECT count(*) FILTER (WHERE status = 'PAID') AS paid_count,
-                               coalesce(sum(amount_minor) FILTER (WHERE status = 'PAID'), 0) AS revenue,
-                               count(*) FILTER (WHERE status = 'REFUNDED') AS refunded_count,
-                               coalesce(sum(amount_minor) FILTER (WHERE status = 'REFUNDED'), 0) AS refunded,
+                        SELECT count(*) FILTER (WHERE status = 'PAID' AND provider <> 'SANDBOX') AS paid_count,
+                               coalesce(sum(amount_minor) FILTER (WHERE status = 'PAID' AND provider <> 'SANDBOX'), 0) AS revenue,
+                               count(*) FILTER (WHERE status = 'REFUNDED' AND provider <> 'SANDBOX') AS refunded_count,
+                               coalesce(sum(amount_minor) FILTER (WHERE status = 'REFUNDED' AND provider <> 'SANDBOX'), 0) AS refunded,
                                count(*) FILTER (WHERE status = 'REFUND_PENDING') AS refund_pending,
                                count(*) FILTER (WHERE status = 'NEEDS_REVIEW') AS needs_review,
-                               count(*) FILTER (WHERE status = 'PENDING') AS pending
+                               count(*) FILTER (WHERE status = 'PENDING') AS pending,
+                               count(*) FILTER (WHERE status = 'PAID' AND provider = 'SANDBOX') AS demo_paid_count,
+                               coalesce(sum(amount_minor) FILTER (WHERE status = 'PAID' AND provider = 'SANDBOX'), 0) AS demo_amount
                         FROM orders WHERE exam_id = :exam
                         """)
                 .bind("exam", examId)
                 .map(row -> new Summary(row.get("paid_count", Long.class), ((Number) row.get("revenue")).longValue(),
                         row.get("refunded_count", Long.class), ((Number) row.get("refunded")).longValue(),
-                        row.get("refund_pending", Long.class), row.get("needs_review", Long.class), row.get("pending", Long.class)))
+                        row.get("refund_pending", Long.class), row.get("needs_review", Long.class), row.get("pending", Long.class),
+                        row.get("demo_paid_count", Long.class), ((Number) row.get("demo_amount")).longValue()))
                 .one();
     }
 }

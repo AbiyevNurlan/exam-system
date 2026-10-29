@@ -16,7 +16,8 @@ import java.time.format.DateTimeFormatter;
 /**
  * B13b item 12: the guest's receipt (an order is paid) and the refund notice, in Azerbaijani, through the same
  * EmailSender as every email of the system. The send is detached from the caller and tried 3 times (1 s, 3 s apart);
- * a failure is logged with the masked address only. No links, nothing loaded from outside. Times in Baku.
+ * a failure is logged with the masked address only. No links, nothing loaded from outside. Times in Baku. A DEMO order
+ * (paid with the sandbox, PAYMENTS_DEMO_MODE) says "DEMO — real ödəniş alınmayıb" in the subject and on top.
  */
 @Slf4j
 @Component
@@ -27,8 +28,18 @@ public class GuestNoticeMailer {
 
     public enum Kind { RECEIPT, REFUND }
 
-    /** What a notice says; the amount in whole minor units, the time in UTC */
-    public record Notice(Kind kind, String orderNo, String examTitle, int amountMinor, String currency, LocalDateTime at) {
+    public static final String DEMO_HEADER = "DEMO — real ödəniş alınmayıb";
+
+    /** What a notice says; the amount in whole minor units, the time in UTC; demo: a DEMO order (no real money) */
+    public record Notice(Kind kind, String orderNo, String examTitle, int amountMinor, String currency, LocalDateTime at, Boolean demo) {
+
+        public Notice(Kind kind, String orderNo, String examTitle, int amountMinor, String currency, LocalDateTime at) {
+            this(kind, orderNo, examTitle, amountMinor, currency, at, false);
+        }
+
+        public boolean isDemo() {
+            return Boolean.TRUE.equals(demo);
+        }
     }
 
     private final EmailSender emailSender;
@@ -39,7 +50,8 @@ public class GuestNoticeMailer {
 
     public void send(Guest guest, Notice notice) {
         String masked = LogMaskUtils.maskEmail(guest.email());
-        String subject = notice.kind() == Kind.RECEIPT ? "Ödəniş qəbzi: " + notice.orderNo() : "Geri qaytarma: " + notice.orderNo();
+        String subject = (notice.isDemo() ? DEMO_HEADER + " · " : "")
+                + (notice.kind() == Kind.RECEIPT ? "Ödəniş qəbzi: " + notice.orderNo() : "Geri qaytarma: " + notice.orderNo());
         attempt(guest.email(), subject, text(guest, notice), html(guest, notice), 1)
                 .subscribe(unused -> { }, error -> log.warn("{} email to {} was not sent", notice.kind(), masked),
                         () -> log.info("{} email to {} sent", notice.kind(), masked));
@@ -62,7 +74,8 @@ public class GuestNoticeMailer {
 
     static String text(Guest guest, Notice notice) {
         String intro = notice.kind() == Kind.RECEIPT ? "Ödənişiniz qəbul olundu. Qəbz:" : "Ödənişiniz geri qaytarıldı:";
-        return "Salam, " + guest.firstName() + "!\n\n" + intro + "\n\n"
+        String demo = notice.isDemo() ? DEMO_HEADER + "\nBu sınaq ödənişidir: kartınızdan pul tutulmayıb.\n\n" : "";
+        return demo + "Salam, " + guest.firstName() + "!\n\n" + intro + "\n\n"
                 + "Sifariş nömrəsi: " + notice.orderNo() + "\n"
                 + "İmtahan: " + notice.examTitle() + "\n"
                 + "Məbləğ: " + money(notice.amountMinor(), notice.currency()) + "\n"

@@ -42,8 +42,13 @@ public class GuestDirectory {
         return call("/internal/guests/by-code/" + participantCode);
     }
 
-    /** What a notice email says (item 12); amount in whole minor units, time in UTC */
-    public record Notice(String kind, String orderNo, String examTitle, int amountMinor, String currency, java.time.LocalDateTime at) {
+    /** What a notice email says (item 12); amount in whole minor units, time in UTC; demo: a DEMO order, no real money */
+    public record Notice(String kind, String orderNo, String examTitle, int amountMinor, String currency, java.time.LocalDateTime at,
+                         boolean demo) {
+
+        public Notice(String kind, String orderNo, String examTitle, int amountMinor, String currency, java.time.LocalDateTime at) {
+            this(kind, orderNo, examTitle, amountMinor, currency, at, false);
+        }
     }
 
     /** Asks auth-service to email the guest a receipt or a refund notice */

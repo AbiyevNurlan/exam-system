@@ -83,7 +83,7 @@ class PaidCatalogTest {
             names.add(String.valueOf(it.next()));
         }
         assertThat(names).isSubsetOf("id", "title", "description", "startTime", "endTime", "durationMinutes", "priceMinor",
-                "currency", "seatsLeft", "salesCloseAt");
+                "currency", "seatsLeft", "salesCloseAt", "paymentsDemo");
         assertThat(names).doesNotContain("questions", "createdBy", "accessType", "groupIds", "status", "seatsTaken");
     }
 }

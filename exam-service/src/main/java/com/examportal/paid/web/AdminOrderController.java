@@ -43,24 +43,25 @@ public class AdminOrderController {
     private final AdminOrderService admin;
 
     private static AdminOrderRepository.Filter filter(String status, Long examId, LocalDateTime from, LocalDateTime to, Integer code,
-                                                      String orderNo) {
-        return new AdminOrderRepository.Filter(status, examId, from, to, code, orderNo);
+                                                      String orderNo, Boolean demo) {
+        return new AdminOrderRepository.Filter(status, examId, from, to, code, orderNo, demo);
     }
 
     @GetMapping
-    @Operation(summary = "Orders, filtered and sorted", description = "status, examId, from/to (created, UTC), code (7 digits), orderNo; "
-            + "sortBy createdAt, paidAt, amount, status, orderNo, code; dir asc/desc; pages of at most 100")
+    @Operation(summary = "Orders, filtered and sorted", description = "status, examId, from/to (created, UTC), code (7 digits), orderNo, "
+            + "demo (true: only DEMO orders, false: only real ones); sortBy createdAt, paidAt, amount, status, orderNo, code; dir asc/desc; pages of at most 100")
     public Mono<ApiResponse<PaidDtos.AdminOrderPage>> list(@RequestParam(required = false) String status,
                                                            @RequestParam(required = false) Long examId,
                                                            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
                                                            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
                                                            @RequestParam(required = false) Integer code,
                                                            @RequestParam(required = false) String orderNo,
+                                                           @RequestParam(required = false) Boolean demo,
                                                            @RequestParam(required = false) String sortBy,
                                                            @RequestParam(required = false) String dir,
                                                            @RequestParam(defaultValue = "0") int page,
                                                            @RequestParam(defaultValue = "20") int size) {
-        return admin.page(filter(status, examId, from, to, code, orderNo), sortBy, dir, page, size).map(ApiResponse::success);
+        return admin.page(filter(status, examId, from, to, code, orderNo, demo), sortBy, dir, page, size).map(ApiResponse::success);
     }
 
     @GetMapping("/export")
@@ -72,10 +73,11 @@ public class AdminOrderController {
                                                          @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
                                                          @RequestParam(required = false) Integer code,
                                                          @RequestParam(required = false) String orderNo,
+                                                         @RequestParam(required = false) Boolean demo,
                                                          @RequestParam(required = false) String sortBy,
                                                          @RequestParam(required = false) String dir,
                                                          @AuthenticationPrincipal UserPrincipal principal) {
-        return admin.csv(filter(status, examId, from, to, code, orderNo), sortBy, dir, principal.getId())
+        return admin.csv(filter(status, examId, from, to, code, orderNo, demo), sortBy, dir, principal.getId())
                 .map(body -> ResponseEntity.ok()
                         .contentType(new MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8))
                         .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"sifarisler-" + LocalDate.now() + ".csv\"")
