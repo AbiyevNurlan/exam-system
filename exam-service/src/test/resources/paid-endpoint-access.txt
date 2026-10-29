@@ -8,8 +8,10 @@
 #   ADMIN_ONLY  an ADMIN account token only (never a guest)
 #
 # A fourth column DEV_ONLY: the endpoint does not exist under the production profile (404 even with a valid link, also
-# for the sandbox's own notifications at /api/payments/webhook/sandbox) unless PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION=
-# I-UNDERSTAND (SandboxProductionGuard). PaidEndpointRegistryTest checks that exactly the sandbox's endpoints carry it.
+# for the sandbox's own notifications at /api/payments/webhook/sandbox) unless the payment DEMO is on (PAYMENTS_DEMO_MODE=true
+# with PAYMENTS_PROVIDER=SANDBOX and PAYMENTS_SANDBOX_ALLOWED=true) or the older PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION=
+# I-UNDERSTAND (SandboxProductionGuard). PaidEndpointRegistryTest checks that exactly the sandbox's endpoints carry it,
+# that they answer 404 in production and that they answer in the DEMO.
 #
 # Method, path, class
 
