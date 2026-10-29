@@ -7,13 +7,17 @@
 #   GUEST_ONLY  a guest token only; no account token of any role
 #   ADMIN_ONLY  an ADMIN account token only (never a guest)
 #
+# A fourth column DEV_ONLY: the endpoint does not exist under the production profile (404 even with a valid link, also
+# for the sandbox's own notifications at /api/payments/webhook/sandbox) unless PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION=
+# I-UNDERSTAND (SandboxProductionGuard). PaidEndpointRegistryTest checks that exactly the sandbox's endpoints carry it.
+#
 # Method, path, class
 
 GET    /api/public/paid-exams                                PUBLIC
 GET    /api/public/paid-exams/{id}                           PUBLIC
 POST   /api/payments/webhook/{provider}                      PUBLIC
-GET    /api/payments/sandbox/checkout/{orderNo}              PUBLIC
-POST   /api/payments/sandbox/checkout/{orderNo}/complete     PUBLIC
+GET    /api/payments/sandbox/checkout/{orderNo}              PUBLIC      DEV_ONLY
+POST   /api/payments/sandbox/checkout/{orderNo}/complete     PUBLIC      DEV_ONLY
 
 POST   /api/guest/orders                                     GUEST_ONLY
 GET    /api/guest/orders                                     GUEST_ONLY

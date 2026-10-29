@@ -197,9 +197,11 @@ class PaidEndpointRegistryTest {
         return callers;
     }
 
-    @Test
-    void everyPaidEndpointLetsThroughExactlyItsCallers() throws Exception {
-        Map<String, Access> registry = new TreeMap<>();
+    static final String DEV_ONLY = "DEV_ONLY";
+
+    /** The lines of paid-endpoint-access.txt: endpoint, its class, and whether it is DEV_ONLY (4th column) */
+    static Map<String, String[]> lines() throws Exception {
+        Map<String, String[]> lines = new TreeMap<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(Objects.requireNonNull(
                 PaidEndpointRegistryTest.class.getResourceAsStream("/paid-endpoint-access.txt")), StandardCharsets.UTF_8))) {
             for (String line : reader.lines().toList()) {
@@ -208,10 +210,20 @@ class PaidEndpointRegistryTest {
                     continue;
                 }
                 String[] parts = text.split("\\s+");
-                assertThat(parts).as(text).hasSize(3);
-                assertThat(registry.put(parts[0] + " " + parts[1], Access.valueOf(parts[2]))).as("listed twice: " + text).isNull();
+                assertThat(parts.length).as(text).isBetween(3, 4);
+                if (parts.length == 4) {
+                    assertThat(parts[3]).as(text).isEqualTo(DEV_ONLY);
+                }
+                assertThat(lines.put(parts[0] + " " + parts[1], parts)).as("listed twice: " + text).isNull();
             }
         }
+        return lines;
+    }
+
+    @Test
+    void everyPaidEndpointLetsThroughExactlyItsCallers() throws Exception {
+        Map<String, Access> registry = new TreeMap<>();
+        lines().forEach((key, parts) -> registry.put(key, Access.valueOf(parts[2])));
         assertThat(registry.keySet()).as("paid endpoints and lines of paid-endpoint-access.txt").isEqualTo(paid.keySet());
 
         List<String> wrong = new ArrayList<>();
@@ -231,6 +243,44 @@ class PaidEndpointRegistryTest {
             }
         });
         assertThat(wrong).isEmpty();
+    }
+
+    /**
+     * Production: exactly the sandbox's own endpoints are DEV_ONLY, and each answers 404 under the production profile even
+     * with a valid signed link, as does the sandbox's notification; the security chains above are the same in every
+     * profile (the guard is behind them, in the sandbox provider)
+     */
+    @Test
+    void inProductionTheDevOnlyEndpointsDoNotExist() throws Exception {
+        Set<String> devOnly = new java.util.TreeSet<>();
+        lines().forEach((key, parts) -> {
+            if (parts.length == 4) {
+                devOnly.add(key);
+            }
+        });
+        Set<String> sandboxEndpoints = new java.util.TreeSet<>();
+        paid.forEach((key, method) -> {
+            if (method.getDeclaringClass() == com.examportal.paid.web.SandboxCheckoutController.class) {
+                sandboxEndpoints.add(key);
+            }
+        });
+        assertThat(devOnly).as("DEV_ONLY lines and the endpoints of SandboxCheckoutController").isEqualTo(sandboxEndpoints).isNotEmpty();
+
+        var guard = new com.examportal.paid.provider.SandboxProductionGuard(true, true, "SANDBOX", true, "");
+        var sandbox = new com.examportal.paid.provider.SandboxPaymentProvider(true, "secret-secret-secret", "", guard);
+        var orders = mock(com.examportal.paid.order.OrderRepository.class);
+        org.mockito.Mockito.when(orders.findByNo(org.mockito.ArgumentMatchers.anyString())).thenReturn(Mono.empty());
+        var web = org.springframework.test.web.reactive.server.WebTestClient.bindToController(
+                new com.examportal.paid.web.SandboxCheckoutController(sandbox, orders,
+                        mock(com.examportal.paid.payment.PaymentWebhookService.class))).build();
+        for (String key : devOnly) {
+            String path = sample(key.substring(key.indexOf(' ') + 1));
+            String uri = path + "?sig=" + sandbox.linkSignature(path.replaceAll("^/api/payments/sandbox/checkout/([^/]+).*$", "$1"));
+            web.method(HttpMethod.valueOf(key.substring(0, key.indexOf(' ')))).uri(uri).exchange().expectStatus().isNotFound();
+        }
+        // The sandbox's notification: 404 before any signature check or event row
+        assertThat(sandbox.hidden()).isTrue();
+        assertThat(sample("/api/payments/webhook/{provider}")).isEqualTo("/api/payments/webhook/sandbox");
     }
 
     @Test
