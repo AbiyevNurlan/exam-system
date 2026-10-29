@@ -65,7 +65,8 @@ public class PaymentWebhookService {
 
     public Mono<Result> handle(String providerName, byte[] body, HttpHeaders headers) {
         PaymentProvider provider = providers.byName(providerName).orElse(null);
-        if (provider == null) {
+        // A provider hidden here (the sandbox in production) is unknown: 404, and no event is written
+        if (provider == null || provider.hidden()) {
             return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
         }
         PaymentProvider.Verification verification = provider.verifyWebhook(body, headers);

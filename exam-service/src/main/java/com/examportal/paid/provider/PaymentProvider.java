@@ -21,6 +21,11 @@ public interface PaymentProvider {
     /** Whether this provider may be used now (the sandbox only with PAYMENTS_SANDBOX_ALLOWED) */
     boolean available();
 
+    /** Whether this provider does not exist on this system at all: its notifications answer 404 (the sandbox in production) */
+    default boolean hidden() {
+        return false;
+    }
+
     /** Where the guest pays, and the provider's own reference of the payment */
     Mono<Checkout> createCheckout(Order order);
 
