@@ -57,10 +57,11 @@ public final class PaidDtos {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record CatalogExam(Long id, String title, String description, LocalDateTime startTime, LocalDateTime endTime,
                               Integer durationMinutes, int priceMinor, String currency, Integer seatsLeft,
-                              LocalDateTime salesCloseAt) {
+                              LocalDateTime salesCloseAt, boolean paymentsDemo) {
     }
 
-    public record CatalogPage(java.util.List<CatalogExam> content, long totalElements, int page, int size) {
+    /** paymentsDemo: payments are a DEMO (the sandbox, no real money is charged): the site shows its banner */
+    public record CatalogPage(java.util.List<CatalogExam> content, long totalElements, int page, int size, boolean paymentsDemo) {
     }
 
     /** POST /api/guest/orders */

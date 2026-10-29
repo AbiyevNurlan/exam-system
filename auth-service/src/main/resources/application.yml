@@ -126,6 +126,15 @@ participant-profile:
 features:
   paid-access:
     enabled: ${PAID_ACCESS_ENABLED:false}
+
+# The payment settings of exam-service, read here only to tell the site whether payments are a DEMO
+# (GET /api/guest/feature, paymentsDemo; PaymentsMode of common)
+payments:
+  provider: ${PAYMENTS_PROVIDER:SANDBOX}
+  demo-mode: ${PAYMENTS_DEMO_MODE:false}
+  sandbox:
+    allowed: ${PAYMENTS_SANDBOX_ALLOWED:false}
+    allow-in-production: ${PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION:}
 guest:
   access-token-minutes: 30     # a guest access token (role GUEST, its own signing key)
   refresh-token-days: 7        # a guest sign-in ends this long after the code, however often it is refreshed

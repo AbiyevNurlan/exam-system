@@ -85,7 +85,8 @@ public final class GuestDtos {
         }
     }
 
-    public record FeatureResponse(boolean paidAccessEnabled) {
+    /** paymentsDemo: payments are a DEMO (the sandbox, no real money is charged): the site shows its banner */
+    public record FeatureResponse(boolean paidAccessEnabled, boolean paymentsDemo) {
     }
 
     // ---------- the admin's list of guests (item 5) ----------

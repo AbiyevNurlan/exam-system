@@ -124,6 +124,11 @@ services:
       EXAM_DAY_ZONE: ${EXAM_DAY_ZONE:-Asia/Baku}
       # B13a: guest participants of paid open exams; off by default (the guest endpoints answer 404 FEATURE_DISABLED)
       PAID_ACCESS_ENABLED: ${PAID_ACCESS_ENABLED:-false}
+      # The payment settings of exam-service, only to tell the site whether payments are a DEMO (GET /api/guest/feature)
+      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-SANDBOX}
+      PAYMENTS_SANDBOX_ALLOWED: ${PAYMENTS_SANDBOX_ALLOWED:-false}
+      PAYMENTS_DEMO_MODE: ${PAYMENTS_DEMO_MODE:-false}
+      PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION: ${PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION:-}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: exam_auth

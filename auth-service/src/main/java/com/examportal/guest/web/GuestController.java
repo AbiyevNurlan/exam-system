@@ -31,9 +31,10 @@ public class GuestController {
     private final GuestFeature feature;
 
     @GetMapping("/feature")
-    @Operation(summary = "Whether the guest sign-in of paid open exams is on")
+    @Operation(summary = "Whether the guest sign-in of paid open exams is on",
+            description = "paymentsDemo: payments are a DEMO (no real money is charged)")
     public Mono<ResponseEntity<ApiResponse<GuestDtos.FeatureResponse>>> feature() {
-        return Mono.just(ResponseEntity.ok(ApiResponse.success(new GuestDtos.FeatureResponse(feature.isEnabled()))));
+        return Mono.just(ResponseEntity.ok(ApiResponse.success(new GuestDtos.FeatureResponse(feature.isEnabled(), feature.paymentsDemo()))));
     }
 
     @GetMapping("/me")
