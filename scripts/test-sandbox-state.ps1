@@ -9,6 +9,10 @@
        refuses (exit 1, "NOT STARTED: the payment sandbox ...") and never prints a value; with -AllowSandbox, or with the
        sandbox off, it passes the sandbox step and stops at the next preflight step (the temporary folder is no git
        repository), before any docker command.
+    3. Get-PaymentsState (the "Payments:" line of status) for OFF, SANDBOX-BLOCKED, EXTERNAL, DEMO and incomplete demos;
+       "start" in a complete DEMO goes on with the yellow warning, also with the exact arguments watch-public.ps1 restarts
+       the site with (read from watch-public.ps1), so the site comes back in DEMO too; an incomplete DEMO and the older
+       override still refuse.
     Exit code 0 when every check passes, 1 otherwise.
 
 .EXAMPLE
@@ -31,8 +35,9 @@ function Write-Env([string]$path, [string[]]$lines) {
 
 # Variables of this process would win over the fake files
 $names = 'PAYMENTS_SANDBOX_ALLOWED', 'PAYMENTS_SANDBOX_ALLOWED_PUBLIC', 'PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION'
+$cleared = $names + @('PAID_ACCESS_ENABLED', 'PAYMENTS_DEMO_MODE', 'PAYMENTS_PROVIDER')
 $saved = @{}
-foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process'); [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
+foreach ($name in $cleared) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process'); [Environment]::SetEnvironmentVariable($name, $null, 'Process') }
 
 try {
     $env1 = Join-Path $root 'state.env'
@@ -93,8 +98,55 @@ try {
     $run = Start-Copy @()
     Check 'start with the sandbox off: no warning' (-not ($run.text -match 'SANDBOX:'))
     Check 'start with the sandbox off: goes on to the next preflight step' ($run.text -match 'NOT STARTED: \.env is not ignored by git')
+
+    # Get-PaymentsState: the line "Payments:" of status and the DEMO decision
+    $modes = @(
+        @{ what = 'paid off'; lines = @('PAID_ACCESS_ENABLED=false', 'PAYMENTS_PROVIDER=SANDBOX'); mode = 'OFF'; requested = $false; complete = $false },
+        @{ what = 'paid on, sandbox provider, no demo'; lines = @('PAID_ACCESS_ENABLED=true', 'PAYMENTS_PROVIDER=SANDBOX'); mode = 'SANDBOX-BLOCKED'; requested = $false; complete = $false },
+        @{ what = 'paid on, provider unset (SANDBOX by default)'; lines = @('PAID_ACCESS_ENABLED=true'); mode = 'SANDBOX-BLOCKED'; requested = $false; complete = $false },
+        @{ what = 'paid on, external provider'; lines = @('PAID_ACCESS_ENABLED=true', 'PAYMENTS_PROVIDER=external'); mode = 'EXTERNAL'; requested = $false; complete = $false },
+        @{ what = 'complete demo'; lines = @('PAID_ACCESS_ENABLED=true', 'PAYMENTS_DEMO_MODE=true', 'PAYMENTS_PROVIDER=SANDBOX', 'PAYMENTS_SANDBOX_ALLOWED_PUBLIC=true'); mode = 'DEMO'; requested = $true; complete = $true },
+        @{ what = 'demo without the public sandbox switch'; lines = @('PAID_ACCESS_ENABLED=true', 'PAYMENTS_DEMO_MODE=true', 'PAYMENTS_SANDBOX_ALLOWED=true'); mode = 'SANDBOX-BLOCKED'; requested = $true; complete = $false; missing = 'PAYMENTS_SANDBOX_ALLOWED_PUBLIC=true' },
+        @{ what = 'demo with another provider'; lines = @('PAID_ACCESS_ENABLED=true', 'PAYMENTS_DEMO_MODE=true', 'PAYMENTS_PROVIDER=EXTERNAL', 'PAYMENTS_SANDBOX_ALLOWED_PUBLIC=true'); mode = 'EXTERNAL'; requested = $true; complete = $false; missing = 'PAYMENTS_PROVIDER=SANDBOX' }
+    )
+    foreach ($case in $modes) {
+        Write-Env $env1 $case.lines
+        $state = Get-PaymentsState $env1
+        $ok = $state.Mode -eq $case.mode -and $state.DemoRequested -eq $case.requested -and $state.DemoComplete -eq $case.complete
+        if ($case.missing) { $ok = $ok -and ($state.Missing -join ',') -eq $case.missing }
+        Check "Get-PaymentsState: $($case.what) -> $($state.Mode), demo requested $($state.DemoRequested), complete $($state.DemoComplete)" $ok
+    }
+
+    # A complete DEMO: start goes on with the yellow warning, also with the arguments watch-public.ps1 restarts with
+    $demoEnv = @('PAID_ACCESS_ENABLED=true', 'PAYMENTS_DEMO_MODE=true', 'PAYMENTS_PROVIDER=SANDBOX', 'PAYMENTS_SANDBOX_ALLOWED=true',
+        'PAYMENTS_SANDBOX_ALLOWED_PUBLIC=true')
+    Write-Env (Join-Path $fake '.env') $demoEnv
+    $run = Start-Copy @()
+    Check 'start in DEMO: the yellow DEMO warning' ($run.text -match 'DEMO odenis rejimi aciqdir: real pul tutulmur')
+    Check 'start in DEMO: no red sandbox refusal' (-not ($run.text -match 'SANDBOX: sandbox canlida|NOT STARTED: the payment sandbox'))
+    Check 'start in DEMO: goes on to the next preflight step' ($run.text -match 'NOT STARTED: \.env is not ignored by git')
+
+    $watch = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'watch-public.ps1')
+    $watchCall = [regex]::Match($watch, '-File \$goPublic (start[^\r\n]*?) 2>&1')
+    Check 'watch-public.ps1 restarts with go-public.ps1 start (found the call)' $watchCall.Success
+    $watchArgs = @($watchCall.Groups[1].Value -split '\s+' | Select-Object -Skip 1)
+    Check "watch-public.ps1 restarts without -AllowSandbox ($($watchArgs -join ' '))" (-not ($watchArgs -contains '-AllowSandbox'))
+    $run = Start-Copy $watchArgs
+    Check 'watch-public restart in DEMO: passes the sandbox step' ($run.text -match 'DEMO odenis rejimi aciqdir' -and $run.text -match 'NOT STARTED: \.env is not ignored by git')
+
+    Write-Env (Join-Path $fake '.env') @('PAID_ACCESS_ENABLED=true', 'PAYMENTS_SANDBOX_ALLOWED=true')
+    $run = Start-Copy $watchArgs
+    Check 'watch-public restart with the sandbox on but no DEMO: refuses as before' ($run.text -match 'NOT STARTED: the payment sandbox is on')
+
+    Write-Env (Join-Path $fake '.env') @('PAID_ACCESS_ENABLED=true', 'PAYMENTS_DEMO_MODE=true', 'PAYMENTS_SANDBOX_ALLOWED=true')
+    $run = Start-Copy @()
+    Check 'start with an incomplete DEMO: refuses and names what is missing' ($run.text -match 'NOT STARTED: PAYMENTS_DEMO_MODE=true also needs PAYMENTS_SANDBOX_ALLOWED_PUBLIC=true')
+
+    Write-Env (Join-Path $fake '.env') ($demoEnv + "PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION=$secretValue")
+    $run = Start-Copy @()
+    Check 'start in DEMO with the older override too: still refuses for the override' ($run.text -match 'NOT STARTED: the payment sandbox is on' -and $run.text -match 'PAYMENTS_SANDBOX_ALLOW_IN_PRODUCTION' -and -not ($run.text -match [regex]::Escape($secretValue)))
 } finally {
-    foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
+    foreach ($name in $cleared) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
 
